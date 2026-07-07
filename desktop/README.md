@@ -40,7 +40,8 @@ npm start
 In dev mode the shell finds a Python interpreter automatically, preferring, in
 order: `SIRIUS_PYTHON` → a repo virtualenv (`../venv` or `../.venv`) →
 `python3`/`python` on `PATH`. It runs the backend from the repo root
-(`desktop/..`), so `app.py`, `src/`, and `data/` are used in place.
+(`desktop/..`), so `app.py`, `src/`, `scripts/`, and `data/` are used in
+place.
 
 Useful environment variables:
 
@@ -71,10 +72,15 @@ npm run dist
 - **Windows** → NSIS installer, x64, desktop + start-menu shortcuts, user can
   choose the install directory.
 - **macOS** → DMG for both `arm64` and `x64`.
-- The backend source (`app.py`, `src/`, `data/`, `requirements.txt`) is copied
-  into the package under `resources/backend/` via `extraResources`.
+- The backend source (`app.py`, `src/`, `scripts/`, `data/`, `requirements.txt`)
+  is copied into the package under `resources/backend/` via `extraResources`.
+- At runtime, packaged apps use a writable workspace under Electron's
+  `app.getPath("userData")` (`.../backend/`) for uploads, processed files,
+  generated specs, caches, sessions, and other mutable `data/*` paths. Bundled
+  `data/` files are copied there only when missing, while `scripts/` are
+  refreshed on each launch.
 
-App icons are generated from `build/icon.svg` — see `build/README.md`.
+App icons can be generated from `build/icon.svg` — see `build/README.md`.
 
 > ⚠️ **The default build bundles backend _source_, not a runnable backend.** It
 > does not include a Python interpreter or the installed dependencies, so an app
@@ -97,6 +103,7 @@ the shell at it:
 ```bash
 # from the repo root, in your configured Python env
 pyinstaller --onefile --name sirius-backend \
+  --add-data "scripts:scripts" \
   --collect-all src \
   --add-data "src/web/static:src/web/static" \
   app.py
@@ -111,7 +118,10 @@ Then ship the binary one of two ways:
 - **Point at it explicitly.** Set `SIRIUS_BACKEND_BIN` to the binary's path.
 
 The shell always prefers a backend binary over the Python fallback, so a
-bundled binary makes the app self-contained on a clean machine.
+bundled binary makes the app self-contained on a clean machine. The backend
+entrypoint also dispatches `sirius-backend scripts/<tool>.py ...`, so existing
+upload/preprocess flows keep working when the frozen executable is used as
+`sys.executable`.
 
 ## Files
 

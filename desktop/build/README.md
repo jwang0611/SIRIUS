@@ -1,13 +1,14 @@
 # App icons
 
-`icon.svg` is the master SIRIUS mark. `electron-builder` needs raster icons next
-to it before packaging:
+`icon.svg` is the master SIRIUS mark. `electron-builder` can use raster icons
+next to it when they are available:
 
 - **Windows** — `icon.ico` (multi-size, include 256×256)
 - **macOS** — `icon.icns`
 - **Linux** (optional) — `icon.png` (512×512)
 
-Generate them from `icon.svg` once, then commit the results:
+Generate them from `icon.svg` once, then commit the results and add matching
+`icon` fields to `desktop/package.json` if branded installers are required:
 
 ```bash
 # needs: librsvg (rsvg-convert), imagemagick, and (for icns) iconutil/png2icns
@@ -29,5 +30,6 @@ iconutil -c icns icon.iconset -o icon.icns
 #    On Linux: png2icns icon.icns icon-1024.png
 ```
 
-If these files are absent, `electron-builder` still builds using Electron's
-default icon (with a warning) — the app is fully functional, just unbranded.
+If these files are absent, the current `desktop/package.json` leaves icon paths
+unset so `electron-builder` uses Electron's default icon. The app is fully
+functional, just unbranded.

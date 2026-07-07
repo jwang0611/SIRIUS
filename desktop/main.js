@@ -30,14 +30,24 @@ let lastBackendErr = ""; // tail of stderr, surfaced when the backend dies early
 
 // ---- helpers ---------------------------------------------------------------
 
-// Resolve the directory that holds app.py + src + data.
-function backendRoot() {
+// Resolve the read-only directory that holds app.py + src + bundled seed data.
+function backendSourceRoot() {
   if (isPackaged) {
     // extraResources are copied under <resources>/backend
     return path.join(process.resourcesPath, "backend");
   }
   // dev: repo root is the parent of desktop/
   return path.join(__dirname, "..");
+}
+
+// Resolve the working directory used by the backend process. In packaged apps,
+// this must be writable because the web backend stores uploads, sessions,
+// caches, and generated outputs under relative data/* paths.
+function backendRuntimeRoot() {
+  if (isPackaged) {
+    return path.join(app.getPath("userData"), "backend");
+  }
+  return backendSourceRoot();
 }
 
 function firstExisting(candidates) {
@@ -48,6 +58,37 @@ function firstExisting(candidates) {
       return false;
     }
   });
+}
+
+function copyMissingRecursive(src, dest) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyMissingRecursive(srcPath, destPath);
+    } else if (!fs.existsSync(destPath)) {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+function prepareBackendRuntime(sourceRoot, runtimeRoot) {
+  if (!isPackaged) return;
+  fs.mkdirSync(runtimeRoot, { recursive: true });
+
+  // Seed mutable data only when files are absent, so user uploads and generated
+  // outputs survive app updates.
+  copyMissingRecursive(path.join(sourceRoot, "data"), path.join(runtimeRoot, "data"));
+
+  // Helper scripts are executable code, not user data. Refresh them on every
+  // launch so installed app updates pick up script fixes.
+  const scriptsSrc = path.join(sourceRoot, "scripts");
+  const scriptsDest = path.join(runtimeRoot, "scripts");
+  if (fs.existsSync(scriptsSrc)) {
+    fs.cpSync(scriptsSrc, scriptsDest, { recursive: true, force: true });
+  }
 }
 
 // Locate a Python interpreter for the fallback (non-bundled) mode.
@@ -102,25 +143,25 @@ function waitForServer(port, timeoutMs = 60000) {
 // in a packaged app, a conventional name under resources/backend/. This lets a
 // PyInstaller binary bundled via extraResources be picked up automatically —
 // so a Finder/Start-Menu launch does not silently depend on a system Python.
-function resolveBackendBinary(root) {
+function resolveBackendBinary(sourceRoot) {
   if (process.env.SIRIUS_BACKEND_BIN && fs.existsSync(process.env.SIRIUS_BACKEND_BIN)) {
     return process.env.SIRIUS_BACKEND_BIN;
   }
   const exe = process.platform === "win32" ? "sirius-backend.exe" : "sirius-backend";
-  return firstExisting([path.join(root, exe), path.join(root, "backend", exe)]);
+  return firstExisting([path.join(sourceRoot, exe), path.join(sourceRoot, "backend", exe)]);
 }
 
 // Resolve the backend command + args for the current mode. Prefers a
 // self-contained binary, else falls back to `python -m uvicorn app:app`.
-function resolveBackendCommand(root, port) {
-  const bin = resolveBackendBinary(root);
+function resolveBackendCommand(sourceRoot, port) {
+  const bin = resolveBackendBinary(sourceRoot);
   if (bin) {
     // Self-contained backend binary (PyInstaller etc.)
     return { cmd: bin, args: ["--host", HOST, "--port", String(port)] };
   }
   // Python fallback: uvicorn app:app
   return {
-    cmd: resolvePython(root),
+    cmd: resolvePython(sourceRoot),
     args: ["-m", "uvicorn", "app:app", "--host", HOST, "--port", String(port)],
   };
 }
@@ -130,23 +171,27 @@ function resolveBackendCommand(root, port) {
 // so startup failures surface immediately instead of waiting out the
 // health-check timeout.
 function startBackend(port, onFatal) {
-  const root = backendRoot();
+  const sourceRoot = backendSourceRoot();
+  const runtimeRoot = backendRuntimeRoot();
+  prepareBackendRuntime(sourceRoot, runtimeRoot);
+
   const env = {
     ...process.env,
     // Note: the port reaches the backend via the --port CLI arg below; this
     // env var is exported only for backend code that may want to know it.
     SIRIUS_PORT: String(port),
-    // Ensure `import app` / `import src...` resolve when running from the repo
-    // root (mirrors PYTHONPATH=%ROOT% in run_web.bat). `python -m` already puts
-    // cwd on sys.path, but bundled binaries and odd launchers may not.
-    PYTHONPATH: root + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ""),
+    SIRIUS_BACKEND_SOURCE_ROOT: sourceRoot,
+    SIRIUS_BACKEND_RUNTIME_ROOT: runtimeRoot,
+    // Ensure `import app` / `import src...` resolve even when packaged apps run
+    // from a writable app-data directory instead of resources/backend.
+    PYTHONPATH: sourceRoot + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ""),
     PYTHONIOENCODING: "utf-8",
     PYTHONUTF8: "1",
   };
 
-  const { cmd, args } = resolveBackendCommand(root, port);
+  const { cmd, args } = resolveBackendCommand(sourceRoot, port);
 
-  backendProc = spawn(cmd, args, { cwd: root, env, windowsHide: true });
+  backendProc = spawn(cmd, args, { cwd: runtimeRoot, env, windowsHide: true });
 
   backendProc.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
   backendProc.stderr.on("data", (d) => {
