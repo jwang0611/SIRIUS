@@ -79,6 +79,7 @@ venv/
 docs/
 
 CLAUDE.md
+!/CLAUDE.md
 
 # audit logs
 data/audit_logs/
