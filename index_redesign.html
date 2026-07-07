@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>iSDTaiM · 智能 SDTM 映射系统</title>
+<title>SIRIUS · SDTM Intelligent Recommendation & Inference Unified System</title>
 <style>
 :root{
   --cream:#faf9f5;--cream-soft:#f5f0e8;--cream-card:#efe9de;--cream-strong:#e8e0d2;
@@ -59,11 +59,12 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
 .dots i{width:12px;height:12px;border-radius:50%;display:inline-block}
 .dots i:nth-child(1){background:#e5776a}.dots i:nth-child(2){background:#e8b96a}.dots i:nth-child(3){background:#82c98a}
 .chrome .addr{flex:1;text-align:center;font-family:var(--mono);font-size:12px;color:var(--muted)}
-.chrome-tools{display:flex;gap:8px;align-items:center}
-.themetoggle{display:inline-flex;border:1px solid var(--hairline);border-radius:9px;overflow:hidden}
-.themetoggle button{padding:6px 9px;border:none;background:var(--surface);cursor:pointer;color:var(--muted);font-size:14px;line-height:1}
-.themetoggle button:hover{color:var(--coral)}
-.themetoggle button.on{background:var(--navy);color:#fff}
+.chrome-tools{display:flex;gap:10px;align-items:center}
+.themetoggle,.langtoggle{display:inline-flex;border:1px solid var(--hairline);border-radius:9px;overflow:hidden}
+.themetoggle button,.langtoggle button{padding:6px 9px;border:none;background:var(--surface);cursor:pointer;color:var(--muted);font-size:14px;line-height:1}
+.langtoggle button{font-size:11px;font-weight:600;padding:6px 10px;letter-spacing:.02em}
+.themetoggle button:hover,.langtoggle button:hover{color:var(--coral)}
+.themetoggle button.on,.langtoggle button.on{background:var(--navy);color:#fff}
 .app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:760px}
 .app.sidebar-off{grid-template-columns:minmax(0,1fr)}
 .app.sidebar-off .sidebar{display:none}
@@ -217,8 +218,12 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
   <div class="chrome">
     <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
     <button type="button" class="chrome-toggle" onclick="toggleSidebar()" title="折叠侧栏">☰</button>
-    <div class="addr">app.isdtaim.local / intelligent-sdtm-mapping</div>
+    <div class="addr">app.sirius.clinical / sdtm-recommendation-inference</div>
     <div class="chrome-tools">
+      <div class="langtoggle" id="langToggle">
+        <button data-l="zh" class="on" onclick="setLang('zh')">中文</button>
+        <button data-l="en" onclick="setLang('en')">EN</button>
+      </div>
       <div class="themetoggle" id="themeToggle">
         <button data-t="default" class="on" onclick="setTheme('default')" title="暖色">◐</button>
         <button data-t="light" onclick="setTheme('light')" title="亮色">☀</button>
@@ -229,32 +234,32 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
 
   <div class="app" id="appShell">
     <aside class="sidebar">
-      <div class="logo">iSDTaiM<span class="ai">RAG</span></div>
+      <div class="logo">SIRIUS<span class="ai">AI</span></div>
       <div class="study-card">
-        <div class="lbl">System</div>
-        <div class="val">Intelligent SDTM Mapping</div>
+        <div class="lbl">SDTM Intelligent Recommendation</div>
+        <div class="val" data-i18n="sidebar.system">智能推理统一系统</div>
       </div>
       <div class="navsec">Pipeline</div>
       <button class="navitem active" type="button" data-screen="dashboard" onclick="go('dashboard',this)">
-        <span class="ic">📊</span><div><div class="t">工作台</div><div class="d">任务总览与快速操作</div></div>
+        <span class="ic">📊</span><div><div class="t" data-i18n="nav.dashboard">工作台</div><div class="d" data-i18n="nav.dashboard.desc">任务总览与快速操作</div></div>
       </button>
       <button class="navitem" type="button" data-screen="upload" onclick="go('upload',this)">
-        <span class="ic">📤</span><div><div class="t">上传预处理</div><div class="d">ALS 文件导入与转换</div></div>
+        <span class="ic">📤</span><div><div class="t" data-i18n="nav.upload">上传预处理</div><div class="d" data-i18n="nav.upload.desc">ALS 文件导入与转换</div></div>
       </button>
       <button class="navitem" type="button" data-screen="recommend" onclick="go('recommend',this)">
-        <span class="ic">🤖</span><div><div class="t">AI 推荐<span class="badge">NEW</span></div><div class="d">4 级级联智能映射</div></div>
+        <span class="ic">🤖</span><div><div class="t"><span data-i18n="nav.recommend">智能推荐</span><span class="badge">NEW</span></div><div class="d" data-i18n="nav.recommend.desc">4 级级联推荐与推理</div></div>
       </button>
       <button class="navitem" type="button" data-screen="specgen" onclick="go('specgen',this)">
-        <span class="ic">📋</span><div><div class="t">生成 Spec</div><div class="d">SDTM 规范文档输出</div></div>
+        <span class="ic">📋</span><div><div class="t" data-i18n="nav.specgen">生成 Spec</div><div class="d" data-i18n="nav.specgen.desc">SDTM 规范文档输出</div></div>
       </button>
       <div class="navsec">Workspace</div>
       <button class="navitem" type="button" data-screen="library" onclick="go('library',this)">
-        <span class="ic">📚</span><div><div class="t">知识库</div><div class="d">标准 / 模板 / 历史映射</div></div>
+        <span class="ic">📚</span><div><div class="t" data-i18n="nav.library">知识库</div><div class="d" data-i18n="nav.library.desc">标准 / 模板 / 历史映射</div></div>
       </button>
       <button class="navitem" type="button" data-screen="guide" onclick="go('guide',this)">
-        <span class="ic">📖</span><div><div class="t">使用指南</div><div class="d">系统帮助文档</div></div>
+        <span class="ic">📖</span><div><div class="t" data-i18n="nav.guide">使用指南</div><div class="d" data-i18n="nav.guide.desc">系统帮助文档</div></div>
       </button>
-      <div class="foot">iSDTaiM v1.0 · RAG + AI Copilot</div>
+      <div class="foot">SIRIUS v1.0 · Polaris Product Family</div>
     </aside>
 
     <div class="content">
@@ -263,51 +268,57 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
         <div class="screen-head">
           <div>
             <div class="eyebrow">Dashboard</div>
-            <h2>统计编程工作台</h2>
-            <div class="lead">基于 RAG 技术的智能 CRF 到 SDTM 变量映射系统，支持百奥知 4.1 和太美 EDC 系统。</div>
+            <h2 data-i18n="dash.title">SDTM 智能推理工作台</h2>
+            <div class="lead" data-i18n="dash.lead">SIRIUS — SDTM 智能推荐与推理统一系统。基于 RAG 级联策略，从 CRF 变量到 SDTM 规范的端到端智能映射。</div>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost btn-sm" type="button" onclick="go('guide')">使用指南</button>
-            <button class="btn btn-primary btn-sm" type="button" onclick="go('upload')">开始新任务</button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="go('guide')" data-i18n="dash.btn.guide">使用指南</button>
+            <button class="btn btn-primary btn-sm" type="button" onclick="go('upload')" data-i18n="dash.btn.new">开始新任务</button>
           </div>
         </div>
 
         <div class="kpi-row">
-          <div class="tile"><div class="k">知识库文档</div><div class="v">12</div><div class="m">已索引示例映射</div></div>
-          <div class="tile"><div class="k">推荐准确率</div><div class="v">94%</div><div class="m">基于历史验证</div></div>
-          <div class="tile"><div class="k">支持域</div><div class="v">28</div><div class="m">SDTM IG 3.2 / 3.4</div></div>
-          <div class="tile"><div class="k">本次会话</div><div class="v">3</div><div class="m">已处理文件</div></div>
+          <div class="tile"><div class="k" data-i18n="kpi.kb">知识库文档</div><div class="v">12</div><div class="m" data-i18n="kpi.kb.sub">已索引示例映射</div></div>
+          <div class="tile"><div class="k" data-i18n="kpi.acc">推荐准确率</div><div class="v">94%</div><div class="m" data-i18n="kpi.acc.sub">基于历史验证</div></div>
+          <div class="tile"><div class="k" data-i18n="kpi.domains">支持域</div><div class="v">28</div><div class="m">SDTM IG 3.2 / 3.4</div></div>
+          <div class="tile"><div class="k" data-i18n="kpi.session">本次会话</div><div class="v">3</div><div class="m" data-i18n="kpi.session.sub">已处理文件</div></div>
         </div>
 
         <div class="pipeline-steps">
           <div class="pipe-step done" onclick="go('upload')">
             <span class="num">1</span>
-            <div class="ps-text"><span class="ps-title">上传预处理</span><span class="ps-desc">ALS 文件转 JSON</span></div>
+            <div class="ps-text"><span class="ps-title" data-i18n="pipe.upload">上传预处理</span><span class="ps-desc" data-i18n="pipe.upload.desc">ALS 文件转 JSON</span></div>
           </div>
           <div class="pipe-step active" onclick="go('recommend')">
             <span class="num">2</span>
-            <div class="ps-text"><span class="ps-title">AI 推荐</span><span class="ps-desc">级联映射推荐</span></div>
+            <div class="ps-text"><span class="ps-title" data-i18n="pipe.recommend">智能推荐</span><span class="ps-desc" data-i18n="pipe.recommend.desc">级联推荐与推理</span></div>
           </div>
           <div class="pipe-step" onclick="go('specgen')">
             <span class="num">3</span>
-            <div class="ps-text"><span class="ps-title">生成 Spec</span><span class="ps-desc">SDTM 规范输出</span></div>
+            <div class="ps-text"><span class="ps-title" data-i18n="pipe.specgen">生成 Spec</span><span class="ps-desc" data-i18n="pipe.specgen.desc">SDTM 规范输出</span></div>
           </div>
         </div>
 
         <div class="card">
-          <h4 style="font-family:var(--sans);font-size:14px;font-weight:700;margin-bottom:10px">最近任务</h4>
+          <h4 style="font-family:var(--sans);font-size:14px;font-weight:700;margin-bottom:10px" data-i18n="dash.recent">最近任务</h4>
           <table class="history-tbl">
-            <thead><tr><th>文件名</th><th>EDC 系统</th><th>域</th><th>状态</th><th>时间</th></tr></thead>
+            <thead><tr>
+              <th data-i18n="tbl.filename">文件名</th>
+              <th data-i18n="tbl.edc">EDC 系统</th>
+              <th data-i18n="tbl.domain">域</th>
+              <th data-i18n="tbl.status">状态</th>
+              <th data-i18n="tbl.time">时间</th>
+            </tr></thead>
             <tbody>
-              <tr><td class="mono">DM_ALS_v2.xlsx</td><td>百奥知 4.1</td><td><span class="pill ok">DM</span></td><td><span class="pill ok">已完成</span></td><td class="mono" style="color:var(--muted)">2025-07-06 14:32</td></tr>
-              <tr><td class="mono">AE_CRF_fields.xlsx</td><td>太美</td><td><span class="pill work">AE</span></td><td><span class="pill wait">推荐中</span></td><td class="mono" style="color:var(--muted)">2025-07-06 15:01</td></tr>
-              <tr><td class="mono">VS_measurements.xlsx</td><td>百奥知 4.1</td><td><span class="pill">VS</span></td><td><span class="pill">待处理</span></td><td class="mono" style="color:var(--muted)">2025-07-06 15:18</td></tr>
+              <tr><td class="mono">DM_ALS_v2.xlsx</td><td data-i18n="edc.bioknow">百奥知 4.1</td><td><span class="pill ok">DM</span></td><td><span class="pill ok" data-i18n="status.done">已完成</span></td><td class="mono" style="color:var(--muted)">2025-07-06 14:32</td></tr>
+              <tr><td class="mono">AE_CRF_fields.xlsx</td><td data-i18n="edc.taimei">太美</td><td><span class="pill work">AE</span></td><td><span class="pill wait" data-i18n="status.running">推荐中</span></td><td class="mono" style="color:var(--muted)">2025-07-06 15:01</td></tr>
+              <tr><td class="mono">VS_measurements.xlsx</td><td data-i18n="edc.bioknow2">百奥知 4.1</td><td><span class="pill">VS</span></td><td><span class="pill" data-i18n="status.pending">待处理</span></td><td class="mono" style="color:var(--muted)">2025-07-06 15:18</td></tr>
             </tbody>
           </table>
         </div>
 
         <div class="footer-note">
-          <span>iSDTaiM · Intelligent SDTM Mapping System</span>
+          <span>SIRIUS · SDTM Intelligent Recommendation & Inference Unified System</span>
           <span>RAG + 4-Level Cascade · CDISC Compliant</span>
         </div>
       </div>
@@ -316,19 +327,19 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
       <div class="screen" id="s-upload">
         <div class="screen-head">
           <div>
-            <div class="eyebrow">Step 01</div>
-            <h2>上传预处理</h2>
-            <div class="lead">上传 eCRF 数据定义 Excel 文件（ALS），系统将自动识别格式并转换为结构化 JSON 数据。</div>
+            <div class="eyebrow">Step 01 · Upload & Preprocess</div>
+            <h2 data-i18n="upload.title">上传预处理</h2>
+            <div class="lead" data-i18n="upload.lead">上传 eCRF 数据定义 Excel 文件（ALS），系统将自动识别格式并转换为结构化 JSON 数据。</div>
           </div>
-          <span class="pill ok">支持 .xls / .xlsx / .xlsm</span>
+          <span class="pill ok" data-i18n="upload.formats">支持 .xls / .xlsx / .xlsm</span>
         </div>
 
         <div class="card" style="margin-bottom:14px">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-            <span style="font-size:12px;font-weight:600;color:var(--muted)">EDC 系统</span>
+            <span style="font-size:12px;font-weight:600;color:var(--muted)" data-i18n="upload.edc.label">EDC 系统</span>
             <div class="edc-toggle">
-              <button class="on" type="button">百奥知 4.1</button>
-              <button type="button">太美 EDC</button>
+              <button class="on" type="button" data-i18n="edc.bioknow">百奥知 4.1</button>
+              <button type="button" data-i18n="edc.taimei.btn">太美 EDC</button>
             </div>
           </div>
 
@@ -336,41 +347,41 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
             <div class="upload-box">
               <div class="ub-icon">📄</div>
               <h4>ALS Raw File</h4>
-              <p>上传 eCRF 数据定义 Excel 文件</p>
-              <div class="ub-hint">拖入文件或点击上传 · 自动识别 Sheet 结构</div>
+              <p data-i18n="upload.raw.desc">上传 eCRF 数据定义 Excel 文件</p>
+              <div class="ub-hint" data-i18n="upload.raw.hint">拖入文件或点击上传 · 自动识别 Sheet 结构</div>
             </div>
             <div class="upload-box">
               <div class="ub-icon">📊</div>
               <h4>ALS2SDTM Example</h4>
-              <p>上传已有的映射示例文件（可选）</p>
-              <div class="ub-hint">用于构建项目专属知识库 · 提升推荐精度</div>
+              <p data-i18n="upload.example.desc">上传已有的映射示例文件（可选）</p>
+              <div class="ub-hint" data-i18n="upload.example.hint">用于构建项目专属知识库 · 提升推荐精度</div>
             </div>
           </div>
         </div>
 
         <div class="progress-box">
           <div class="prog-head">
-            <span class="label">文件解析中...</span>
+            <span class="label" data-i18n="upload.parsing">文件解析中...</span>
             <span class="pct">68%</span>
           </div>
           <div class="prog-track"><div class="prog-bar" style="width:68%"></div></div>
-          <div class="prog-foot"><span>正在解析 DM_ALS_v2.xlsx · Sheet "DM"</span><span class="mono">12s</span></div>
+          <div class="prog-foot"><span data-i18n="upload.parsing.detail">正在解析 DM_ALS_v2.xlsx · Sheet "DM"</span><span class="mono">12s</span></div>
         </div>
 
         <div class="result-card">
           <div class="rc-info">
             <span class="rc-icon">✅</span>
             <div>
-              <div class="rc-text">DM_ALS_v2.json 转换完成</div>
-              <div class="rc-sub">48 个变量已提取 · 3 个 codelist 已解析</div>
+              <div class="rc-text" data-i18n="upload.result.title">DM_ALS_v2.json 转换完成</div>
+              <div class="rc-sub" data-i18n="upload.result.sub">48 个变量已提取 · 3 个 codelist 已解析</div>
             </div>
           </div>
-          <button class="btn btn-ghost btn-sm" type="button">下载 JSON</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-i18n="upload.result.btn">下载 JSON</button>
         </div>
 
         <div class="footer-note">
-          <span>支持百奥知 4.1 与太美 EDC 格式自动适配</span>
-          <span>转换结果保存至会话空间</span>
+          <span data-i18n="upload.foot.left">支持百奥知 4.1 与太美 EDC 格式自动适配</span>
+          <span data-i18n="upload.foot.right">转换结果保存至会话空间</span>
         </div>
       </div>
 
@@ -378,9 +389,9 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
       <div class="screen" id="s-recommend">
         <div class="screen-head">
           <div>
-            <div class="eyebrow">Step 02</div>
-            <h2>AI 智能推荐</h2>
-            <div class="lead">选择已处理的 JSON 文件，系统将通过 4 级级联策略生成 SDTM 变量映射推荐。</div>
+            <div class="eyebrow">Step 02 · Intelligent Recommendation & Inference</div>
+            <h2 data-i18n="rec.title">智能推荐与推理</h2>
+            <div class="lead" data-i18n="rec.lead">选择已处理的 JSON 文件，SIRIUS 将通过 4 级级联策略（推荐 + 推理）生成 SDTM 变量映射。</div>
           </div>
         </div>
 
@@ -411,43 +422,43 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
-            <button class="btn btn-primary" type="button">Generate Recommendations</button>
-            <button class="btn btn-ghost" type="button">Stop</button>
+            <button class="btn btn-primary" type="button" data-i18n="rec.btn.generate">生成推荐</button>
+            <button class="btn btn-ghost" type="button" data-i18n="rec.btn.stop">停止</button>
           </div>
         </div>
 
         <div style="margin-bottom:14px">
-          <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:8px">4-Level Cascade Strategy</div>
+          <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:8px" data-i18n="rec.cascade.title">4 级级联策略</div>
           <div class="cascade-flow">
-            <span class="cascade-node active">KB 精确匹配</span>
+            <span class="cascade-node active" data-i18n="rec.cascade.1">KB 精确匹配</span>
             <span class="cascade-arrow">→</span>
-            <span class="cascade-node active">KB 高置信度</span>
+            <span class="cascade-node active" data-i18n="rec.cascade.2">KB 高置信度</span>
             <span class="cascade-arrow">→</span>
-            <span class="cascade-node">RAG 增强</span>
+            <span class="cascade-node" data-i18n="rec.cascade.3">RAG 增强</span>
             <span class="cascade-arrow">→</span>
-            <span class="cascade-node">LLM 推理</span>
+            <span class="cascade-node" data-i18n="rec.cascade.4">LLM 推理</span>
           </div>
         </div>
 
         <div class="progress-box">
           <div class="prog-head">
-            <span class="label">推荐生成中</span>
+            <span class="label" data-i18n="rec.progress.label">推荐生成中</span>
             <span class="pct">45%</span>
           </div>
           <div class="prog-track"><div class="prog-bar" style="width:45%"></div></div>
-          <div class="prog-foot"><span>Processing variable 22/48 · RAG enhancement</span><span class="mono">1m 23s</span></div>
+          <div class="prog-foot"><span data-i18n="rec.progress.detail">处理变量 22/48 · RAG 增强阶段</span><span class="mono">1m 23s</span></div>
         </div>
 
         <div class="stats-grid">
-          <div class="stat-item"><div class="sv">18</div><div class="sk">KB 匹配</div></div>
-          <div class="stat-item"><div class="sv">12</div><div class="sk">RAG 增强</div></div>
-          <div class="stat-item"><div class="sv">8</div><div class="sk">LLM 推理</div></div>
-          <div class="stat-item"><div class="sv">10</div><div class="sk">待处理</div></div>
+          <div class="stat-item"><div class="sv">18</div><div class="sk" data-i18n="rec.stat.kb">KB 匹配</div></div>
+          <div class="stat-item"><div class="sv">12</div><div class="sk" data-i18n="rec.stat.rag">RAG 增强</div></div>
+          <div class="stat-item"><div class="sv">8</div><div class="sk" data-i18n="rec.stat.llm">LLM 推理</div></div>
+          <div class="stat-item"><div class="sv">10</div><div class="sk" data-i18n="rec.stat.pending">待处理</div></div>
         </div>
 
         <div class="footer-note">
-          <span>级联策略优先使用知识库精确匹配，逐级降级</span>
-          <span>所有推荐均需人工 QC 确认</span>
+          <span data-i18n="rec.foot.left">级联策略优先使用知识库精确匹配，逐级降级</span>
+          <span data-i18n="rec.foot.right">所有推荐均需人工 QC 确认</span>
         </div>
       </div>
 
@@ -455,9 +466,9 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
       <div class="screen" id="s-specgen">
         <div class="screen-head">
           <div>
-            <div class="eyebrow">Step 03</div>
-            <h2>生成规范文档</h2>
-            <div class="lead">基于已完成 QC 的 ALS2SDTM 映射文件，填充 SDTM Spec 模板生成完整规范文档。</div>
+            <div class="eyebrow">Step 03 · Generate Spec</div>
+            <h2 data-i18n="spec.title">生成规范文档</h2>
+            <div class="lead" data-i18n="spec.lead">基于已完成 QC 的 ALS2SDTM 映射文件，填充 SDTM Spec 模板生成完整规范文档。</div>
           </div>
           <span class="pill ok">IG 3.2 / IG 3.4</span>
         </div>
@@ -485,9 +496,9 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
           </div>
           <div style="display:flex;gap:12px;align-items:center;margin-top:4px">
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--body);cursor:pointer">
-              <input type="checkbox" checked style="accent-color:var(--coral)" /> Create TEST sheets
+              <input type="checkbox" checked style="accent-color:var(--coral)" /> <span data-i18n="spec.checkbox">创建 TEST sheets</span>
             </label>
-            <button class="btn btn-primary" type="button">Generate Spec</button>
+            <button class="btn btn-primary" type="button" data-i18n="spec.btn.generate">生成 Spec</button>
           </div>
         </div>
 
@@ -495,16 +506,16 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
           <div class="rc-info">
             <span class="rc-icon">📋</span>
             <div>
-              <div class="rc-text">DM_SDTM_Spec_v1.xlsx 生成完成</div>
-              <div class="rc-sub">Domain: DM · 48 variables mapped · TEST sheets included</div>
+              <div class="rc-text" data-i18n="spec.result.title">DM_SDTM_Spec_v1.xlsx 生成完成</div>
+              <div class="rc-sub" data-i18n="spec.result.sub">域: DM · 48 个变量已映射 · 含 TEST sheets</div>
             </div>
           </div>
-          <button class="btn btn-primary btn-sm" type="button">下载文件</button>
+          <button class="btn btn-primary btn-sm" type="button" data-i18n="spec.result.btn">下载文件</button>
         </div>
 
         <div class="footer-note">
-          <span>输出文件符合 CDISC SDTM IG 标准格式</span>
-          <span>Spec 文件包含变量定义、Codelist、Origin</span>
+          <span data-i18n="spec.foot.left">输出文件符合 CDISC SDTM IG 标准格式</span>
+          <span data-i18n="spec.foot.right">Spec 文件包含变量定义、Codelist、Origin</span>
         </div>
       </div>
 
@@ -513,39 +524,39 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
         <div class="screen-head">
           <div>
             <div class="eyebrow">Knowledge Base</div>
-            <h2>知识库管理</h2>
-            <div class="lead">管理 RAG 检索的历史映射文档、CDISC 标准定义和项目特定知识。</div>
+            <h2 data-i18n="lib.title">知识库管理</h2>
+            <div class="lead" data-i18n="lib.lead">管理 RAG 检索的历史映射文档、CDISC 标准定义和项目特定知识。</div>
           </div>
         </div>
         <div class="card">
           <div class="module-grid">
             <div class="module">
               <div class="tag">REFERENCE</div>
-              <h4>CDISC 标准库</h4>
-              <p>SDTM IG 3.2 / 3.4 标准、变量定义、Controlled Terminology。</p>
+              <h4 data-i18n="lib.ref.title">CDISC 标准库</h4>
+              <p data-i18n="lib.ref.desc">SDTM IG 3.2 / 3.4 标准、变量定义、Controlled Terminology。</p>
             </div>
             <div class="module">
               <div class="tag">HISTORICAL</div>
-              <h4>历史映射库</h4>
-              <p>已验证的 ALS2SDTM 映射示例，用于 KB 精确匹配与 RAG 增强。</p>
+              <h4 data-i18n="lib.hist.title">历史映射库</h4>
+              <p data-i18n="lib.hist.desc">已验证的 ALS2SDTM 映射示例，用于 KB 精确匹配与 RAG 增强。</p>
             </div>
             <div class="module">
               <div class="tag">PROJECT</div>
-              <h4>项目知识库</h4>
-              <p>当前会话积累的项目专属映射规则与用户修正反馈。</p>
+              <h4 data-i18n="lib.proj.title">项目知识库</h4>
+              <p data-i18n="lib.proj.desc">当前会话积累的项目专属映射规则与用户修正反馈。</p>
             </div>
           </div>
 
           <div class="stats-grid" style="margin-top:16px">
-            <div class="stat-item"><div class="sv">1,247</div><div class="sk">知识条目</div></div>
-            <div class="stat-item"><div class="sv">28</div><div class="sk">SDTM 域</div></div>
+            <div class="stat-item"><div class="sv">1,247</div><div class="sk" data-i18n="lib.stat.entries">知识条目</div></div>
+            <div class="stat-item"><div class="sv">28</div><div class="sk" data-i18n="lib.stat.domains">SDTM 域</div></div>
             <div class="stat-item"><div class="sv">156</div><div class="sk">Codelist</div></div>
-            <div class="stat-item"><div class="sv">89%</div><div class="sk">覆盖率</div></div>
+            <div class="stat-item"><div class="sv">89%</div><div class="sk" data-i18n="lib.stat.coverage">覆盖率</div></div>
           </div>
         </div>
         <div class="footer-note">
-          <span>知识库自动从用户修正中持续学习</span>
-          <span>支持 Parquet 格式高效检索</span>
+          <span data-i18n="lib.foot.left">知识库自动从用户修正中持续学习</span>
+          <span data-i18n="lib.foot.right">支持 Parquet 格式高效检索</span>
         </div>
       </div>
 
@@ -554,31 +565,31 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
         <div class="screen-head">
           <div>
             <div class="eyebrow">Documentation</div>
-            <h2>使用指南</h2>
-            <div class="lead">系统使用方法与最佳实践。</div>
+            <h2 data-i18n="guide.title">使用指南</h2>
+            <div class="lead" data-i18n="guide.lead">系统使用方法与最佳实践。</div>
           </div>
         </div>
         <div class="card">
           <div class="module-grid">
             <div class="module">
               <div class="tag">QUICK START</div>
-              <h4>快速开始</h4>
-              <p>5 分钟完成第一个 SDTM 映射任务。从上传到 Spec 输出的完整流程。</p>
+              <h4 data-i18n="guide.qs.title">快速开始</h4>
+              <p data-i18n="guide.qs.desc">5 分钟完成第一个 SDTM 映射任务。从上传到 Spec 输出的完整流程。</p>
             </div>
             <div class="module">
               <div class="tag">WORKFLOW</div>
-              <h4>工作流程详解</h4>
-              <p>3 步流水线每个环节的详细操作说明与参数配置。</p>
+              <h4 data-i18n="guide.wf.title">工作流程详解</h4>
+              <p data-i18n="guide.wf.desc">3 步流水线每个环节的详细操作说明与参数配置。</p>
             </div>
             <div class="module">
               <div class="tag">FAQ</div>
-              <h4>常见问题</h4>
-              <p>文件格式要求、EDC 适配、映射质量提升等常见问题解答。</p>
+              <h4 data-i18n="guide.faq.title">常见问题</h4>
+              <p data-i18n="guide.faq.desc">文件格式要求、EDC 适配、映射质量提升等常见问题解答。</p>
             </div>
           </div>
         </div>
         <div class="footer-note">
-          <span>iSDTaiM Documentation</span>
+          <span>SIRIUS Documentation</span>
           <span>Last updated: 2025-07</span>
         </div>
       </div>
@@ -588,18 +599,196 @@ h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color
 </div>
 
 <script>
-function setTheme(t){
-  document.documentElement.setAttribute('data-theme',t==='default'?'':t);
-  document.querySelectorAll('#themeToggle button').forEach(function(b){b.classList.toggle('on',b.dataset.t===t);});
-  try{localStorage.setItem('isdtaim-theme',t);}catch(e){}
+/* ── i18n ─────────────────────────────────────────── */
+var I18N = {
+  zh: {
+    'sidebar.system': '智能推理统一系统',
+    'nav.dashboard': '工作台', 'nav.dashboard.desc': '任务总览与快速操作',
+    'nav.upload': '上传预处理', 'nav.upload.desc': 'ALS 文件导入与转换',
+    'nav.recommend': '智能推荐', 'nav.recommend.desc': '4 级级联推荐与推理',
+    'nav.specgen': '生成 Spec', 'nav.specgen.desc': 'SDTM 规范文档输出',
+    'nav.library': '知识库', 'nav.library.desc': '标准 / 模板 / 历史映射',
+    'nav.guide': '使用指南', 'nav.guide.desc': '系统帮助文档',
+
+    'dash.title': 'SDTM 智能推理工作台',
+    'dash.lead': 'SIRIUS — SDTM 智能推荐与推理统一系统。基于 RAG 级联策略，从 CRF 变量到 SDTM 规范的端到端智能映射。',
+    'dash.btn.guide': '使用指南', 'dash.btn.new': '开始新任务',
+    'kpi.kb': '知识库文档', 'kpi.kb.sub': '已索引示例映射',
+    'kpi.acc': '推荐准确率', 'kpi.acc.sub': '基于历史验证',
+    'kpi.domains': '支持域', 'kpi.session': '本次会话', 'kpi.session.sub': '已处理文件',
+    'pipe.upload': '上传预处理', 'pipe.upload.desc': 'ALS 文件转 JSON',
+    'pipe.recommend': '智能推荐', 'pipe.recommend.desc': '级联推荐与推理',
+    'pipe.specgen': '生成 Spec', 'pipe.specgen.desc': 'SDTM 规范输出',
+    'dash.recent': '最近任务',
+    'tbl.filename': '文件名', 'tbl.edc': 'EDC 系统', 'tbl.domain': '域', 'tbl.status': '状态', 'tbl.time': '时间',
+    'edc.bioknow': '百奥知 4.1', 'edc.taimei': '太美', 'edc.bioknow2': '百奥知 4.1', 'edc.taimei.btn': '太美 EDC',
+    'status.done': '已完成', 'status.running': '推荐中', 'status.pending': '待处理',
+
+    'upload.title': '上传预处理',
+    'upload.lead': '上传 eCRF 数据定义 Excel 文件（ALS），系统将自动识别格式并转换为结构化 JSON 数据。',
+    'upload.formats': '支持 .xls / .xlsx / .xlsm',
+    'upload.edc.label': 'EDC 系统',
+    'upload.raw.desc': '上传 eCRF 数据定义 Excel 文件',
+    'upload.raw.hint': '拖入文件或点击上传 · 自动识别 Sheet 结构',
+    'upload.example.desc': '上传已有的映射示例文件（可选）',
+    'upload.example.hint': '用于构建项目专属知识库 · 提升推荐精度',
+    'upload.parsing': '文件解析中...',
+    'upload.parsing.detail': '正在解析 DM_ALS_v2.xlsx · Sheet "DM"',
+    'upload.result.title': 'DM_ALS_v2.json 转换完成',
+    'upload.result.sub': '48 个变量已提取 · 3 个 codelist 已解析',
+    'upload.result.btn': '下载 JSON',
+    'upload.foot.left': '支持百奥知 4.1 与太美 EDC 格式自动适配',
+    'upload.foot.right': '转换结果保存至会话空间',
+
+    'rec.title': '智能推荐与推理',
+    'rec.lead': '选择已处理的 JSON 文件，SIRIUS 将通过 4 级级联策略（推荐 + 推理）生成 SDTM 变量映射。',
+    'rec.btn.generate': '生成推荐', 'rec.btn.stop': '停止',
+    'rec.cascade.title': '4 级级联策略',
+    'rec.cascade.1': 'KB 精确匹配', 'rec.cascade.2': 'KB 高置信度', 'rec.cascade.3': 'RAG 增强', 'rec.cascade.4': 'LLM 推理',
+    'rec.progress.label': '推荐生成中',
+    'rec.progress.detail': '处理变量 22/48 · RAG 增强阶段',
+    'rec.stat.kb': 'KB 匹配', 'rec.stat.rag': 'RAG 增强', 'rec.stat.llm': 'LLM 推理', 'rec.stat.pending': '待处理',
+    'rec.foot.left': '级联策略优先使用知识库精确匹配，逐级降级',
+    'rec.foot.right': '所有推荐均需人工 QC 确认',
+
+    'spec.title': '生成规范文档',
+    'spec.lead': '基于已完成 QC 的 ALS2SDTM 映射文件，填充 SDTM Spec 模板生成完整规范文档。',
+    'spec.checkbox': '创建 TEST sheets',
+    'spec.btn.generate': '生成 Spec',
+    'spec.result.title': 'DM_SDTM_Spec_v1.xlsx 生成完成',
+    'spec.result.sub': '域: DM · 48 个变量已映射 · 含 TEST sheets',
+    'spec.result.btn': '下载文件',
+    'spec.foot.left': '输出文件符合 CDISC SDTM IG 标准格式',
+    'spec.foot.right': 'Spec 文件包含变量定义、Codelist、Origin',
+
+    'lib.title': '知识库管理',
+    'lib.lead': '管理 RAG 检索的历史映射文档、CDISC 标准定义和项目特定知识。',
+    'lib.ref.title': 'CDISC 标准库', 'lib.ref.desc': 'SDTM IG 3.2 / 3.4 标准、变量定义、Controlled Terminology。',
+    'lib.hist.title': '历史映射库', 'lib.hist.desc': '已验证的 ALS2SDTM 映射示例，用于 KB 精确匹配与 RAG 增强。',
+    'lib.proj.title': '项目知识库', 'lib.proj.desc': '当前会话积累的项目专属映射规则与用户修正反馈。',
+    'lib.stat.entries': '知识条目', 'lib.stat.domains': 'SDTM 域', 'lib.stat.coverage': '覆盖率',
+    'lib.foot.left': '知识库自动从用户修正中持续学习',
+    'lib.foot.right': '支持 Parquet 格式高效检索',
+
+    'guide.title': '使用指南', 'guide.lead': '系统使用方法与最佳实践。',
+    'guide.qs.title': '快速开始', 'guide.qs.desc': '5 分钟完成第一个 SDTM 映射任务。从上传到 Spec 输出的完整流程。',
+    'guide.wf.title': '工作流程详解', 'guide.wf.desc': '3 步流水线每个环节的详细操作说明与参数配置。',
+    'guide.faq.title': '常见问题', 'guide.faq.desc': '文件格式要求、EDC 适配、映射质量提升等常见问题解答。'
+  },
+  en: {
+    'sidebar.system': 'Inference Unified System',
+    'nav.dashboard': 'Dashboard', 'nav.dashboard.desc': 'Overview & quick actions',
+    'nav.upload': 'Upload', 'nav.upload.desc': 'ALS file import & conversion',
+    'nav.recommend': 'Recommend', 'nav.recommend.desc': '4-level cascade & inference',
+    'nav.specgen': 'Gen Spec', 'nav.specgen.desc': 'SDTM spec document output',
+    'nav.library': 'Knowledge Base', 'nav.library.desc': 'Standards / Templates / History',
+    'nav.guide': 'User Guide', 'nav.guide.desc': 'System documentation',
+
+    'dash.title': 'SDTM Inference Workbench',
+    'dash.lead': 'SIRIUS — SDTM Intelligent Recommendation & Inference Unified System. End-to-end intelligent mapping from CRF variables to SDTM specifications via RAG cascade.',
+    'dash.btn.guide': 'User Guide', 'dash.btn.new': 'New Task',
+    'kpi.kb': 'KB Documents', 'kpi.kb.sub': 'Indexed example mappings',
+    'kpi.acc': 'Accuracy', 'kpi.acc.sub': 'Based on historical validation',
+    'kpi.domains': 'Domains', 'kpi.session': 'This Session', 'kpi.session.sub': 'Files processed',
+    'pipe.upload': 'Upload', 'pipe.upload.desc': 'ALS to JSON',
+    'pipe.recommend': 'Recommend', 'pipe.recommend.desc': 'Cascade & inference',
+    'pipe.specgen': 'Gen Spec', 'pipe.specgen.desc': 'SDTM spec output',
+    'dash.recent': 'Recent Tasks',
+    'tbl.filename': 'Filename', 'tbl.edc': 'EDC System', 'tbl.domain': 'Domain', 'tbl.status': 'Status', 'tbl.time': 'Time',
+    'edc.bioknow': 'BioKnow 4.1', 'edc.taimei': 'TaiMei', 'edc.bioknow2': 'BioKnow 4.1', 'edc.taimei.btn': 'TaiMei EDC',
+    'status.done': 'Completed', 'status.running': 'Processing', 'status.pending': 'Pending',
+
+    'upload.title': 'Upload & Preprocess',
+    'upload.lead': 'Upload eCRF data definition Excel files (ALS). The system will auto-detect the format and convert to structured JSON.',
+    'upload.formats': 'Supports .xls / .xlsx / .xlsm',
+    'upload.edc.label': 'EDC System',
+    'upload.raw.desc': 'Upload eCRF data definition Excel file',
+    'upload.raw.hint': 'Drag & drop or click to browse · Auto-detect sheet structure',
+    'upload.example.desc': 'Upload existing mapping examples (optional)',
+    'upload.example.hint': 'Build project-specific KB · Improve recommendation accuracy',
+    'upload.parsing': 'Parsing file...',
+    'upload.parsing.detail': 'Parsing DM_ALS_v2.xlsx · Sheet "DM"',
+    'upload.result.title': 'DM_ALS_v2.json conversion complete',
+    'upload.result.sub': '48 variables extracted · 3 codelists parsed',
+    'upload.result.btn': 'Download JSON',
+    'upload.foot.left': 'Auto-adapts to BioKnow 4.1 & TaiMei EDC formats',
+    'upload.foot.right': 'Results saved to session workspace',
+
+    'rec.title': 'Recommendation & Inference',
+    'rec.lead': 'Select processed JSON files. SIRIUS generates SDTM variable mapping via 4-level cascade (recommendation + inference).',
+    'rec.btn.generate': 'Generate', 'rec.btn.stop': 'Stop',
+    'rec.cascade.title': '4-Level Cascade Strategy',
+    'rec.cascade.1': 'KB Exact Match', 'rec.cascade.2': 'KB High Confidence', 'rec.cascade.3': 'RAG Enhanced', 'rec.cascade.4': 'LLM Inference',
+    'rec.progress.label': 'Generating recommendations',
+    'rec.progress.detail': 'Processing variable 22/48 · RAG enhancement phase',
+    'rec.stat.kb': 'KB Match', 'rec.stat.rag': 'RAG Enhanced', 'rec.stat.llm': 'LLM Inference', 'rec.stat.pending': 'Pending',
+    'rec.foot.left': 'Cascade prioritizes KB exact match, falling back progressively',
+    'rec.foot.right': 'All recommendations require manual QC',
+
+    'spec.title': 'Generate Spec Document',
+    'spec.lead': 'Based on QC-completed ALS2SDTM mapping files, fill SDTM Spec templates to generate complete specification documents.',
+    'spec.checkbox': 'Create TEST sheets',
+    'spec.btn.generate': 'Generate Spec',
+    'spec.result.title': 'DM_SDTM_Spec_v1.xlsx generated',
+    'spec.result.sub': 'Domain: DM · 48 variables mapped · TEST sheets included',
+    'spec.result.btn': 'Download',
+    'spec.foot.left': 'Output complies with CDISC SDTM IG standard format',
+    'spec.foot.right': 'Spec includes variable definitions, Codelists, Origins',
+
+    'lib.title': 'Knowledge Base',
+    'lib.lead': 'Manage RAG retrieval documents, CDISC standard definitions, and project-specific knowledge.',
+    'lib.ref.title': 'CDISC Standards', 'lib.ref.desc': 'SDTM IG 3.2 / 3.4 standards, variable definitions, Controlled Terminology.',
+    'lib.hist.title': 'Historical Mappings', 'lib.hist.desc': 'Validated ALS2SDTM examples for KB exact match and RAG enhancement.',
+    'lib.proj.title': 'Project KB', 'lib.proj.desc': 'Session-accumulated project-specific mapping rules and user corrections.',
+    'lib.stat.entries': 'Entries', 'lib.stat.domains': 'SDTM Domains', 'lib.stat.coverage': 'Coverage',
+    'lib.foot.left': 'KB continuously learns from user corrections',
+    'lib.foot.right': 'Parquet-based efficient retrieval',
+
+    'guide.title': 'User Guide', 'guide.lead': 'System usage and best practices.',
+    'guide.qs.title': 'Quick Start', 'guide.qs.desc': 'Complete your first SDTM mapping in 5 minutes. Full workflow from upload to spec output.',
+    'guide.wf.title': 'Workflow Details', 'guide.wf.desc': 'Detailed instructions and parameter configuration for each pipeline step.',
+    'guide.faq.title': 'FAQ', 'guide.faq.desc': 'File format requirements, EDC adaptation, mapping quality improvements.'
+  }
+};
+
+var currentLang = 'zh';
+
+function setLang(lang) {
+  currentLang = lang;
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('#langToggle button').forEach(function(b) {
+    b.classList.toggle('on', b.dataset.l === lang);
+  });
+  var dict = I18N[lang];
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    var key = el.getAttribute('data-i18n');
+    if (dict[key] !== undefined) el.textContent = dict[key];
+  });
+  try { localStorage.setItem('sirius-lang', lang); } catch(e) {}
 }
-(function(){var t;try{t=localStorage.getItem('isdtaim-theme');}catch(e){}if(t)setTheme(t);})();
 
-function toggleSidebar(){document.getElementById('appShell').classList.toggle('sidebar-off');}
+/* ── Theme ─────────────────────────────────────────── */
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t === 'default' ? '' : t);
+  document.querySelectorAll('#themeToggle button').forEach(function(b) {
+    b.classList.toggle('on', b.dataset.t === t);
+  });
+  try { localStorage.setItem('sirius-theme', t); } catch(e) {}
+}
 
-function go(id,btn){
-  document.querySelectorAll('.screen').forEach(function(s){s.classList.toggle('active',s.id==='s-'+id);});
-  document.querySelectorAll('.navitem').forEach(function(n){n.classList.toggle('active',n.dataset.screen===id);});
+/* ── Init persisted preferences ─────────────────────── */
+(function() {
+  var t; try { t = localStorage.getItem('sirius-theme'); } catch(e) {}
+  if (t) setTheme(t);
+  var l; try { l = localStorage.getItem('sirius-lang'); } catch(e) {}
+  if (l) setLang(l);
+})();
+
+function toggleSidebar() { document.getElementById('appShell').classList.toggle('sidebar-off'); }
+
+function go(id, btn) {
+  document.querySelectorAll('.screen').forEach(function(s) { s.classList.toggle('active', s.id === 's-' + id); });
+  document.querySelectorAll('.navitem').forEach(function(n) { n.classList.toggle('active', n.dataset.screen === id); });
 }
 </script>
 </body>
