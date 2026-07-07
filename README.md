@@ -1,8 +1,13 @@
-# iSDTaiM v1.0
+# SIRIUS v1.0
 
-> **intelligent SDTM** - 基于 RAG 技术的智能化 CRF 到 SDTM 映射系统
+> **SDTM Intelligent Recommendation & Inference Unified System** - 基于 RAG 技术的智能化 CRF 到 SDTM 映射系统
 
 一个利用检索增强生成（RAG）技术，将临床研究表单（CRF）自动映射到 CDISC SDTM 标准的智能化系统。
+
+SIRIUS 提供三套前端形态，共享同一套 FastAPI 后端：
+
+- **Web 端** —— 浏览器访问的响应式界面（侧边栏导航、中英文切换、暖色 / 亮色 / 暗色三主题），源码位于 `src/web/static/`。
+- **Windows 桌面软件** 与 **macOS 桌面软件** —— 基于 Electron 封装，内置启动本地后端并加载同一 Web 界面，构建配置位于 `desktop/`。
 
 ## ✨ 核心功能
 
@@ -16,14 +21,14 @@
 - **Domain 智能推断**：基于 annotation_table 关键词自动推断 SDTM Domain
 - **知识库匹配**：支持默认 KB 和用户上传的项目特定 KB
 - **向量检索**：基于语义相似度的知识片段检索
-- **Web 界面**：三步式操作流程，支持多用户并发
+- **多端前端**：Web 端 + Windows / macOS 桌面软件，三步式操作流程，支持多用户并发；界面支持中英文切换与暖色 / 亮色 / 暗色三主题
 - **Session 隔离**：每个用户的上传文件和 KB 独立存储
 - **Spec 生成**：自动生成 SDTM 说明文档
 
 ## 🏗️ 项目结构
 
 ```
-isdtaim/
+sirius/
 ├── app.py                            # FastAPI 应用入口
 ├── src/                              # 源代码
 │   ├── clients/                      # AI 客户端
@@ -101,8 +106,8 @@ isdtaim/
 
 ```bash
 # 克隆项目
-git clone https://gitlab.qilu-pharma.com/mountain-high/isdtaim.git
-cd isdtaim
+git clone https://gitlab.qilu-pharma.com/mountain-high/sirius.git
+cd sirius
 
 # 创建虚拟环境
 python -m venv venv
@@ -650,4 +655,4 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 
 ---
 
-**iSDTaiM** - 让 SDTM 映射更智能、更高效
+**SIRIUS** - 让 SDTM 映射更智能、更高效

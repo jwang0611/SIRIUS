@@ -1,5 +1,5 @@
 """
-Knowledge Base Module for iSDTaiM
+Knowledge Base Module for SIRIUS
 
 This module provides functionality for managing and converting knowledge base data,
 including SDTM standards, mapping rules, and examples.

@@ -20,7 +20,7 @@ if exist "%ROOT%\venv\Scripts\activate.bat" (
     echo Warning: No virtual environment found, using system Python
 )
 
-start "iSDTaiM Server" cmd /k "chcp 65001 >nul && set PYTHONIOENCODING=utf-8 && cd /d %ROOT% && (if exist venv\Scripts\activate.bat (call venv\Scripts\activate.bat) else if exist .venv\Scripts\activate.bat (call .venv\Scripts\activate.bat)) && python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000"
+start "SIRIUS Server" cmd /k "chcp 65001 >nul && set PYTHONIOENCODING=utf-8 && cd /d %ROOT% && (if exist venv\Scripts\activate.bat (call venv\Scripts\activate.bat) else if exist .venv\Scripts\activate.bat (call .venv\Scripts\activate.bat)) && python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000"
 
 timeout /t 3 >nul
 start "" http://localhost:8000

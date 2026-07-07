@@ -1,1 +1,1 @@
-"""Web application package for ISDTAIM."""
+"""Web application package for SIRIUS."""

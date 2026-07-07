@@ -39,7 +39,7 @@ class Chunker:
         """
         初始化 Chunker
         Args:
-            base_path: 知识库主目录路径，例如 'isdtaim/data/knowledge_base/structured'
+            base_path: 知识库主目录路径，例如 'data/knowledge_base/structured'
             exclude_files: 要排除的文件名集合（可选）
         """
         self.base_path = base_path
@@ -306,7 +306,7 @@ class Chunker:
 # === 主程序入口 ===
 if __name__ == "__main__":
     # 知识库路径（可根据项目部署修改）
-    kb_path = "isdtaim/data/knowledge_base/structured"
+    kb_path = "data/knowledge_base/structured"
 
     # 初始化并加载
     chunker = Chunker(kb_path)

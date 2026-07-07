@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-iSDTaiM 端到端 Smoke Test
+SIRIUS 端到端 Smoke Test
 =========================
 
 快速验证完整流程是否能跑通。步骤之间自动串联——Step1 的输出直接喂给 Step3，
@@ -676,7 +676,7 @@ def generate_fixtures(out_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="iSDTaiM Smoke Test - 快速验证流程是否跑通",
+        description="SIRIUS Smoke Test - 快速验证流程是否跑通",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -720,7 +720,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("  iSDTaiM Smoke Test Runner")
+    print("  SIRIUS Smoke Test Runner")
     print("=" * 60)
     print()
 
@@ -741,7 +741,7 @@ def main():
         work_dir.mkdir(parents=True, exist_ok=True)
         tmp_dir = None
     else:
-        tmp_dir = tempfile.mkdtemp(prefix="isdtaim_smoke_")
+        tmp_dir = tempfile.mkdtemp(prefix="sirius_smoke_")
         work_dir = Path(tmp_dir)
 
     print(f"{INFO} 工作目录: {work_dir}")

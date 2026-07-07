@@ -1,308 +1,227 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <base href="./" />
-    <title>iSDTaiM (Intelligent SDTM) - 基于RAG技术的智能化CRF到SDTM映射系统</title>
-    <link rel="icon" type="image/svg+xml" href="static/logo.svg" />
-    <link rel="stylesheet" href="static/styles.css?v=2" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  </head>
-  <body data-step="1">
-    <!-- Canvas 粒子背景 -->
-    <canvas id="particles-canvas"></canvas>
-    
-    <!-- 背景 -->
-    <div class="bg-layer"></div>
-    
-    <!-- Toast 提示容器 -->
-    <div id="toast-container" class="toast-container"></div>
-    
-    <!-- Sheet 选择对话框 (Step 1) -->
-    <dialog id="sheet-dialog" class="sheet-dialog">
-      <h3>请选择要转换的 Sheet</h3>
-      <select id="example-sheet-select" size="8"></select>
-      <div class="dialog-actions">
-        <button type="button" id="sheet-cancel" class="btn btn-ghost">取消</button>
-        <button type="button" id="sheet-confirm" class="btn btn-accent">确认转换</button>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <base href="./" />
+  <title>SIRIUS · SDTM Intelligent Recommendation & Inference Unified System</title>
+  <link rel="icon" type="image/svg+xml" href="static/logo.svg" />
+  <link rel="stylesheet" href="static/styles.css?v=sirius1" />
+</head>
+<body>
+<div class="page">
+<div class="appframe">
+  <!-- Top chrome -->
+  <div class="chrome">
+    <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+    <button type="button" class="chrome-toggle" id="sidebar-toggle" title="折叠侧栏">☰</button>
+    <div class="addr">app.sirius.clinical / sdtm-recommendation-inference</div>
+    <div class="chrome-tools">
+      <a href="static/guide.html" target="_blank" class="help-link" title="用户手册">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        <span>Guide</span>
+      </a>
+      <div class="langtoggle" id="langToggle">
+        <button data-l="zh" class="on" type="button">中文</button>
+        <button data-l="en" type="button">EN</button>
       </div>
-    </dialog>
-    
-    <!-- ALS Sheet 选择对话框 (Step 3) -->
-    <dialog id="als-sheet-dialog" class="sheet-dialog">
-      <h3>请选择 ALS 文件中的 Sheet</h3>
-      <select id="als-sheet-select" size="8"></select>
-      <div class="dialog-actions">
-        <button type="button" id="als-sheet-cancel" class="btn btn-ghost">取消</button>
-        <button type="button" id="als-sheet-confirm" class="btn btn-accent">确认选择</button>
+      <div class="themetoggle" id="themeToggle">
+        <button data-t="default" class="on" type="button" title="暖色">◐</button>
+        <button data-t="light" type="button" title="亮色">☀</button>
+        <button data-t="dark" type="button" title="暗色">☾</button>
       </div>
-    </dialog>
-    
-    <!-- 固定顶部区域 -->
-    <div class="sticky-header">
-      <!-- Header -->
-      <header class="header glass">
-        <div class="header-left">
-          <div class="header-brand">
-            <div class="logo-box">
-              <img src="static/logo.svg" alt="iSDTaiM" class="logo" />
-            </div>
-            <div class="brand-text">
-              <h1 class="brand-title">
-                <span class="brand-main">iSDTaiM</span>
-                <span class="brand-sub">(Intelligent SDTM)</span>
-              </h1>
-              <div class="brand-tag">
-                <span class="tag-dot"></span>
-                RAG + AI Copilot
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Theme Toggle & Help -->
-        <div class="header-right">
-          <a href="static/guide.html" target="_blank" class="help-btn" title="用户手册">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-            </svg>
-            <span>Guide</span>
-          </a>
-          <div class="theme-switch-container" id="theme-toggle" title="切换主题">
-            <span class="theme-label theme-label-dark">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
-            </span>
-            <div class="theme-switch-track">
-              <div class="theme-switch-thumb"></div>
-            </div>
-            <span class="theme-label theme-label-light">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="5"/>
-                <line x1="12" y1="1" x2="12" y2="3"/>
-                <line x1="12" y1="21" x2="12" y2="23"/>
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                <line x1="1" y1="12" x2="3" y2="12"/>
-                <line x1="21" y1="12" x2="23" y2="12"/>
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-              </svg>
-            </span>
-          </div>
-        </div>
-        
-        <!-- Hero Animation - 右侧 -->
-        <div class="hero-anim">
-          <div class="flow-visual">
-            <div class="flow-table flow-source">
-              <div class="flow-th">eCRF</div>
-              <div class="flow-rows">
-                <span></span><span></span><span></span>
-              </div>
-            </div>
-            <div class="flow-arrow">
-              <svg viewBox="0 0 60 24" class="arrow-svg">
-                <defs>
-                  <linearGradient id="arrowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stop-color="var(--c-orange)" />
-                    <stop offset="50%" stop-color="var(--c-purple)" />
-                    <stop offset="100%" stop-color="var(--c-green)" />
-                  </linearGradient>
-                </defs>
-                <path d="M0 12 H50 L44 6 M50 12 L44 18" stroke="url(#arrowGrad)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <div class="flow-dot"></div>
-              <div class="flow-dot d2"></div>
-              <div class="flow-dot d3"></div>
-              <span class="ai-chip">AI</span>
-            </div>
-            <div class="flow-table flow-target">
-              <div class="flow-th">SDTM</div>
-              <div class="flow-rows">
-                <span></span><span></span><span></span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <!-- Pipeline Navigation -->
-      <nav class="pipeline glass">
-        <button class="pipe-tab active" data-step="1">
-          <span class="tab-num">01</span>
-          <div class="tab-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-          </div>
-          <div class="tab-content">
-            <span class="tab-en">Upload & Preprocess</span>
-            <span class="tab-zh">上传预处理</span>
-          </div>
-        </button>
-        
-        <button class="pipe-tab" data-step="2">
-          <span class="tab-num">02</span>
-          <div class="tab-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
-              <path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/>
-              <circle cx="12" cy="6" r="1" fill="currentColor"/>
-            </svg>
-          </div>
-          <div class="tab-content">
-            <span class="tab-en">AI Recommendation</span>
-            <span class="tab-zh">AI 智能推荐</span>
-          </div>
-        </button>
-        
-        <button class="pipe-tab" data-step="3">
-          <span class="tab-num">03</span>
-          <div class="tab-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
-          </div>
-          <div class="tab-content">
-            <span class="tab-en">Generate Spec</span>
-            <span class="tab-zh">生成规范文档</span>
-          </div>
-        </button>
-      </nav>
     </div>
+  </div>
 
-    <!-- 主内容区域 -->
-    <main class="main-content">
-      <!-- Step 1 -->
-      <section class="panel glass" id="panel-1" data-panel="1">
-        <div class="panel-head">
-          <div class="step-badge">01</div>
-          <div class="panel-titles">
-            <h2>Upload & Preprocess</h2>
-            <p>一键上传，自动进入数据管线</p>
+  <div class="app" id="appShell">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo"><img src="static/logo.svg" alt="SIRIUS" />SIRIUS<span class="ai">AI</span></div>
+      <div class="study-card">
+        <div class="lbl">SDTM Intelligent Recommendation</div>
+        <div class="val" data-i18n="sidebar.system">智能推理统一系统</div>
+      </div>
+      <div class="navsec">Pipeline</div>
+      <button class="navitem active" type="button" data-screen="dashboard">
+        <span class="ic">📊</span><div><div class="t" data-i18n="nav.dashboard">工作台</div><div class="d" data-i18n="nav.dashboard.desc">任务总览与快速操作</div></div>
+      </button>
+      <button class="navitem" type="button" data-screen="upload">
+        <span class="ic">📤</span><div><div class="t" data-i18n="nav.upload">上传预处理</div><div class="d" data-i18n="nav.upload.desc">ALS 文件导入与转换</div></div>
+      </button>
+      <button class="navitem" type="button" data-screen="recommend">
+        <span class="ic">🤖</span><div><div class="t"><span data-i18n="nav.recommend">智能推荐</span><span class="badge">NEW</span></div><div class="d" data-i18n="nav.recommend.desc">4 级级联推荐与推理</div></div>
+      </button>
+      <button class="navitem" type="button" data-screen="specgen">
+        <span class="ic">📋</span><div><div class="t" data-i18n="nav.specgen">生成 Spec</div><div class="d" data-i18n="nav.specgen.desc">SDTM 规范文档输出</div></div>
+      </button>
+      <div class="navsec">Workspace</div>
+      <button class="navitem" type="button" data-screen="library">
+        <span class="ic">📚</span><div><div class="t" data-i18n="nav.library">知识库</div><div class="d" data-i18n="nav.library.desc">标准 / 模板 / 历史映射</div></div>
+      </button>
+      <button class="navitem" type="button" data-screen="guide">
+        <span class="ic">📖</span><div><div class="t" data-i18n="nav.guide">使用指南</div><div class="d" data-i18n="nav.guide.desc">系统帮助文档</div></div>
+      </button>
+      <div class="foot">SIRIUS v1.0 · Polaris Product Family</div>
+    </aside>
+
+    <div class="content">
+      <!-- ═══ Dashboard ═══ -->
+      <div class="screen active" id="s-dashboard">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Dashboard</div>
+            <h2 data-i18n="dash.title">SDTM 智能推理工作台</h2>
+            <div class="lead" data-i18n="dash.lead">SIRIUS — SDTM 智能推荐与推理统一系统。基于 RAG 级联策略，从 CRF 变量到 SDTM 规范的端到端智能映射。</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" type="button" data-go="guide" data-i18n="dash.btn.guide">使用指南</button>
+            <button class="btn btn-primary btn-sm" type="button" data-go="upload" data-i18n="dash.btn.new">开始新任务</button>
           </div>
         </div>
-        
-        <div class="panel-body">
-          <div class="card-row">
-            <!-- ALS 原始文件上传 -->
-            <div class="upload-card glass-card animate-on-scroll stagger-item">
-              <div class="card-top">
-                <div class="card-ico">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                  </svg>
-                </div>
-                <div class="card-info">
-                  <h3>ALS Raw File</h3>
-                  <p>上传 eCRF 数据定义 Excel 文件</p>
-                </div>
-              </div>
-              <!-- EDC 系统选择 -->
-              <div class="edc-toggle-row">
-                <span class="edc-toggle-label">EDC 系统</span>
-                <div class="edc-toggle" id="edc-system-toggle">
-                  <button class="edc-opt active" data-value="bioknow">百奥知 4.1</button>
-                  <button class="edc-opt" data-value="taimei">太美</button>
-                </div>
-              </div>
-              <div class="drop-zone" id="drop-zone-raw">
-                <input type="file" id="file-raw" hidden accept=".xls,.xlsx,.xlsm" />
-                <div class="drop-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                </div>
-                <span class="drop-text">Drag & drop or click to browse</span>
-                <span class="drop-hint">.xls, .xlsx, .xlsm</span>
-                <span class="drop-filename" id="filename-raw"></span>
-              </div>
-              <button class="btn btn-primary" id="btn-upload-raw">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-svg">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                Upload & Convert
-              </button>
-              <p class="status" id="status-raw"></p>
+
+        <div class="kpi-row">
+          <div class="tile"><div class="k" data-i18n="kpi.kb">知识库文档</div><div class="v">12</div><div class="m" data-i18n="kpi.kb.sub">已索引示例映射</div></div>
+          <div class="tile"><div class="k" data-i18n="kpi.acc">推荐准确率</div><div class="v">94%</div><div class="m" data-i18n="kpi.acc.sub">基于历史验证</div></div>
+          <div class="tile"><div class="k" data-i18n="kpi.domains">支持域</div><div class="v">28</div><div class="m">SDTM IG 3.2 / 3.4</div></div>
+          <div class="tile"><div class="k" data-i18n="kpi.cascade">级联层级</div><div class="v">4</div><div class="m" data-i18n="kpi.cascade.sub">KB → RAG → LLM</div></div>
+        </div>
+
+        <div class="pipeline-steps">
+          <div class="pipe-step" data-go="upload">
+            <span class="num">1</span>
+            <div class="ps-text"><span class="ps-title" data-i18n="pipe.upload">上传预处理</span><span class="ps-desc" data-i18n="pipe.upload.desc">ALS 文件转 JSON</span></div>
+          </div>
+          <div class="pipe-step" data-go="recommend">
+            <span class="num">2</span>
+            <div class="ps-text"><span class="ps-title" data-i18n="pipe.recommend">智能推荐</span><span class="ps-desc" data-i18n="pipe.recommend.desc">级联推荐与推理</span></div>
+          </div>
+          <div class="pipe-step" data-go="specgen">
+            <span class="num">3</span>
+            <div class="ps-text"><span class="ps-title" data-i18n="pipe.specgen">生成 Spec</span><span class="ps-desc" data-i18n="pipe.specgen.desc">SDTM 规范输出</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4 class="card-title" data-i18n="dash.workflow">三步式工作流程</h4>
+          <div class="module-grid">
+            <div class="module link-module" data-go="upload">
+              <div class="tag">STEP 01</div>
+              <h4 data-i18n="dash.wf1.title">上传预处理</h4>
+              <p data-i18n="dash.wf1.desc">上传百奥知 / 太美 EDC 的 ALS 文件，自动转换为结构化 JSON。</p>
             </div>
-            
-            <!-- ALS2SDTM 示例上传 -->
-            <div class="upload-card glass-card animate-on-scroll stagger-item">
-              <div class="card-top">
-                <div class="card-ico">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <rect x="3" y="3" width="18" height="18" rx="2"/>
-                    <line x1="3" y1="9" x2="21" y2="9"/>
-                    <line x1="9" y1="21" x2="9" y2="9"/>
-                  </svg>
-                </div>
-                <div class="card-info">
-                  <h3>ALS2SDTM Example</h3>
-                  <p>上传已有的映射示例文件</p>
-                </div>
-              </div>
-              <div class="drop-zone" id="drop-zone-example">
-                <input type="file" id="file-example" hidden accept=".xls,.xlsx,.xlsm" />
-                <div class="drop-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                </div>
-                <span class="drop-text">Drag & drop or click to browse</span>
-                <span class="drop-hint">.xls, .xlsx, .xlsm</span>
-                <span class="drop-filename" id="filename-example"></span>
-              </div>
-              <button class="btn btn-primary" id="upload-example">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-svg">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                Upload & Convert
-              </button>
-              <p class="status" id="status-example"></p>
+            <div class="module link-module" data-go="recommend">
+              <div class="tag">STEP 02</div>
+              <h4 data-i18n="dash.wf2.title">智能推荐与推理</h4>
+              <p data-i18n="dash.wf2.desc">4 级级联策略生成 SDTM 变量映射，人工 QC 后确认。</p>
+            </div>
+            <div class="module link-module" data-go="specgen">
+              <div class="tag">STEP 03</div>
+              <h4 data-i18n="dash.wf3.title">生成规范文档</h4>
+              <p data-i18n="dash.wf3.desc">基于 QC 后的映射填充 SDTM Spec 模板，输出完整规范。</p>
             </div>
           </div>
         </div>
-      </section>
 
-      <!-- Step 2 -->
-      <section class="panel glass" id="panel-2" data-panel="2" style="display: none;">
-        <div class="panel-head">
-          <div class="step-badge">02</div>
-          <div class="panel-titles">
-            <h2>AI Recommendation</h2>
-            <p>选择处理完成的 JSON 文件，启动 AI 推荐流程</p>
+        <div class="footer-note">
+          <span>SIRIUS · SDTM Intelligent Recommendation &amp; Inference Unified System</span>
+          <span>RAG + 4-Level Cascade · CDISC Compliant</span>
+        </div>
+      </div>
+
+      <!-- ═══ Step 01 · Upload & Preprocess ═══ -->
+      <div class="screen" id="s-upload">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Step 01 · Upload &amp; Preprocess</div>
+            <h2 data-i18n="upload.title">上传预处理</h2>
+            <div class="lead" data-i18n="upload.lead">上传 eCRF 数据定义 Excel 文件（ALS），系统将自动识别格式并转换为结构化 JSON 数据。</div>
+          </div>
+          <span class="pill ok" data-i18n="upload.formats">支持 .xls / .xlsx / .xlsm</span>
+        </div>
+
+        <div class="upload-grid">
+          <!-- ALS Raw File -->
+          <div class="upload-card">
+            <div class="card-top">
+              <div class="card-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </div>
+              <div class="card-info">
+                <h3>ALS Raw File</h3>
+                <p data-i18n="upload.raw.desc">上传 eCRF 数据定义 Excel 文件</p>
+              </div>
+            </div>
+            <div class="edc-toggle-row">
+              <span class="edc-toggle-label" data-i18n="upload.edc.label">EDC 系统</span>
+              <div class="edc-toggle" id="edc-system-toggle">
+                <button class="edc-opt active" type="button" data-value="bioknow" data-i18n="edc.bioknow">百奥知 4.1</button>
+                <button class="edc-opt" type="button" data-value="taimei" data-i18n="edc.taimei.btn">太美 EDC</button>
+              </div>
+            </div>
+            <div class="drop-zone" id="drop-zone-raw">
+              <input type="file" id="file-raw" hidden accept=".xls,.xlsx,.xlsm" />
+              <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+              <span class="drop-text" data-i18n="upload.drop.text">拖入文件或点击上传</span>
+              <span class="drop-hint">.xls, .xlsx, .xlsm</span>
+              <span class="drop-filename" id="filename-raw"></span>
+            </div>
+            <button class="btn btn-primary" type="button" id="btn-upload-raw">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span data-i18n="upload.btn">上传并转换</span>
+            </button>
+            <p class="status" id="status-raw"></p>
+          </div>
+
+          <!-- ALS2SDTM Example -->
+          <div class="upload-card">
+            <div class="card-top">
+              <div class="card-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+              </div>
+              <div class="card-info">
+                <h3>ALS2SDTM Example</h3>
+                <p data-i18n="upload.example.desc">上传已有的映射示例文件（可选）</p>
+              </div>
+            </div>
+            <div class="drop-zone" id="drop-zone-example">
+              <input type="file" id="file-example" hidden accept=".xls,.xlsx,.xlsm" />
+              <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+              <span class="drop-text" data-i18n="upload.drop.text">拖入文件或点击上传</span>
+              <span class="drop-hint" data-i18n="upload.example.hint">用于构建项目专属知识库 · 提升推荐精度</span>
+              <span class="drop-filename" id="filename-example"></span>
+            </div>
+            <button class="btn btn-primary" type="button" id="upload-example">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span data-i18n="upload.btn">上传并转换</span>
+            </button>
+            <p class="status" id="status-example"></p>
           </div>
         </div>
-        
-        <div class="panel-body">
+
+        <div class="footer-note">
+          <span data-i18n="upload.foot.left">支持百奥知 4.1 与太美 EDC 格式自动适配</span>
+          <span data-i18n="upload.foot.right">转换结果保存至会话空间</span>
+        </div>
+      </div>
+
+      <!-- ═══ Step 02 · Recommendation & Inference ═══ -->
+      <div class="screen" id="s-recommend">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Step 02 · Intelligent Recommendation &amp; Inference</div>
+            <h2 data-i18n="rec.title">智能推荐与推理</h2>
+            <div class="lead" data-i18n="rec.lead">选择已处理的 JSON 文件，SIRIUS 将通过 4 级级联策略（推荐 + 推理）生成 SDTM 变量映射。</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:14px">
           <div class="form-row">
-            <div class="form-col col-lg">
+            <div class="form-col">
               <label class="form-lbl">Mapping File</label>
               <div class="input-row">
                 <select class="form-ctl" id="processed-select"></select>
-                <button class="btn btn-icon" id="refresh-files" title="Refresh">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="23 4 23 10 17 10"/>
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                  </svg>
+                <button class="btn btn-icon" type="button" id="refresh-files" title="刷新">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                 </button>
               </div>
             </div>
@@ -324,72 +243,74 @@
               </select>
             </div>
           </div>
-          
           <div class="action-bar">
-            <button class="btn btn-accent" id="run-job">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-svg">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-              </svg>
-              Generate Recommendations
+            <button class="btn btn-accent" type="button" id="run-job">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <span data-i18n="rec.btn.generate">生成推荐</span>
             </button>
-            <button class="btn btn-secondary" id="resume-job" style="display: none;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-svg">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Resume Task
+            <button class="btn btn-secondary" type="button" id="resume-job" style="display:none">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <span data-i18n="rec.btn.resume">恢复任务</span>
             </button>
-            <button class="btn btn-ghost" id="cancel-job">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-svg">
-                <rect x="6" y="4" width="4" height="16"/>
-                <rect x="14" y="4" width="4" height="16"/>
-              </svg>
-              Stop
+            <button class="btn btn-ghost" type="button" id="cancel-job">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              <span data-i18n="rec.btn.stop">停止</span>
             </button>
           </div>
-          
-          <div class="progress-card glass-card" id="progress-container" style="display: none;">
-            <div class="prog-head">
-              <span>Processing</span>
-              <span class="prog-pct" id="progress-pct">0%</span>
-            </div>
-            <div class="prog-track">
-              <div class="prog-bar" id="progress-fill"></div>
-            </div>
-            <div class="prog-foot">
-              <span id="progress-text">等待任务...</span>
-              <span id="elapsed-text"></span>
-            </div>
-          </div>
-          
-          <div id="download-area"></div>
         </div>
-      </section>
 
-      <!-- Step 3 -->
-      <section class="panel glass" id="panel-3" data-panel="3" style="display: none;">
-        <div class="panel-head">
-          <div class="step-badge">03</div>
-          <div class="panel-titles">
-            <h2>Generate Spec</h2>
-            <p>基于已完成 QC 的 ALS2SDTM 文件，生成完整的 SDTM 规范文档</p>
+        <div style="margin-bottom:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:8px" data-i18n="rec.cascade.title">4 级级联策略</div>
+          <div class="cascade-flow">
+            <span class="cascade-node" data-i18n="rec.cascade.1">KB 精确匹配</span>
+            <span class="cascade-arrow">→</span>
+            <span class="cascade-node" data-i18n="rec.cascade.2">KB 高置信度</span>
+            <span class="cascade-arrow">→</span>
+            <span class="cascade-node" data-i18n="rec.cascade.3">RAG 增强</span>
+            <span class="cascade-arrow">→</span>
+            <span class="cascade-node" data-i18n="rec.cascade.4">LLM 推理</span>
           </div>
         </div>
-        
-        <div class="panel-body">
+
+        <div class="progress-card" id="progress-container" style="display:none">
+          <div class="prog-head">
+            <span data-i18n="rec.progress.label">推荐生成中</span>
+            <span class="prog-pct" id="progress-pct">0%</span>
+          </div>
+          <div class="prog-track"><div class="prog-bar" id="progress-fill"></div></div>
+          <div class="prog-foot"><span id="progress-text">等待任务...</span><span class="mono" id="elapsed-text"></span></div>
+        </div>
+
+        <div id="download-area"></div>
+
+        <div class="footer-note">
+          <span data-i18n="rec.foot.left">级联策略优先使用知识库精确匹配，逐级降级</span>
+          <span data-i18n="rec.foot.right">所有推荐均需人工 QC 确认</span>
+        </div>
+      </div>
+
+      <!-- ═══ Step 03 · Generate Spec ═══ -->
+      <div class="screen" id="s-specgen">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Step 03 · Generate Spec</div>
+            <h2 data-i18n="spec.title">生成规范文档</h2>
+            <div class="lead" data-i18n="spec.lead">基于已完成 QC 的 ALS2SDTM 映射文件，填充 SDTM Spec 模板生成完整规范文档。</div>
+          </div>
+          <span class="pill ok">IG 3.2 / IG 3.4</span>
+        </div>
+
+        <div class="card" style="margin-bottom:14px">
           <div class="form-row-step3">
             <div class="form-col">
-              <label class="form-lbl">Upload ALS2SDTM</label>
+              <label class="form-lbl" data-i18n="spec.upload">上传 ALS2SDTM</label>
               <div class="input-row">
                 <div class="drop-zone drop-zone-inline" id="drop-zone-als-output">
                   <input type="file" id="file-als-output" hidden accept=".xls,.xlsx,.xlsm" />
-                  <span id="filename-als-output" class="filename-ellipsis">Select file...</span>
+                  <span id="filename-als-output" class="filename-ellipsis" data-i18n="spec.select">选择文件...</span>
                 </div>
-                <button class="btn btn-icon" id="upload-als-output" title="上传文件">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
+                <button class="btn btn-icon" type="button" id="upload-als-output" title="上传文件">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 </button>
               </div>
               <p class="status" id="status-als-output"></p>
@@ -398,19 +319,11 @@
               <label class="form-lbl">ALS2SDTM File List</label>
               <div class="input-row">
                 <select class="form-ctl filename-ellipsis" id="als-file-select"></select>
-                <button class="btn btn-icon" id="refresh-als-files" title="刷新">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="23 4 23 10 17 10"/>
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                  </svg>
+                <button class="btn btn-icon" type="button" id="refresh-als-files" title="刷新">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                 </button>
-                <button class="btn btn-icon btn-icon-danger" id="delete-als-file" title="删除文件">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    <line x1="10" y1="11" x2="10" y2="17"/>
-                    <line x1="14" y1="11" x2="14" y2="17"/>
-                  </svg>
+                <button class="btn btn-icon btn-icon-danger" type="button" id="delete-als-file" title="删除文件">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 </button>
               </div>
             </div>
@@ -418,11 +331,8 @@
               <label class="form-lbl">SDTM Spec Template</label>
               <div class="input-row">
                 <select class="form-ctl filename-ellipsis" id="template-select"></select>
-                <button class="btn btn-icon" id="refresh-templates" title="刷新">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="23 4 23 10 17 10"/>
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                  </svg>
+                <button class="btn btn-icon" type="button" id="refresh-templates" title="刷新">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                 </button>
               </div>
             </div>
@@ -431,88 +341,151 @@
           <div class="form-row-step3 form-row-step3-output-fields">
             <div class="form-col">
               <label class="form-lbl" for="spec-output-name">Output Filename</label>
-              <input
-                type="text"
-                class="form-ctl"
-                id="spec-output-name"
-                placeholder="final_spec"
-                autocomplete="off"
-              />
+              <input type="text" class="form-ctl" id="spec-output-name" placeholder="final_spec" autocomplete="off" />
             </div>
             <div class="form-col">
-              <label
-                class="form-lbl"
-                for="spec-project-name"
-                title="用于会话内项目 KB 回注；仅 A–Z、a–z、0–9、_ . -，长度 1–64"
-                >Project name（项目名）</label>
-              <input
-                type="text"
-                class="form-ctl"
-                id="spec-project-name"
-                name="project_name"
-                value="web"
-                maxlength="64"
-                placeholder="web"
-                autocomplete="off"
-                spellcheck="false"
-                title="A–Z, 0–9, underscore, dot, hyphen. Length 1–64."
-              />
+              <label class="form-lbl" for="spec-project-name" title="用于会话内项目 KB 回注；仅 A–Z、a–z、0–9、_ . -，长度 1–64">Project name（项目名）</label>
+              <input type="text" class="form-ctl" id="spec-project-name" name="project_name" value="web" maxlength="64" placeholder="web" autocomplete="off" spellcheck="false" title="A–Z, 0–9, underscore, dot, hyphen. Length 1–64." />
             </div>
           </div>
-          
-          <div class="spec-bar spec-bar-actions">
+
+          <div class="spec-bar">
             <div class="spec-bar-right">
               <label class="chk-wrap">
                 <input type="checkbox" id="create-test-sheets" checked />
-                <span class="chk-box"></span>
-                <span>Create TEST sheets</span>
+                <span data-i18n="spec.checkbox">创建 TEST sheets</span>
               </label>
               <input type="hidden" id="highlight-mappings" value="true" />
-              <button class="btn btn-accent" id="run-spec-mapper">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-svg">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                  <line x1="16" y1="13" x2="8" y2="13"/>
-                  <line x1="16" y1="17" x2="8" y2="17"/>
-                </svg>
-                Generate Spec
+              <button class="btn btn-accent" type="button" id="run-spec-mapper">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                <span data-i18n="spec.btn.generate">生成 Spec</span>
               </button>
             </div>
           </div>
-          
-          <div class="progress-card glass-card" id="spec-progress-container" style="display: none;">
-            <div class="prog-head">
-              <span>Processing</span>
-              <span class="prog-pct" id="spec-progress-pct">0%</span>
+        </div>
+
+        <div class="progress-card" id="spec-progress-container" style="display:none">
+          <div class="prog-head">
+            <span data-i18n="spec.progress.label">正在处理</span>
+            <span class="prog-pct" id="spec-progress-pct">0%</span>
+          </div>
+          <div class="prog-track"><div class="prog-bar" id="spec-progress-fill"></div></div>
+          <div class="prog-foot"><span id="spec-progress-text">正在处理...</span></div>
+        </div>
+
+        <div id="spec-download-area"></div>
+
+        <div class="footer-note">
+          <span data-i18n="spec.foot.left">输出文件符合 CDISC SDTM IG 标准格式</span>
+          <span data-i18n="spec.foot.right">Spec 文件包含变量定义、Codelist、Origin</span>
+        </div>
+      </div>
+
+      <!-- ═══ Knowledge Base ═══ -->
+      <div class="screen" id="s-library">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Knowledge Base</div>
+            <h2 data-i18n="lib.title">知识库管理</h2>
+            <div class="lead" data-i18n="lib.lead">管理 RAG 检索的历史映射文档、CDISC 标准定义和项目特定知识。</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="module-grid">
+            <div class="module">
+              <div class="tag">REFERENCE</div>
+              <h4 data-i18n="lib.ref.title">CDISC 标准库</h4>
+              <p data-i18n="lib.ref.desc">SDTM IG 3.2 / 3.4 标准、变量定义、Controlled Terminology。</p>
             </div>
-            <div class="prog-track">
-              <div class="prog-bar" id="spec-progress-fill"></div>
+            <div class="module">
+              <div class="tag">HISTORICAL</div>
+              <h4 data-i18n="lib.hist.title">历史映射库</h4>
+              <p data-i18n="lib.hist.desc">已验证的 ALS2SDTM 映射示例，用于 KB 精确匹配与 RAG 增强。</p>
             </div>
-            <div class="prog-foot">
-              <span id="spec-progress-text">正在处理...</span>
+            <div class="module">
+              <div class="tag">PROJECT</div>
+              <h4 data-i18n="lib.proj.title">项目知识库</h4>
+              <p data-i18n="lib.proj.desc">当前会话积累的项目专属映射规则与用户修正反馈。</p>
             </div>
           </div>
-          
-          <div id="spec-download-area"></div>
+          <div class="stats-grid" style="margin-top:16px">
+            <div class="stat-item"><div class="sv">1,247</div><div class="sk" data-i18n="lib.stat.entries">知识条目</div></div>
+            <div class="stat-item"><div class="sv">28</div><div class="sk" data-i18n="lib.stat.domains">SDTM 域</div></div>
+            <div class="stat-item"><div class="sv">156</div><div class="sk">Codelist</div></div>
+            <div class="stat-item"><div class="sv">89%</div><div class="sk" data-i18n="lib.stat.coverage">覆盖率</div></div>
+          </div>
         </div>
-      </section>
-    </main>
-
-    <!-- Footer -->
-    <footer class="footer">
-      <div class="footer-content">
-        <p>Designed by iSDTaiM Team</p>
-        <button class="btn btn-ghost btn-sm" id="cleanup-session" title="清理本次会话上传的所有文件">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-          </svg>
-          清理文件
-        </button>
+        <div class="footer-note">
+          <span data-i18n="lib.foot.left">知识库自动从用户修正中持续学习</span>
+          <span data-i18n="lib.foot.right">支持 Parquet 格式高效检索</span>
+        </div>
       </div>
-    </footer>
 
-    <script src="static/particles.js"></script>
-    <script src="static/app.js?v=2"></script>
-  </body>
+      <!-- ═══ Guide ═══ -->
+      <div class="screen" id="s-guide">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Documentation</div>
+            <h2 data-i18n="guide.title">使用指南</h2>
+            <div class="lead" data-i18n="guide.lead">系统使用方法与最佳实践。</div>
+          </div>
+          <a href="static/guide.html" target="_blank" class="btn btn-primary btn-sm" data-i18n="guide.open">打开完整手册</a>
+        </div>
+        <div class="card">
+          <div class="module-grid">
+            <div class="module">
+              <div class="tag">QUICK START</div>
+              <h4 data-i18n="guide.qs.title">快速开始</h4>
+              <p data-i18n="guide.qs.desc">5 分钟完成第一个 SDTM 映射任务。从上传到 Spec 输出的完整流程。</p>
+            </div>
+            <div class="module">
+              <div class="tag">WORKFLOW</div>
+              <h4 data-i18n="guide.wf.title">工作流程详解</h4>
+              <p data-i18n="guide.wf.desc">3 步流水线每个环节的详细操作说明与参数配置。</p>
+            </div>
+            <div class="module">
+              <div class="tag">FAQ</div>
+              <h4 data-i18n="guide.faq.title">常见问题</h4>
+              <p data-i18n="guide.faq.desc">文件格式要求、EDC 适配、映射质量提升等常见问题解答。</p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">
+          <span>SIRIUS Documentation</span>
+          <button class="btn btn-ghost btn-sm" type="button" id="cleanup-session" title="清理本次会话上传的所有文件">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span data-i18n="footer.cleanup">清理会话文件</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Sheet 选择对话框 (Step 1) -->
+<dialog id="sheet-dialog" class="sheet-dialog">
+  <h3 data-i18n="dialog.sheet.title">请选择要转换的 Sheet</h3>
+  <select id="example-sheet-select" size="8"></select>
+  <div class="dialog-actions">
+    <button type="button" id="sheet-cancel" class="btn btn-ghost" data-i18n="dialog.cancel">取消</button>
+    <button type="button" id="sheet-confirm" class="btn btn-accent" data-i18n="dialog.sheet.confirm">确认转换</button>
+  </div>
+</dialog>
+
+<!-- ALS Sheet 选择对话框 (Step 3) -->
+<dialog id="als-sheet-dialog" class="sheet-dialog">
+  <h3 data-i18n="dialog.als.title">请选择 ALS 文件中的 Sheet</h3>
+  <select id="als-sheet-select" size="8"></select>
+  <div class="dialog-actions">
+    <button type="button" id="als-sheet-cancel" class="btn btn-ghost" data-i18n="dialog.cancel">取消</button>
+    <button type="button" id="als-sheet-confirm" class="btn btn-accent" data-i18n="dialog.als.confirm">确认选择</button>
+  </div>
+</dialog>
+
+<!-- Toast 提示容器 -->
+<div id="toast-container" class="toast-container"></div>
+
+<script src="static/app.js?v=sirius1"></script>
+</body>
 </html>

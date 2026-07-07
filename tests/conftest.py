@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the iSDTaiM test suite.
+"""Shared pytest fixtures for the SIRIUS test suite.
 
 Provides deterministic fakes for the AI client, knowledge base, and
 settings so unit tests do not require network access, embeddings, or
@@ -51,7 +51,7 @@ def tmp_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove all iSDTaiM-specific env vars so Settings defaults apply."""
+    """Remove all SIRIUS-specific env vars so Settings defaults apply."""
     prefixes = (
         "SDTM_",
         "KB_",

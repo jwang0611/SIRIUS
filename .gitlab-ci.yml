@@ -1,4 +1,4 @@
-# GitLab CI pipeline for iSDTaiM
+# GitLab CI pipeline for SIRIUS
 #
 # Pipeline stages:
 #   - lint      : ruff static analysis + prompt YAML validation

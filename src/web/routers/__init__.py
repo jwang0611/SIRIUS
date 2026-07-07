@@ -1,1 +1,1 @@
-"""API routers for ISDTAIM web application."""
+"""API routers for SIRIUS web application."""
