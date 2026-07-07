@@ -48,7 +48,7 @@ Useful environment variables:
 |----------------------|----------------------------------------------------------------|
 | `SIRIUS_PYTHON`      | Explicit Python interpreter to run `uvicorn app:app`.          |
 | `SIRIUS_BACKEND_BIN` | Path to a self-contained backend executable (skips Python).    |
-| `SIRIUS_PORT`        | Force a specific port instead of auto-selecting a free one.    |
+| `SIRIUS_PORT`        | Force a specific port instead of auto-selecting a free one. Read by the shell (passed to the backend via `--port`); the backend itself does not read this variable. |
 
 Remember the backend still needs its own configuration (API keys, etc.) — copy
 `../env_template.txt` to `.env` at the repo root just like the web deployment.
@@ -76,6 +76,14 @@ npm run dist
 
 App icons are generated from `build/icon.svg` — see `build/README.md`.
 
+> ⚠️ **The default build bundles backend _source_, not a runnable backend.** It
+> does not include a Python interpreter or the installed dependencies, so an app
+> launched from Finder / the Start Menu will only start if a compatible Python
+> (with `requirements.txt` installed) is discoverable, or a self-contained
+> backend binary is present (see below). For a distributable that "just works"
+> on a clean machine, bundle a frozen backend as described in
+> *Production backend*.
+
 > Note: cross-building macOS installers is only fully supported **on macOS**
 > (code-signing/notarization included). Build the `.dmg` on a Mac and the
 > Windows installer on Windows or Linux.
@@ -94,9 +102,16 @@ pyinstaller --onefile --name sirius-backend \
   app.py
 ```
 
-Then either set `SIRIUS_BACKEND_BIN` to the produced binary, or add it to
-`extraResources` and have `main.js` resolve it. The shell already prefers
-`SIRIUS_BACKEND_BIN` over the Python fallback, so no window changes are needed.
+Then ship the binary one of two ways:
+
+- **Bundle it (recommended).** Add it to `extraResources` so it lands at
+  `resources/backend/sirius-backend` (or `sirius-backend.exe` on Windows).
+  `main.js` auto-detects that conventional name at startup — no env var and no
+  code changes needed.
+- **Point at it explicitly.** Set `SIRIUS_BACKEND_BIN` to the binary's path.
+
+The shell always prefers a backend binary over the Python fallback, so a
+bundled binary makes the app self-contained on a clean machine.
 
 ## Files
 

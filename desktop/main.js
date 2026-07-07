@@ -25,6 +25,8 @@ const HOST = "127.0.0.1";
 let backendProc = null;
 let mainWindow = null;
 let backendPort = null;
+let backendReady = false; // flips true once the window has loaded successfully
+let lastBackendErr = ""; // tail of stderr, surfaced when the backend dies early
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -96,37 +98,88 @@ function waitForServer(port, timeoutMs = 60000) {
   });
 }
 
-function startBackend(port) {
+// Locate a self-contained backend binary, either from SIRIUS_BACKEND_BIN or,
+// in a packaged app, a conventional name under resources/backend/. This lets a
+// PyInstaller binary bundled via extraResources be picked up automatically —
+// so a Finder/Start-Menu launch does not silently depend on a system Python.
+function resolveBackendBinary(root) {
+  if (process.env.SIRIUS_BACKEND_BIN && fs.existsSync(process.env.SIRIUS_BACKEND_BIN)) {
+    return process.env.SIRIUS_BACKEND_BIN;
+  }
+  const exe = process.platform === "win32" ? "sirius-backend.exe" : "sirius-backend";
+  return firstExisting([path.join(root, exe), path.join(root, "backend", exe)]);
+}
+
+// Resolve the backend command + args for the current mode. Prefers a
+// self-contained binary, else falls back to `python -m uvicorn app:app`.
+function resolveBackendCommand(root, port) {
+  const bin = resolveBackendBinary(root);
+  if (bin) {
+    // Self-contained backend binary (PyInstaller etc.)
+    return { cmd: bin, args: ["--host", HOST, "--port", String(port)] };
+  }
+  // Python fallback: uvicorn app:app
+  return {
+    cmd: resolvePython(root),
+    args: ["-m", "uvicorn", "app:app", "--host", HOST, "--port", String(port)],
+  };
+}
+
+// Start the backend. `onFatal(message)` is invoked if the process fails to
+// spawn (e.g. Python missing → ENOENT) or exits before the window is ready,
+// so startup failures surface immediately instead of waiting out the
+// health-check timeout.
+function startBackend(port, onFatal) {
   const root = backendRoot();
   const env = {
     ...process.env,
+    // Note: the port reaches the backend via the --port CLI arg below; this
+    // env var is exported only for backend code that may want to know it.
     SIRIUS_PORT: String(port),
+    // Ensure `import app` / `import src...` resolve when running from the repo
+    // root (mirrors PYTHONPATH=%ROOT% in run_web.bat). `python -m` already puts
+    // cwd on sys.path, but bundled binaries and odd launchers may not.
+    PYTHONPATH: root + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ""),
     PYTHONIOENCODING: "utf-8",
     PYTHONUTF8: "1",
   };
 
-  const bundled = process.env.SIRIUS_BACKEND_BIN;
-  let cmd;
-  let args;
-  if (bundled && fs.existsSync(bundled)) {
-    // Self-contained backend binary (PyInstaller etc.)
-    cmd = bundled;
-    args = ["--host", HOST, "--port", String(port)];
-  } else {
-    // Python fallback: uvicorn app:app
-    cmd = resolvePython(root);
-    args = ["-m", "uvicorn", "app:app", "--host", HOST, "--port", String(port)];
-  }
+  const { cmd, args } = resolveBackendCommand(root, port);
 
   backendProc = spawn(cmd, args, { cwd: root, env, windowsHide: true });
 
   backendProc.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
-  backendProc.stderr.on("data", (d) => process.stderr.write(`[backend] ${d}`));
+  backendProc.stderr.on("data", (d) => {
+    const text = d.toString();
+    // Keep the last chunk of stderr so an early crash can show the real cause.
+    lastBackendErr = (lastBackendErr + text).slice(-2000);
+    process.stderr.write(`[backend] ${text}`);
+  });
+
+  // spawn() failure (bad interpreter path, missing Python, EACCES) arrives as
+  // an 'error' event — without a listener Node throws and takes down the main
+  // process, bypassing the friendly dialog.
+  backendProc.on("error", (err) => {
+    console.error("[backend] spawn error:", err);
+    backendProc = null;
+    if (!backendReady) {
+      onFatal(`无法启动后端 / Failed to launch backend (${cmd}):\n\n${err.message}`);
+    }
+  });
+
   backendProc.on("exit", (code, signal) => {
     console.log(`[backend] exited code=${code} signal=${signal}`);
     backendProc = null;
-    // If the backend dies while the window is open, surface it and quit.
-    if (mainWindow && !app.isQuiting) {
+    if (app.isQuiting) return;
+    if (!backendReady) {
+      // Died during startup — report the actual stderr rather than a timeout.
+      const detail = lastBackendErr.trim();
+      onFatal(
+        `后端启动失败 / The SIRIUS backend failed to start (code ${code}).` +
+          (detail ? `\n\n${detail}` : "")
+      );
+    } else if (mainWindow) {
+      // Died while the window was open.
       dialog.showErrorBox("SIRIUS", "后端进程已退出。\nThe SIRIUS backend process has stopped.");
       app.quit();
     }
@@ -238,15 +291,27 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     buildMenu();
-    try {
-      backendPort = process.env.SIRIUS_PORT ? Number(process.env.SIRIUS_PORT) : await findFreePort();
-      startBackend(backendPort);
-      await waitForServer(backendPort);
-      createWindow(backendPort);
-    } catch (err) {
-      dialog.showErrorBox("SIRIUS", `无法启动应用 / Failed to start:\n\n${err.message}`);
+    let fatalReported = false;
+    const fail = (message) => {
+      if (fatalReported) return;
+      fatalReported = true;
+      dialog.showErrorBox("SIRIUS", message);
       stopBackend();
       app.quit();
+    };
+    try {
+      backendPort = process.env.SIRIUS_PORT ? Number(process.env.SIRIUS_PORT) : await findFreePort();
+      // Race the health check against an early backend crash so a spawn error
+      // or import failure surfaces immediately instead of after the 60s poll.
+      const earlyExit = new Promise((_, reject) => {
+        startBackend(backendPort, (message) => reject(new Error(message)));
+      });
+      await Promise.race([waitForServer(backendPort), earlyExit]);
+      backendReady = true;
+      createWindow(backendPort);
+    } catch (err) {
+      fail(`无法启动应用 / Failed to start:\n\n${err.message}`);
+      return;
     }
 
     app.on("activate", () => {
