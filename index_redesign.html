@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iSDTaiM · 智能 SDTM 映射系统</title>
+<style>
+:root{
+  --cream:#faf9f5;--cream-soft:#f5f0e8;--cream-card:#efe9de;--cream-strong:#e8e0d2;
+  --hairline:#e6dfd8;--hairline-soft:#ebe6df;
+  --coral:#cc785c;--coral-active:#a9583e;--coral-soft:#f3e2da;
+  --navy:#181715;--navy-elevated:#252320;--navy-soft:#1f1e1b;
+  --teal:#5db8a6;--teal-deep:#257448;--teal-soft:#e8f5ee;
+  --amber:#e8a55a;--amber-deep:#8a5a12;--amber-soft:#fbf1df;
+  --ink:#141413;--body:#3d3d3a;--muted:#6c6a64;--muted-soft:#8e8b82;
+  --surface:#fff;--on-dark:#faf9f5;--on-dark-soft:#a09d96;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC",Helvetica,Arial,sans-serif;
+  --serif:"Cormorant Garamond",Georgia,"Songti SC","Noto Serif SC",serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --shadow-md:0 4px 16px rgba(20,20,19,.08),0 2px 6px rgba(20,20,19,.05);
+  --shadow-lg:0 24px 60px rgba(20,20,19,.16),0 8px 24px rgba(20,20,19,.08);
+}
+html[data-theme="light"]{
+  --cream:#f5f7fa;--cream-soft:#eef2f8;--cream-card:#e4e9f2;--cream-strong:#d6dfec;
+  --hairline:#dce3ee;--hairline-soft:#e8edf5;
+  --coral:#0f62fe;--coral-active:#0a3dff;--coral-soft:#e6edff;
+  --navy:#0b0f14;--navy-elevated:#161b22;--navy-soft:#11161d;
+  --teal:#0f9d8c;--teal-deep:#0a7466;--teal-soft:#e0f4f0;
+  --amber:#c77d1a;--amber-deep:#8a5a12;--amber-soft:#faf1d8;
+  --ink:#0b0f14;--body:#333b47;--muted:#5b6472;--muted-soft:#8d959e;
+  --surface:#fff;--on-dark:#eef2f8;--on-dark-soft:#9aa3b1;
+  --shadow-md:0 4px 16px rgba(11,15,20,.08),0 2px 6px rgba(11,15,20,.05);
+  --shadow-lg:0 24px 60px rgba(11,15,20,.14),0 8px 24px rgba(11,15,20,.08);
+}
+html[data-theme="dark"]{
+  --cream:#0b0f14;--cream-soft:#0f141b;--cream-card:#1c2530;--cream-strong:#26313e;
+  --hairline:#2a313c;--hairline-soft:#222932;
+  --coral:#4da3ff;--coral-active:#7cbcff;--coral-soft:#12233a;
+  --navy:#161b22;--navy-elevated:#1e2732;--navy-soft:#11161d;
+  --teal:#4dd0b8;--teal-deep:#39d98a;--teal-soft:#0d2a22;
+  --amber:#e8a55a;--amber-deep:#e0b64a;--amber-soft:#1a1a0c;
+  --ink:#eef2f8;--body:#c3cad5;--muted:#8d959e;--muted-soft:#6b7482;
+  --surface:#161b22;--on-dark:#eef2f8;--on-dark-soft:#8d959e;
+  --shadow-md:0 4px 16px rgba(0,0,0,.36),0 2px 6px rgba(0,0,0,.3);
+  --shadow-lg:0 24px 60px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.36);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--cream);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.55}
+button:focus-visible{outline:3px solid rgba(204,120,92,.28);outline-offset:2px}
+h1,h2,h3,h4{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;color:var(--ink);margin:0}
+
+.page{min-height:100dvh;padding:24px}
+.appframe{max-width:1320px;margin:0 auto;background:var(--cream);border:1px solid var(--hairline);border-radius:18px;overflow:hidden;box-shadow:var(--shadow-lg)}
+.chrome{display:flex;align-items:center;gap:8px;padding:12px 16px;background:var(--cream-soft);border-bottom:1px solid var(--hairline)}
+.dots{display:flex;gap:7px}
+.dots i{width:12px;height:12px;border-radius:50%;display:inline-block}
+.dots i:nth-child(1){background:#e5776a}.dots i:nth-child(2){background:#e8b96a}.dots i:nth-child(3){background:#82c98a}
+.chrome .addr{flex:1;text-align:center;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.chrome-tools{display:flex;gap:8px;align-items:center}
+.themetoggle{display:inline-flex;border:1px solid var(--hairline);border-radius:9px;overflow:hidden}
+.themetoggle button{padding:6px 9px;border:none;background:var(--surface);cursor:pointer;color:var(--muted);font-size:14px;line-height:1}
+.themetoggle button:hover{color:var(--coral)}
+.themetoggle button.on{background:var(--navy);color:#fff}
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:760px}
+.app.sidebar-off{grid-template-columns:minmax(0,1fr)}
+.app.sidebar-off .sidebar{display:none}
+.chrome-toggle{width:30px;height:30px;border:1px solid var(--hairline);border-radius:8px;background:var(--surface);color:var(--body);font-size:15px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.chrome-toggle:hover{border-color:var(--coral);color:var(--coral)}
+
+/* Sidebar */
+.sidebar{background:var(--navy);color:var(--on-dark);padding:18px 14px;display:flex;flex-direction:column;gap:4px}
+.sidebar .logo{font-family:var(--serif);font-size:24px;letter-spacing:-.02em;padding:6px 10px 4px}
+.sidebar .logo .ai{font-family:var(--mono);font-size:11px;background:var(--coral);color:#fff;padding:2px 6px;border-radius:5px;margin-left:6px;vertical-align:middle;letter-spacing:.06em}
+.study-card{background:var(--navy-elevated);border:1px solid #34302b;border-radius:10px;padding:10px 12px;margin:10px 6px 14px}
+.study-card .lbl{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--on-dark-soft)}
+.study-card .val{font-size:14px;font-weight:600;margin-top:2px;color:#fff}
+.navsec{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6f6a63;padding:12px 12px 6px}
+.navitem{display:flex;align-items:flex-start;gap:11px;width:100%;padding:9px 12px;border-radius:9px;cursor:pointer;border:none;background:transparent;color:var(--on-dark-soft);text-align:left;transition:.13s ease}
+.navitem .ic{width:18px;height:18px;flex:0 0 auto;opacity:.85;font-size:14px}
+.navitem .t{font-size:13.5px;font-weight:500;color:var(--on-dark);line-height:1.2}
+.navitem .d{font-size:11px;color:#7d786f;margin-top:2px}
+.navitem .badge{display:inline-grid;place-items:center;min-width:16px;height:16px;border-radius:999px;background:rgba(255,255,255,.16);font-size:10px;font-weight:800;padding:0 4px;margin-left:4px}
+.navitem:hover{background:var(--navy-soft)}
+.navitem.active{background:var(--coral);color:#fff}
+.navitem.active .t{color:#fff}.navitem.active .d{color:rgba(255,255,255,.7)}.navitem.active .ic{opacity:1}
+.sidebar .foot{margin-top:auto;border-top:1px solid #2c2823;padding-top:10px;font-size:11px;color:var(--on-dark-soft);padding:10px 12px 0}
+
+/* Content */
+.content{background:var(--cream);overflow:hidden;position:relative}
+.screen{display:none;padding:24px 28px 30px;animation:fade .25s ease}
+.screen.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.screen-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.screen-head h2{font-size:26px}
+.screen-head .sub{font-size:12px;color:var(--muted);margin-top:4px}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--coral)}
+.lead{font-size:13px;color:var(--muted);margin-top:4px;max-width:680px}
+
+/* Shared Components */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;padding:8px 16px;border-radius:10px;border:1px solid transparent;cursor:pointer;transition:.14s ease;white-space:nowrap}
+.btn-primary{background:var(--coral);color:#fff}
+.btn-primary:hover{background:var(--coral-active)}
+.btn-ghost{background:transparent;color:var(--body);border-color:var(--hairline)}
+.btn-ghost:hover{background:var(--cream-soft);border-color:var(--muted-soft)}
+.btn-sm{font-size:12px;padding:5px 12px;border-radius:8px}
+.btn-xs{font-size:11px;padding:3px 9px;border-radius:7px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid var(--hairline);background:var(--cream-soft);color:var(--muted)}
+.pill.ok{background:var(--teal-soft);color:var(--teal-deep);border-color:var(--teal)}
+.pill.work{background:var(--coral-soft);color:var(--coral-active);border-color:rgba(204,120,92,.25)}
+.pill.wait{background:var(--amber-soft);color:var(--amber-deep);border-color:rgba(232,165,90,.3)}
+.card{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;padding:18px}
+.tile{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;padding:16px}
+.tile .k{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.02em}
+.tile .v{font-family:var(--serif);font-size:30px;margin:4px 0 2px}
+.tile .m{font-size:11px;color:var(--muted-soft)}
+.footer-note{margin-top:16px;font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.mono{font-family:var(--mono)}
+
+/* KPI Row */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+
+/* Pipeline Steps */
+.pipeline-steps{display:flex;gap:4px;margin-bottom:18px}
+.pipe-step{flex:1;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:1px solid var(--hairline);background:var(--surface);cursor:pointer;transition:.14s ease}
+.pipe-step:hover{border-color:var(--coral);background:var(--cream-soft)}
+.pipe-step.active{background:var(--coral-soft);border-color:rgba(204,120,92,.35)}
+.pipe-step .num{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--cream-card);color:var(--muted);border:1px solid var(--hairline);flex:0 0 auto}
+.pipe-step.active .num{background:var(--coral);color:#fff;border-color:var(--coral)}
+.pipe-step.done .num{background:var(--teal);color:#fff;border-color:var(--teal)}
+.pipe-step .ps-text{display:flex;flex-direction:column}
+.pipe-step .ps-title{font-size:13px;font-weight:600;color:var(--ink)}
+.pipe-step .ps-desc{font-size:11px;color:var(--muted)}
+
+/* Upload zone */
+.upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.upload-box{background:var(--surface);border:1.5px dashed var(--cream-strong);border-radius:14px;padding:20px;text-align:center;transition:.18s ease;cursor:pointer}
+.upload-box:hover{border-color:var(--coral);background:var(--cream-soft)}
+.upload-box .ub-icon{font-size:28px;margin-bottom:8px}
+.upload-box h4{font-family:var(--sans);font-size:14px;font-weight:700;margin-bottom:4px}
+.upload-box p{font-size:12px;color:var(--muted);margin:0}
+.upload-box .ub-hint{font-size:11px;color:var(--muted-soft);margin-top:6px}
+
+/* Form controls */
+.form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.form-group select,.form-group input{width:100%;height:36px;padding:0 12px;font-size:12px;border:1px solid var(--hairline);border-radius:8px;background:var(--surface);color:var(--body);outline:none;transition:.14s}
+.form-group select:focus,.form-group input:focus{border-color:var(--coral)}
+
+/* Progress */
+.progress-box{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.prog-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.prog-head .label{font-size:12px;font-weight:600;color:var(--ink)}
+.prog-head .pct{font-family:var(--mono);font-size:12px;color:var(--coral)}
+.prog-track{height:6px;border-radius:999px;background:var(--cream-card);overflow:hidden}
+.prog-bar{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--coral),var(--teal));transition:width .3s ease}
+.prog-foot{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted)}
+
+/* Result card */
+.result-card{background:var(--teal-soft);border:1px solid var(--teal);border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.result-card .rc-info{display:flex;align-items:center;gap:10px}
+.result-card .rc-icon{font-size:20px}
+.result-card .rc-text{font-size:13px;font-weight:600;color:var(--teal-deep)}
+.result-card .rc-sub{font-size:11px;color:var(--muted)}
+
+/* Module grid */
+.module-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.module{border:1px solid var(--hairline);border-radius:12px;padding:14px;background:var(--surface);transition:.14s}
+.module:hover{border-color:var(--coral);box-shadow:var(--shadow-md)}
+.module .tag{font-family:var(--mono);font-size:10px;color:var(--coral-active);font-weight:700}
+.module h4{font-family:var(--sans);font-size:14px;font-weight:700;margin:5px 0 3px}
+.module p{font-size:12px;color:var(--muted);margin:0}
+
+/* EDC toggle */
+.edc-toggle{display:inline-flex;border:1px solid var(--hairline);border-radius:8px;overflow:hidden;margin-bottom:10px}
+.edc-toggle button{padding:5px 12px;border:none;background:var(--surface);font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:.13s}
+.edc-toggle button:hover{background:var(--cream-soft)}
+.edc-toggle button.on{background:var(--coral);color:#fff}
+
+/* History table */
+.history-tbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:12px}
+.history-tbl th{text-align:left;padding:8px 10px;background:var(--cream-soft);border-bottom:1px solid var(--hairline);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.history-tbl td{padding:8px 10px;border-bottom:1px solid var(--hairline-soft);color:var(--body)}
+.history-tbl tr:hover td{background:var(--cream-soft)}
+
+/* Cascade visualization */
+.cascade-flow{display:flex;align-items:center;gap:6px;margin:14px 0;flex-wrap:wrap}
+.cascade-node{padding:6px 12px;border-radius:8px;font-size:11px;font-weight:600;border:1px solid var(--hairline);background:var(--surface);color:var(--body)}
+.cascade-node.active{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-active)}
+.cascade-arrow{color:var(--muted-soft);font-size:14px}
+
+/* Stats grid */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
+.stat-item{background:var(--cream-soft);border:1px solid var(--hairline-soft);border-radius:8px;padding:8px 10px;text-align:center}
+.stat-item .sv{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--ink)}
+.stat-item .sk{font-size:10px;color:var(--muted);margin-top:2px}
+
+/* Responsive */
+@media(max-width:980px){
+  .app{grid-template-columns:1fr}.sidebar{display:none}
+  .kpi-row,.module-grid,.upload-grid,.form-grid,.stats-grid{grid-template-columns:1fr}
+  .pipeline-steps{flex-direction:column}
+}
+@media(max-width:640px){
+  .page{padding:10px}.screen{padding:16px}
+  .screen-head{flex-direction:column}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+<div class="appframe">
+  <div class="chrome">
+    <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+    <button type="button" class="chrome-toggle" onclick="toggleSidebar()" title="折叠侧栏">☰</button>
+    <div class="addr">app.isdtaim.local / intelligent-sdtm-mapping</div>
+    <div class="chrome-tools">
+      <div class="themetoggle" id="themeToggle">
+        <button data-t="default" class="on" onclick="setTheme('default')" title="暖色">◐</button>
+        <button data-t="light" onclick="setTheme('light')" title="亮色">☀</button>
+        <button data-t="dark" onclick="setTheme('dark')" title="暗色">☾</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app" id="appShell">
+    <aside class="sidebar">
+      <div class="logo">iSDTaiM<span class="ai">RAG</span></div>
+      <div class="study-card">
+        <div class="lbl">System</div>
+        <div class="val">Intelligent SDTM Mapping</div>
+      </div>
+      <div class="navsec">Pipeline</div>
+      <button class="navitem active" type="button" data-screen="dashboard" onclick="go('dashboard',this)">
+        <span class="ic">📊</span><div><div class="t">工作台</div><div class="d">任务总览与快速操作</div></div>
+      </button>
+      <button class="navitem" type="button" data-screen="upload" onclick="go('upload',this)">
+        <span class="ic">📤</span><div><div class="t">上传预处理</div><div class="d">ALS 文件导入与转换</div></div>
+      </button>
+      <button class="navitem" type="button" data-screen="recommend" onclick="go('recommend',this)">
+        <span class="ic">🤖</span><div><div class="t">AI 推荐<span class="badge">NEW</span></div><div class="d">4 级级联智能映射</div></div>
+      </button>
+      <button class="navitem" type="button" data-screen="specgen" onclick="go('specgen',this)">
+        <span class="ic">📋</span><div><div class="t">生成 Spec</div><div class="d">SDTM 规范文档输出</div></div>
+      </button>
+      <div class="navsec">Workspace</div>
+      <button class="navitem" type="button" data-screen="library" onclick="go('library',this)">
+        <span class="ic">📚</span><div><div class="t">知识库</div><div class="d">标准 / 模板 / 历史映射</div></div>
+      </button>
+      <button class="navitem" type="button" data-screen="guide" onclick="go('guide',this)">
+        <span class="ic">📖</span><div><div class="t">使用指南</div><div class="d">系统帮助文档</div></div>
+      </button>
+      <div class="foot">iSDTaiM v1.0 · RAG + AI Copilot</div>
+    </aside>
+
+    <div class="content">
+      <!-- ═══ 工作台 ═══ -->
+      <div class="screen active" id="s-dashboard">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Dashboard</div>
+            <h2>统计编程工作台</h2>
+            <div class="lead">基于 RAG 技术的智能 CRF 到 SDTM 变量映射系统，支持百奥知 4.1 和太美 EDC 系统。</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="go('guide')">使用指南</button>
+            <button class="btn btn-primary btn-sm" type="button" onclick="go('upload')">开始新任务</button>
+          </div>
+        </div>
+
+        <div class="kpi-row">
+          <div class="tile"><div class="k">知识库文档</div><div class="v">12</div><div class="m">已索引示例映射</div></div>
+          <div class="tile"><div class="k">推荐准确率</div><div class="v">94%</div><div class="m">基于历史验证</div></div>
+          <div class="tile"><div class="k">支持域</div><div class="v">28</div><div class="m">SDTM IG 3.2 / 3.4</div></div>
+          <div class="tile"><div class="k">本次会话</div><div class="v">3</div><div class="m">已处理文件</div></div>
+        </div>
+
+        <div class="pipeline-steps">
+          <div class="pipe-step done" onclick="go('upload')">
+            <span class="num">1</span>
+            <div class="ps-text"><span class="ps-title">上传预处理</span><span class="ps-desc">ALS 文件转 JSON</span></div>
+          </div>
+          <div class="pipe-step active" onclick="go('recommend')">
+            <span class="num">2</span>
+            <div class="ps-text"><span class="ps-title">AI 推荐</span><span class="ps-desc">级联映射推荐</span></div>
+          </div>
+          <div class="pipe-step" onclick="go('specgen')">
+            <span class="num">3</span>
+            <div class="ps-text"><span class="ps-title">生成 Spec</span><span class="ps-desc">SDTM 规范输出</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4 style="font-family:var(--sans);font-size:14px;font-weight:700;margin-bottom:10px">最近任务</h4>
+          <table class="history-tbl">
+            <thead><tr><th>文件名</th><th>EDC 系统</th><th>域</th><th>状态</th><th>时间</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">DM_ALS_v2.xlsx</td><td>百奥知 4.1</td><td><span class="pill ok">DM</span></td><td><span class="pill ok">已完成</span></td><td class="mono" style="color:var(--muted)">2025-07-06 14:32</td></tr>
+              <tr><td class="mono">AE_CRF_fields.xlsx</td><td>太美</td><td><span class="pill work">AE</span></td><td><span class="pill wait">推荐中</span></td><td class="mono" style="color:var(--muted)">2025-07-06 15:01</td></tr>
+              <tr><td class="mono">VS_measurements.xlsx</td><td>百奥知 4.1</td><td><span class="pill">VS</span></td><td><span class="pill">待处理</span></td><td class="mono" style="color:var(--muted)">2025-07-06 15:18</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="footer-note">
+          <span>iSDTaiM · Intelligent SDTM Mapping System</span>
+          <span>RAG + 4-Level Cascade · CDISC Compliant</span>
+        </div>
+      </div>
+
+      <!-- ═══ 上传预处理 ═══ -->
+      <div class="screen" id="s-upload">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Step 01</div>
+            <h2>上传预处理</h2>
+            <div class="lead">上传 eCRF 数据定义 Excel 文件（ALS），系统将自动识别格式并转换为结构化 JSON 数据。</div>
+          </div>
+          <span class="pill ok">支持 .xls / .xlsx / .xlsm</span>
+        </div>
+
+        <div class="card" style="margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+            <span style="font-size:12px;font-weight:600;color:var(--muted)">EDC 系统</span>
+            <div class="edc-toggle">
+              <button class="on" type="button">百奥知 4.1</button>
+              <button type="button">太美 EDC</button>
+            </div>
+          </div>
+
+          <div class="upload-grid">
+            <div class="upload-box">
+              <div class="ub-icon">📄</div>
+              <h4>ALS Raw File</h4>
+              <p>上传 eCRF 数据定义 Excel 文件</p>
+              <div class="ub-hint">拖入文件或点击上传 · 自动识别 Sheet 结构</div>
+            </div>
+            <div class="upload-box">
+              <div class="ub-icon">📊</div>
+              <h4>ALS2SDTM Example</h4>
+              <p>上传已有的映射示例文件（可选）</p>
+              <div class="ub-hint">用于构建项目专属知识库 · 提升推荐精度</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress-box">
+          <div class="prog-head">
+            <span class="label">文件解析中...</span>
+            <span class="pct">68%</span>
+          </div>
+          <div class="prog-track"><div class="prog-bar" style="width:68%"></div></div>
+          <div class="prog-foot"><span>正在解析 DM_ALS_v2.xlsx · Sheet "DM"</span><span class="mono">12s</span></div>
+        </div>
+
+        <div class="result-card">
+          <div class="rc-info">
+            <span class="rc-icon">✅</span>
+            <div>
+              <div class="rc-text">DM_ALS_v2.json 转换完成</div>
+              <div class="rc-sub">48 个变量已提取 · 3 个 codelist 已解析</div>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" type="button">下载 JSON</button>
+        </div>
+
+        <div class="footer-note">
+          <span>支持百奥知 4.1 与太美 EDC 格式自动适配</span>
+          <span>转换结果保存至会话空间</span>
+        </div>
+      </div>
+
+      <!-- ═══ AI 推荐 ═══ -->
+      <div class="screen" id="s-recommend">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Step 02</div>
+            <h2>AI 智能推荐</h2>
+            <div class="lead">选择已处理的 JSON 文件，系统将通过 4 级级联策略生成 SDTM 变量映射推荐。</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:14px">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Mapping File</label>
+              <select>
+                <option>DM_ALS_v2.json</option>
+                <option>AE_CRF_fields.json</option>
+                <option>VS_measurements.json</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Language</label>
+              <select>
+                <option>中文</option>
+                <option>English</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>LLM Model</label>
+              <select>
+                <option>Gemini 3 Flash Preview</option>
+                <option>GPT-5 mini</option>
+                <option>Qwen 3.5 Flash</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary" type="button">Generate Recommendations</button>
+            <button class="btn btn-ghost" type="button">Stop</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:8px">4-Level Cascade Strategy</div>
+          <div class="cascade-flow">
+            <span class="cascade-node active">KB 精确匹配</span>
+            <span class="cascade-arrow">→</span>
+            <span class="cascade-node active">KB 高置信度</span>
+            <span class="cascade-arrow">→</span>
+            <span class="cascade-node">RAG 增强</span>
+            <span class="cascade-arrow">→</span>
+            <span class="cascade-node">LLM 推理</span>
+          </div>
+        </div>
+
+        <div class="progress-box">
+          <div class="prog-head">
+            <span class="label">推荐生成中</span>
+            <span class="pct">45%</span>
+          </div>
+          <div class="prog-track"><div class="prog-bar" style="width:45%"></div></div>
+          <div class="prog-foot"><span>Processing variable 22/48 · RAG enhancement</span><span class="mono">1m 23s</span></div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-item"><div class="sv">18</div><div class="sk">KB 匹配</div></div>
+          <div class="stat-item"><div class="sv">12</div><div class="sk">RAG 增强</div></div>
+          <div class="stat-item"><div class="sv">8</div><div class="sk">LLM 推理</div></div>
+          <div class="stat-item"><div class="sv">10</div><div class="sk">待处理</div></div>
+        </div>
+
+        <div class="footer-note">
+          <span>级联策略优先使用知识库精确匹配，逐级降级</span>
+          <span>所有推荐均需人工 QC 确认</span>
+        </div>
+      </div>
+
+      <!-- ═══ 生成 Spec ═══ -->
+      <div class="screen" id="s-specgen">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Step 03</div>
+            <h2>生成规范文档</h2>
+            <div class="lead">基于已完成 QC 的 ALS2SDTM 映射文件，填充 SDTM Spec 模板生成完整规范文档。</div>
+          </div>
+          <span class="pill ok">IG 3.2 / IG 3.4</span>
+        </div>
+
+        <div class="card" style="margin-bottom:14px">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>ALS2SDTM File</label>
+              <select>
+                <option>DM_ALS2SDTM_final.xlsx</option>
+                <option>AE_ALS2SDTM_QCd.xlsx</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Spec Template</label>
+              <select>
+                <option>SDTM_Spec_Template_IG32.xlsx</option>
+                <option>SDTM_Spec_Template_IG34.xlsx</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Output Filename</label>
+              <input type="text" value="DM_SDTM_Spec_v1" />
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;margin-top:4px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--body);cursor:pointer">
+              <input type="checkbox" checked style="accent-color:var(--coral)" /> Create TEST sheets
+            </label>
+            <button class="btn btn-primary" type="button">Generate Spec</button>
+          </div>
+        </div>
+
+        <div class="result-card">
+          <div class="rc-info">
+            <span class="rc-icon">📋</span>
+            <div>
+              <div class="rc-text">DM_SDTM_Spec_v1.xlsx 生成完成</div>
+              <div class="rc-sub">Domain: DM · 48 variables mapped · TEST sheets included</div>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" type="button">下载文件</button>
+        </div>
+
+        <div class="footer-note">
+          <span>输出文件符合 CDISC SDTM IG 标准格式</span>
+          <span>Spec 文件包含变量定义、Codelist、Origin</span>
+        </div>
+      </div>
+
+      <!-- ═══ 知识库 ═══ -->
+      <div class="screen" id="s-library">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Knowledge Base</div>
+            <h2>知识库管理</h2>
+            <div class="lead">管理 RAG 检索的历史映射文档、CDISC 标准定义和项目特定知识。</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="module-grid">
+            <div class="module">
+              <div class="tag">REFERENCE</div>
+              <h4>CDISC 标准库</h4>
+              <p>SDTM IG 3.2 / 3.4 标准、变量定义、Controlled Terminology。</p>
+            </div>
+            <div class="module">
+              <div class="tag">HISTORICAL</div>
+              <h4>历史映射库</h4>
+              <p>已验证的 ALS2SDTM 映射示例，用于 KB 精确匹配与 RAG 增强。</p>
+            </div>
+            <div class="module">
+              <div class="tag">PROJECT</div>
+              <h4>项目知识库</h4>
+              <p>当前会话积累的项目专属映射规则与用户修正反馈。</p>
+            </div>
+          </div>
+
+          <div class="stats-grid" style="margin-top:16px">
+            <div class="stat-item"><div class="sv">1,247</div><div class="sk">知识条目</div></div>
+            <div class="stat-item"><div class="sv">28</div><div class="sk">SDTM 域</div></div>
+            <div class="stat-item"><div class="sv">156</div><div class="sk">Codelist</div></div>
+            <div class="stat-item"><div class="sv">89%</div><div class="sk">覆盖率</div></div>
+          </div>
+        </div>
+        <div class="footer-note">
+          <span>知识库自动从用户修正中持续学习</span>
+          <span>支持 Parquet 格式高效检索</span>
+        </div>
+      </div>
+
+      <!-- ═══ 使用指南 ═══ -->
+      <div class="screen" id="s-guide">
+        <div class="screen-head">
+          <div>
+            <div class="eyebrow">Documentation</div>
+            <h2>使用指南</h2>
+            <div class="lead">系统使用方法与最佳实践。</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="module-grid">
+            <div class="module">
+              <div class="tag">QUICK START</div>
+              <h4>快速开始</h4>
+              <p>5 分钟完成第一个 SDTM 映射任务。从上传到 Spec 输出的完整流程。</p>
+            </div>
+            <div class="module">
+              <div class="tag">WORKFLOW</div>
+              <h4>工作流程详解</h4>
+              <p>3 步流水线每个环节的详细操作说明与参数配置。</p>
+            </div>
+            <div class="module">
+              <div class="tag">FAQ</div>
+              <h4>常见问题</h4>
+              <p>文件格式要求、EDC 适配、映射质量提升等常见问题解答。</p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">
+          <span>iSDTaiM Documentation</span>
+          <span>Last updated: 2025-07</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme',t==='default'?'':t);
+  document.querySelectorAll('#themeToggle button').forEach(function(b){b.classList.toggle('on',b.dataset.t===t);});
+  try{localStorage.setItem('isdtaim-theme',t);}catch(e){}
+}
+(function(){var t;try{t=localStorage.getItem('isdtaim-theme');}catch(e){}if(t)setTheme(t);})();
+
+function toggleSidebar(){document.getElementById('appShell').classList.toggle('sidebar-off');}
+
+function go(id,btn){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.toggle('active',s.id==='s-'+id);});
+  document.querySelectorAll('.navitem').forEach(function(n){n.classList.toggle('active',n.dataset.screen===id);});
+}
+</script>
+</body>
+</html>
