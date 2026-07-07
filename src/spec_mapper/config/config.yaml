@@ -1,0 +1,526 @@
+# ALS2Spec Configuration
+
+# ALS file column mappings (supports both Chinese and English column names)
+als_columns:
+  # Primary column names (Chinese, from sdtm_processor.py output)
+  table: "表"
+  variable: "变量"
+  variable_label: "变量名"
+  sdtm_domain: "SDTM_Domain"
+  sdtm_variable: "SDTM_Variable"
+  # metadata_table for [RAW] reference (preferred over table)
+  metadata_table: "metadata_table"
+  # Additional columns for codelist handling
+  component_type: "组件类型"
+  codelist_name: "编码名称"
+  # Fallback column names (English, for backwards compatibility)
+  table_en: "Metadata Table"
+  table_en2: "SASDatasetName"             # taimei raw Forms / Step-2 output column name
+  variable_en: "Metadata Variable"
+  variable_en2: "metadata_variable"       # taimei Step-2 output column name
+  variable_en3: "SASFieldName"            # taimei raw FormItem column name
+  variable_label_en: "Annotation Variable"
+  variable_label_en2: "annotation_variable"  # taimei Step-2 output column name
+  variable_label_en3: "ItemName"          # taimei raw FormItem column name
+  sdtm_domain_en: "SDTM Domain"
+  sdtm_variable_en: "Representative Variable"
+
+# Default ALS file settings
+als_defaults:
+  sheet_name: "Sheet1"
+  header_row: 0  # 0-based, first row is header
+
+# Template file column mappings (supports both English and Chinese)
+template_columns:
+  variable_name: "变量名称"  # Chinese: 变量名称, English: Variable Name
+  variable_name_en: "Variable Name"
+  transformation_def: "转换定义"  # Chinese: 转换定义, English: Transformation definition
+  transformation_def_en: "Transformation definition"
+
+# Template file settings
+template_defaults:
+  header_row: 12  # 0-based, 13th row (index 12) is the header
+  min_sheet_name_length: 2  # Only process sheets with 2-char names
+  max_sheet_name_length: 2
+
+# Output formatting
+output_format:
+  prefix: "[RAW]"
+  multi_item_format: "{index}.{value}"  # For numbered lists (e.g., conditional mappings)
+  separator: "\n"  # Separator between multiple items
+  supp_merge_separator: ";\n"  # Separator for merged SUPP records
+  # Note: | and / separators are now handled in MultiMapper for expanding ALS records
+
+# Codelist handling
+codelist_hint:
+  # When component_type is "单选" and codelist_name has value, append this note
+  trigger_component_type: "单选"
+  note: "注：请根据rawdata里变量对应的编码描述进行赋值."
+
+# Variable-specific hints (based on target SDTM variable name pattern)
+variable_hints:
+  # For SPID/GRPID variables (e.g., CMSPID, AEGRPID)
+  spid_grpid:
+    patterns: ["SPID", "GRPID"]  # Suffix patterns to match
+    note: "注：统一为z2.格式."
+  # For DTC/DAT time variables (e.g., AESTDTC, CMDTC, AESTDAT) or SUPP QNAM=*DTC/*DAT
+  dtc:
+    patterns: ["DTC", "DAT"]  # Suffix patterns to match
+    note: "注：统一为ISO8601格式."
+
+# Special variable rules
+special_variables:
+  cross_domain_references:
+    # Variables that should reference from specific domain instead of mapping
+    # Format: variable_name: {source_domain: "XX", reference_format: "XX.VARIABLE"}
+    STUDYID:
+      source_domain: "DM"  # Only map in DM sheet
+      reference_format: "DM.STUDYID"  # Other sheets use this reference
+
+# Sheet highlighting
+sheet_highlighting:
+  enabled: true
+  color: "FFFF00"  # Yellow color for sheet tabs with mappings
+  clear_existing: true  # Clear all existing tab colors before highlighting
+
+# Default active sheet
+default_active_sheet: "CONTENT"  # Sheet to show when opening the file
+
+# Fixed variable rules (applied after mapping)
+# These define standard transformation definitions for specific SDTM variables
+fixed_variables:
+  # USUBJID: Different rules for DM vs other domains
+  USUBJID:
+    dm:
+      source: "衍生"
+      transformation: '通过 "-" 连接 STUDYID, SITEID, SUBJID'
+    other:
+      source: "指定"
+      transformation: "DM.USUBJID"
+  
+  # STUDYID: Reference from DM for all non-DM domains
+  STUDYID:
+    dm:
+      source: null  # Don't override in DM
+      transformation: null
+    other:
+      source: "指定"
+      transformation: "DM.STUDYID"
+  
+  # xxSEQ: Derived variable with sorting formula
+  SEQ:
+    pattern: ".*SEQ$"  # Matches AESEQ, CMSEQ, etc.
+    all:
+      source: "衍生"
+      transformation: '=CONCATENATE("按照变量 ",$D$10,"排序。 在每个USUBJID开始的时候从1开始重新编号 (循环地排序)")'
+  
+  # VISIT and VISITNUM: Hyperlink to VISIT sheet
+  VISIT:
+    exclude_domains: [TA, TD, TE, TI, TS, TV]
+    all:
+      source: null  # Don't override source
+      transformation: '=HYPERLINK("#VISIT!A1","转换定义参考VISIT表")'
+  VISITNUM:
+    exclude_domains: [TA, TD, TE, TI, TS, TV]
+    all:
+      source: null  # Don't override source
+      transformation: '=HYPERLINK("#VISIT!A1","转换定义参考VISIT表")'
+  
+  # VISITDY: Clear transformation definition
+  VISITDY:
+    all:
+      source: null  # Don't override source
+      transformation: ""  # Set to empty
+  
+  # DOMAIN: Set to sheet name
+  DOMAIN:
+    all:
+      source: "指定"
+      transformation: "{domain}"  # Placeholder replaced with actual domain name
+  
+  # xxTESTCD: Link to CODELIST sheet
+  TESTCD:
+    pattern: ".*TESTCD$"  # Matches FATESTCD, LBTESTCD, etc.
+    all:
+      source: "指定"
+      transformation: '=HYPERLINK("#CODELIST!A1","赋值参考CODELIST表")'
+  
+  # xxTEST: Link to CODELIST sheet (but not TESTCD)
+  TEST:
+    pattern: ".*TEST$"  # Matches FATEST, LBTEST, etc. (not TESTCD due to order)
+    exclude_pattern: ".*TESTCD$"  # Exclude TESTCD variables
+    all:
+      source: "指定"
+      transformation: '=HYPERLINK("#CODELIST!A1","赋值参考CODELIST表")'
+  
+  # xxDY: Derived day calculation
+  DY:
+    pattern: ".*DY$"  # Matches AESTDY, AEENDY, CMSTDY, etc.
+    all:
+      source: "衍生"
+      transformation: '计算{var} = (数值型 {dtc_var} - 数值型DM.RFSTDTC). 注: 1. 加 1 如果计算结果大于等于0; 2. 如果日期部分缺失，则{var}为空.'
+  
+  # xxDTC: ISO8601 format note is already added via variable_hints.dtc
+  # (see variable_hints section above - applies to both SDTM and SUPP variables)
+  # Do NOT add duplicate append_note here
+  
+  # xxSTAT: Append note about empty ORRES
+  STAT:
+    pattern: ".*STAT$"  # Matches AESTAT, CMSTAT, etc.
+    all:
+      source: null  # Don't change source
+      append_note: '注：若{orres_var}为空，则赋值"未查".'  # Append to existing transformation
+
+# External coding file related variables (MedDRA, WhoDrug)
+# Each domain can have multiple operation configs (list format)
+external_coding_variables:
+  # AE domain - MedDRA coding variables
+  AE:
+    # First config: Update existing SDTM variables
+    - type: "update"
+      variable_type: "SDTM"
+      variables:
+      - name: "AELLT"
+        label: "低位语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"低位语".'
+      - name: "AELLTCD"
+        label: "低位语编码"
+        type: "Num"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"低位语代码".'
+      - name: "AEDECOD"
+        label: "标准化名称"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "必需"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"首选语".'
+      - name: "AEPTCD"
+        label: "首选语编码"
+        type: "Num"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"首选语代码".'
+      - name: "AEHLT"
+        label: "高位语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"高位语".'
+      - name: "AEHLTCD"
+        label: "高位语编码"
+        type: "Num"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"高位语代码".'
+      - name: "AEHLGT"
+        label: "高位组语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"高位组语"'
+      - name: "AEHLGTCD"
+        label: "高位组语编码"
+        type: "Num"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"高位组语代码".'
+      - name: "AEBODSYS"
+        label: "系统器官分类"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"系统器官分类".'
+      - name: "AEBDSYCD"
+        label: "系统器官分类编码"
+        type: "Num"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"系统器官分类代码".'
+      - name: "AESOC"
+        label: "主系统器官分类"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 如果"主SOC编码"等于Y，取"系统器官分类".'
+      - name: "AESOCCD"
+        label: "主系统器官分类编码"
+        type: "Num"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        core: "期望"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,如果"主SOC编码"等于Y， 取"系统器官分类代码".'
+    # Second config: Insert new SUPP variable (AEDVER)
+    - type: "insert"
+      variable_type: "SUPP"
+      variables:
+      - name: "AEDVER"
+        label: "字典版本"
+        type: "Char"
+        length: "200"
+        controlled_terms: ""
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单, 取"词典名称"和"词典版本"以空格连接.'
+
+  # CM domain - WhoDrug coding SUPP variables (insert new)
+  CM:
+    - type: "insert"
+      variable_type: "SUPP"
+      variables:
+      - name: "ATC1"
+        label: "药物类别1"
+        type: "Char"
+        length: "200"
+        controlled_terms: "WHODRUG"
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"ATC1名称".'
+      - name: "ATC1CD"
+        label: "药物类别1编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "WHODRUG"
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"ATC1编码".'
+      - name: "ATC2"
+        label: "药物类别2"
+        type: "Char"
+        length: "200"
+        controlled_terms: "WHODRUG"
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"ATC2名称".'
+      - name: "ATC2CD"
+        label: "药物类别2编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "WHODRUG"
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"ATC2编码".'
+      - name: "ATC3"
+        label: "药物类别3"
+        type: "Char"
+        length: "200"
+        controlled_terms: "WHODRUG"
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"ATC3名称".'
+      - name: "ATC3CD"
+        label: "药物类别3编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "WHODRUG"
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"ATC3编码".'
+      - name: "ATC4"
+        label: "药物类别4"
+        type: "Char"
+        length: "200"
+        controlled_terms: "WHODRUG"
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"ATC4名称".'
+      - name: "ATC4CD"
+        label: "药物类别4编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "WHODRUG"
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"ATC4编码".'
+      - name: "CMDVER"
+        label: "字典版本"
+        type: "Char"
+        length: "200"
+        controlled_terms: ""
+        source: "指定"
+        transformation: '连接外部coding文件的"WhoDrug编码明细"表单,取"词典名称"和"词典版本"以空格连接.'
+
+  # MH domain - MedDRA coding SUPP variables (insert new)
+  MH:
+    - type: "insert"
+      variable_type: "SUPP"
+      variables:
+      - name: "MHBDSYCD"
+        label: "系统器官分类编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"系统器官分类代码".'
+      - name: "MHSOC"
+        label: "主系统器官分类"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,如果"主SOC编码"="Y",取"系统器官分类".'
+      - name: "MHSOCCD"
+        label: "主系统器官分类编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,如果"主SOC编码"="Y",取"系统器官分类代码".'
+      - name: "MHHLGT"
+        label: "高位组语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"高位组语".'
+      - name: "MHHLGTCD"
+        label: "高位组语编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"高位组语代码".'
+      - name: "MHHLT"
+        label: "高位语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"高位语".'
+      - name: "MHHLTCD"
+        label: "高位语编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"高位语代码".'
+      - name: "MHPTCD"
+        label: "首选语编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"首选语代码".'
+      - name: "MHLLT"
+        label: "低位语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"低位语".'
+      - name: "MHLLTCD"
+        label: "低位语编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"低位语代码".'
+      - name: "MHDVER"
+        label: "字典版本"
+        type: "Char"
+        length: "200"
+        controlled_terms: ""
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"词典名称"和"词典版本"以空格连接.'
+
+  # PR domain - MedDRA coding SUPP variables (insert new)
+  PR:
+    - type: "insert"
+      variable_type: "SUPP"
+      variables:
+      - name: "PRBODSYS"
+        label: "系统器官分类"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"系统器官分类".'
+      - name: "PRBDSYCD"
+        label: "系统器官分类编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"系统器官分类代码".'
+      - name: "PRSOC"
+        label: "主系统器官分类"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,如果"主SOC编码"="Y",取"系统器官分类".'
+      - name: "PRSOCCD"
+        label: "主系统器官分类编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,如果"主SOC编码"="Y",取"系统器官分类代码".'
+      - name: "PRHLGT"
+        label: "高位组语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"高位组语".'
+      - name: "PRHLGTCD"
+        label: "高位组语编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"高位组语代码".'
+      - name: "PRHLT"
+        label: "高位语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"高位语".'
+      - name: "PRHLTCD"
+        label: "高位语编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"高位语代码".'
+      - name: "PRPTCD"
+        label: "首选语编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"首选语代码".'
+      - name: "PRLLT"
+        label: "低位语"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"低位语".'
+      - name: "PRLLTCD"
+        label: "低位语编码"
+        type: "Char"
+        length: "200"
+        controlled_terms: "MedDRA"
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"低位语代码".'
+      - name: "PRDVER"
+        label: "字典版本"
+        type: "Char"
+        length: "200"
+        controlled_terms: ""
+        source: "指定"
+        transformation: '连接外部coding文件的"MedDRA编码明细"表单,取"词典名称"和"词典版本"以空格连接.'
+

@@ -1,0 +1,80 @@
+"""Unit tests for ``src.config.settings``."""
+
+from __future__ import annotations
+
+import pytest
+
+from src.config.settings import (
+    CascadeSettings,
+    Settings,
+    get_settings,
+    reload_settings,
+)
+
+
+def test_defaults_when_env_clean(clean_env):
+    s = Settings.from_env()
+    assert s.ai.default_provider == "openrouter"
+    assert s.ai.default_model == "google/gemini-3-flash-preview"
+    assert s.cascade.enabled is True
+    assert s.cascade.kb_min_confidence == pytest.approx(0.8)
+    assert s.cascade.kb_high_conf == pytest.approx(0.85)
+    assert s.cascade.rag_high_conf == pytest.approx(0.7)
+    assert s.rag.top_k_retrieval == 3
+    assert s.runtime.enable_parallel is True
+    assert s.runtime.max_workers == 5
+    assert s.runtime.log_level == "INFO"
+    assert s.security.audit_log_enabled is True
+    assert s.security.data_masking_enabled is True
+
+
+def test_env_vars_override_defaults(clean_env, monkeypatch):
+    monkeypatch.setenv("DEFAULT_MODEL", "anthropic/claude-3-opus")
+    monkeypatch.setenv("CASCADE_KB_HIGH_CONF", "0.95")
+    monkeypatch.setenv("KB_MIN_CONFIDENCE", "0.8")
+    monkeypatch.setenv("SDTM_MAX_WORKERS", "12")
+    monkeypatch.setenv("AUDIT_LOG_ENABLED", "false")
+    monkeypatch.setenv("DATA_MASKING_ENABLED", "0")
+    monkeypatch.setenv("LOG_LEVEL", "debug")
+
+    s = Settings.from_env()
+    assert s.ai.default_model == "anthropic/claude-3-opus"
+    assert s.cascade.kb_high_conf == pytest.approx(0.95)
+    assert s.runtime.max_workers == 12
+    assert s.security.audit_log_enabled is False
+    assert s.security.data_masking_enabled is False
+    assert s.runtime.log_level == "DEBUG"
+
+
+def test_cascade_rejects_incoherent_thresholds(clean_env, monkeypatch):
+    monkeypatch.setenv("KB_MIN_CONFIDENCE", "0.9")
+    monkeypatch.setenv("CASCADE_KB_HIGH_CONF", "0.5")
+    with pytest.raises(Exception):
+        Settings.from_env()
+
+
+def test_reload_settings_clears_cache(clean_env, monkeypatch):
+    a = get_settings()
+    monkeypatch.setenv("DEFAULT_MODEL", "fake/test-model")
+    b = reload_settings()
+    assert a is not b
+    assert b.ai.default_model == "fake/test-model"
+
+
+def test_dump_summary_redacts_api_key(clean_env, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "super-secret")
+    s = Settings.from_env()
+    dumped = s.dump_summary()
+    assert dumped["ai"]["openrouter_api_key"] == "<set>"
+
+
+def test_cascade_settings_direct_construction():
+    c = CascadeSettings()
+    assert 0.0 <= c.kb_min_confidence <= 1.0
+    assert 0.0 <= c.kb_high_conf <= 1.0
+    assert 0.0 <= c.rag_high_conf <= 1.0
+
+
+def test_rejects_out_of_range_confidence():
+    with pytest.raises(Exception):
+        CascadeSettings(kb_min_confidence=1.5)

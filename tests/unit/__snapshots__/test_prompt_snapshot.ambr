@@ -1,0 +1,452 @@
+# serializer version: 1
+# name: TestPromptSnapshots.test_english_language
+  '''
+  You are a CDISC SDTM mapping expert with deep understanding of clinical trial data structures.
+  
+  **Task:** Analyze the provided aCRF variable and map it to the most appropriate SDTM domain and variable.
+  
+  **Important:**
+  - Input may contain Chinese clinical terms; understand and map to English SDTM
+  - Process Chinese/English inputs naturally; output SDTM variables in English
+  
+  **Rules:**
+  Mapping rules (for AE):
+  - All SDTM variable names MUST NOT exceed 8 characters.
+  - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
+  - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
+  - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
+  - Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM).
+  - Decoded term → --DECOD (e.g., AEDECOD, DSDECOD, CMDECOD).
+  - Category/分类 → --CAT; Subcategory/子分类 → --SCAT. Applies to all domains.
+  - AE-specific: Severity/严重程度 → AETOXGR; Serious/严重 → AESER; Relationship/相关性 → AEREL.
+  - AE-specific: Outcome/结局 → AEOUT; Action taken/采取措施 → AEACN.
+  - AE-specific: SAE Start Date → SUPPAE.SAESTDTC.
+  
+  
+  **Input (Current Variable):**
+  {
+    "table_name": "Adverse Events",
+    "variable": {
+      "metadata_variable": "AETERM",
+      "annotation_variable": "Adverse event term",
+      "annotation_table": "AE",
+      "type": "text"
+    }
+  }
+  
+  
+  
+  
+  
+  
+  
+  **Reasoning Checklist (consider each step before generating output):**
+  1. What clinical concept does this variable represent? Interpret the Chinese annotation if present.
+  2. Based on the table name and sibling variables, which SDTM domain does this table belong to?
+  3. Check the domain variable list above — does a standard SDTM variable exist for this concept?
+     - If YES → sdtm_variable_type: "standard", use the exact variable name from the list
+     - If NOT in the list → sdtm_variable_type: "supp", use SUPPxx dataset and assign a meaningful QNAM
+  4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
+  5. Is the variable name ≤8 characters? If not, abbreviate to fit.
+  6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  
+  **Constraints:**
+  - Variable names ≤8 chars. If longer, use SUPPxx.
+  - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
+  - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
+  - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
+  
+  **Output (JSON only):**
+  {"table_recommendations": [{"table_name": "Adverse Events", "variable_name": "AETERM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  
+  **Examples (select relevant patterns for reference):**
+  
+  Standard variables:
+  - "不良事件/不良事件名称" → AE.AETERM
+  - "不良事件/严重程度" → AE.AETOXGR
+  
+  SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
+  - "不良事件/备注" → SUPPAE.QVAL (QNAM="AECOM")
+  
+  **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
+  
+  Return only valid JSON.
+  
+  '''
+# ---
+# name: TestPromptSnapshots.test_fa_domain
+  '''
+  You are a CDISC SDTM mapping expert with deep understanding of clinical trial data structures.
+  
+  **Task:** Analyze the provided aCRF variable and map it to the most appropriate SDTM domain and variable.
+  
+  **Important:**
+  - Input may contain Chinese clinical terms; understand and map to English SDTM
+  - 中文输入 → 英文 SDTM 输出（JSON 字段名和变量名必须英文）
+  
+  **Rules:**
+  Mapping rules (for FA):
+  - All SDTM variable names MUST NOT exceed 8 characters.
+  - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
+  - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
+  - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
+  - Location/部位/位置 → --LOC (e.g., TULOC, PRLOC, VSLOC, PELOC).
+  - Position/体位 → --POS (e.g., VSPOS, EGPOS). For vital signs and ECG.
+  - Method/方法 → --METHOD (e.g., TUMETHOD, EGMETHOD). Other method → SUPPxx.xxMEOTH.
+  - FA domain: If annotation_variable does NOT contain '其他', map to FAORRES with a study-specific FATESTCD (≤8 chars, abbreviated from context). Format: 'FAORRES when FATESTCD=XX'. FATESTCD is NOT always the metadata_variable — it may be abbreviated (e.g., THPTYP→THCLA, THINDAT→THFDTC) or identical (e.g., THLOC→THLOC, THTNMT→THTNMT). sdtm_variable_type='standard'.
+  - FA domain: If annotation_variable contains '其他', map to SUPPFA. Format: 'QVAL when QNAM=FAOROTH when FATESTCD=XX', where XX is the FATESTCD of the parent (non-'其他') variable that this '其他' field belongs to. sdtm_variable_type='supp'.
+  - FA domain: Date fields (日期/date) ALSO map to FAORRES with a date-related FATESTCD (e.g., THINDAT→FAORRES when FATESTCD=THFDTC). Do NOT use FADTC for study-specific date findings in FA.
+  
+  
+  **Input (Current Variable):**
+  {
+    "table_name": "肿瘤病史表",
+    "variable": {
+      "metadata_variable": "THLOC",
+      "annotation_variable": "当前疾病部位",
+      "annotation_table": "肿瘤病史",
+      "type": "text"
+    }
+  }
+  
+  
+  
+  
+  
+  **Domain-Specific Patterns:**
+  - FA: 不含'其他'→'FAORRES when FATESTCD=XX' (XX为≤8字符的语义缩写,不一定等于metadata_variable); 含'其他'→'QVAL when QNAM=FAOROTH when FATESTCD=XX' (XX=对应父变量的FATESTCD); 日期字段也→FAORRES+FATESTCD（不要用FADTC）
+  
+  **Reasoning Checklist (consider each step before generating output):**
+  1. What clinical concept does this variable represent? Interpret the Chinese annotation if present.
+  2. Based on the table name and sibling variables, which SDTM domain does this table belong to?
+  3. Check the domain variable list above — does a standard SDTM variable exist for this concept?
+     - If YES → sdtm_variable_type: "standard", use the exact variable name from the list
+     - If NOT in the list → sdtm_variable_type: "supp", use SUPPxx dataset and assign a meaningful QNAM
+  4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
+  5. Is the variable name ≤8 characters? If not, abbreviate to fit.
+  6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  
+  **Constraints:**
+  - Variable names ≤8 chars. If longer, use SUPPxx.
+  - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
+  - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
+  - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
+  
+  **Output (JSON only):**
+  {"table_recommendations": [{"table_name": "肿瘤病史表", "variable_name": "THLOC", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  
+  **Examples (select relevant patterns for reference):**
+  
+  Standard variables:
+  - "肿瘤病史/肿瘤诊断名称(THCLDX)" → FA.FAORRES when FATESTCD=THDIA
+  - "肿瘤病史/当前疾病部位(THLOC)" → FA.FAORRES when FATESTCD=THLOC
+  
+  SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
+  - "肿瘤病史/其他病理类型(THPTYPO)" → SUPPFA.QVAL (QNAM="FAOROTH")
+  
+  **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
+  
+  Return only valid JSON.
+  
+  '''
+# ---
+# name: TestPromptSnapshots.test_multi_domain_date
+  '''
+  You are a CDISC SDTM mapping expert with deep understanding of clinical trial data structures.
+  
+  **Task:** Analyze the provided aCRF variable and map it to the most appropriate SDTM domain and variable.
+  
+  **Important:**
+  - Input may contain Chinese clinical terms; understand and map to English SDTM
+  - 中文输入 → 英文 SDTM 输出（JSON 字段名和变量名必须英文）
+  
+  **Rules:**
+  Mapping rules (for AE, CM):
+  - All SDTM variable names MUST NOT exceed 8 characters.
+  - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
+  - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
+  - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
+  - Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM).
+  - Decoded term → --DECOD (e.g., AEDECOD, DSDECOD, CMDECOD).
+  - Category/分类 → --CAT; Subcategory/子分类 → --SCAT. Applies to all domains.
+  - Dose/剂量 → --DOSE; Dose unit → --DOSU; Form → --DOSFRM; Frequency → --DOSFRQ.
+  - Route/给药途径 → --ROUTE (e.g., CMROUTE, EXROUTE, PRROUTE).
+  - AE-specific: Severity/严重程度 → AETOXGR; Serious/严重 → AESER; Relationship/相关性 → AEREL.
+  - AE-specific: Outcome/结局 → AEOUT; Action taken/采取措施 → AEACN.
+  - AE-specific: SAE Start Date → SUPPAE.SAESTDTC.
+  - CM identification: prior/concomitant/既往/合并/伴随 medication/药物治疗/用药 → CM domain.
+  - CM-specific: Indication/适应症 → CMINDC.
+  
+  
+  **Input (Current Variable):**
+  {
+    "table_name": "不良事件表",
+    "variable": {
+      "metadata_variable": "AESTDTC",
+      "annotation_variable": "不良事件开始日期",
+      "annotation_table": "不良事件",
+      "type": "text"
+    }
+  }
+  
+  
+  
+  
+  
+  
+  
+  **Reasoning Checklist (consider each step before generating output):**
+  1. What clinical concept does this variable represent? Interpret the Chinese annotation if present.
+  2. Based on the table name and sibling variables, which SDTM domain does this table belong to?
+  3. Check the domain variable list above — does a standard SDTM variable exist for this concept?
+     - If YES → sdtm_variable_type: "standard", use the exact variable name from the list
+     - If NOT in the list → sdtm_variable_type: "supp", use SUPPxx dataset and assign a meaningful QNAM
+  4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
+  5. Is the variable name ≤8 characters? If not, abbreviate to fit.
+  6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  
+  **Constraints:**
+  - Variable names ≤8 chars. If longer, use SUPPxx.
+  - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
+  - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
+  - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
+  
+  **Output (JSON only):**
+  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AESTDTC", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  
+  **Examples (select relevant patterns for reference):**
+  
+  Standard variables:
+  - "不良事件/开始日期" → AE.AESTDTC
+  - "不良事件/结束日期" → AE.AEENDTC
+  
+  SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
+  - "不良事件/备注" → SUPPAE.QVAL (QNAM="AECOM")
+  - "合并用药/备注" → SUPPCM.QVAL (QNAM="CMCOM")
+  
+  **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
+  
+  Return only valid JSON.
+  
+  '''
+# ---
+# name: TestPromptSnapshots.test_no_domain_hints
+  '''
+  You are a CDISC SDTM mapping expert with deep understanding of clinical trial data structures.
+  
+  **Task:** Analyze the provided aCRF variable and map it to the most appropriate SDTM domain and variable.
+  
+  **Important:**
+  - Input may contain Chinese clinical terms; understand and map to English SDTM
+  - 中文输入 → 英文 SDTM 输出（JSON 字段名和变量名必须英文）
+  
+  **Rules:**
+  Mapping rules (for DM):
+  - All SDTM variable names MUST NOT exceed 8 characters.
+  - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
+  - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
+  - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
+  - Demographics: Age → AGE/AGEU; Sex → SEX; Race → RACE; Ethnicity → ETHNIC; Subject ID → USUBJID/SUBJID.
+  
+  
+  **Input (Current Variable):**
+  {
+    "table_name": "受试者信息",
+    "variable": {
+      "metadata_variable": "SUBJID",
+      "annotation_variable": "受试者编号",
+      "annotation_table": "基本信息",
+      "type": "text"
+    }
+  }
+  
+  
+  
+  
+  
+  
+  
+  **Reasoning Checklist (consider each step before generating output):**
+  1. What clinical concept does this variable represent? Interpret the Chinese annotation if present.
+  2. Based on the table name and sibling variables, which SDTM domain does this table belong to?
+  3. Check the domain variable list above — does a standard SDTM variable exist for this concept?
+     - If YES → sdtm_variable_type: "standard", use the exact variable name from the list
+     - If NOT in the list → sdtm_variable_type: "supp", use SUPPxx dataset and assign a meaningful QNAM
+  4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
+  5. Is the variable name ≤8 characters? If not, abbreviate to fit.
+  6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  
+  **Constraints:**
+  - Variable names ≤8 chars. If longer, use SUPPxx.
+  - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
+  - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
+  - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
+  
+  **Output (JSON only):**
+  {"table_recommendations": [{"table_name": "受试者信息", "variable_name": "SUBJID", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  
+  **Examples (select relevant patterns for reference):**
+  
+  
+  **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
+  
+  Return only valid JSON.
+  
+  '''
+# ---
+# name: TestPromptSnapshots.test_simple_ae_term
+  '''
+  You are a CDISC SDTM mapping expert with deep understanding of clinical trial data structures.
+  
+  **Task:** Analyze the provided aCRF variable and map it to the most appropriate SDTM domain and variable.
+  
+  **Important:**
+  - Input may contain Chinese clinical terms; understand and map to English SDTM
+  - 中文输入 → 英文 SDTM 输出（JSON 字段名和变量名必须英文）
+  
+  **Rules:**
+  Mapping rules (for AE):
+  - All SDTM variable names MUST NOT exceed 8 characters.
+  - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
+  - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
+  - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
+  - Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM).
+  - Decoded term → --DECOD (e.g., AEDECOD, DSDECOD, CMDECOD).
+  - Category/分类 → --CAT; Subcategory/子分类 → --SCAT. Applies to all domains.
+  - AE-specific: Severity/严重程度 → AETOXGR; Serious/严重 → AESER; Relationship/相关性 → AEREL.
+  - AE-specific: Outcome/结局 → AEOUT; Action taken/采取措施 → AEACN.
+  - AE-specific: SAE Start Date → SUPPAE.SAESTDTC.
+  
+  
+  **Input (Current Variable):**
+  {
+    "table_name": "不良事件表",
+    "variable": {
+      "metadata_variable": "AETERM",
+      "annotation_variable": "不良事件名称",
+      "annotation_table": "不良事件",
+      "type": "text"
+    }
+  }
+  
+  
+  
+  
+  
+  
+  
+  **Reasoning Checklist (consider each step before generating output):**
+  1. What clinical concept does this variable represent? Interpret the Chinese annotation if present.
+  2. Based on the table name and sibling variables, which SDTM domain does this table belong to?
+  3. Check the domain variable list above — does a standard SDTM variable exist for this concept?
+     - If YES → sdtm_variable_type: "standard", use the exact variable name from the list
+     - If NOT in the list → sdtm_variable_type: "supp", use SUPPxx dataset and assign a meaningful QNAM
+  4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
+  5. Is the variable name ≤8 characters? If not, abbreviate to fit.
+  6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  
+  **Constraints:**
+  - Variable names ≤8 chars. If longer, use SUPPxx.
+  - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
+  - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
+  - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
+  
+  **Output (JSON only):**
+  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AETERM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  
+  **Examples (select relevant patterns for reference):**
+  
+  Standard variables:
+  - "不良事件/不良事件名称" → AE.AETERM
+  - "不良事件/严重程度" → AE.AETOXGR
+  
+  SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
+  - "不良事件/备注" → SUPPAE.QVAL (QNAM="AECOM")
+  
+  **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
+  
+  Return only valid JSON.
+  
+  '''
+# ---
+# name: TestPromptSnapshots.test_supp_ae_comment
+  '''
+  You are a CDISC SDTM mapping expert with deep understanding of clinical trial data structures.
+  
+  **Task:** Analyze the provided aCRF variable and map it to the most appropriate SDTM domain and variable.
+  
+  **Important:**
+  - Input may contain Chinese clinical terms; understand and map to English SDTM
+  - 中文输入 → 英文 SDTM 输出（JSON 字段名和变量名必须英文）
+  
+  **Rules:**
+  Mapping rules (for AE):
+  - All SDTM variable names MUST NOT exceed 8 characters.
+  - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
+  - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
+  - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
+  - Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM).
+  - Decoded term → --DECOD (e.g., AEDECOD, DSDECOD, CMDECOD).
+  - Category/分类 → --CAT; Subcategory/子分类 → --SCAT. Applies to all domains.
+  - AE-specific: Severity/严重程度 → AETOXGR; Serious/严重 → AESER; Relationship/相关性 → AEREL.
+  - AE-specific: Outcome/结局 → AEOUT; Action taken/采取措施 → AEACN.
+  - AE-specific: SAE Start Date → SUPPAE.SAESTDTC.
+  
+  
+  **Input (Current Variable):**
+  {
+    "table_name": "不良事件表",
+    "variable": {
+      "metadata_variable": "AECOM",
+      "annotation_variable": "不良事件备注",
+      "annotation_table": "不良事件",
+      "type": "text"
+    }
+  }
+  
+  
+  
+  
+  
+  
+  
+  **Reasoning Checklist (consider each step before generating output):**
+  1. What clinical concept does this variable represent? Interpret the Chinese annotation if present.
+  2. Based on the table name and sibling variables, which SDTM domain does this table belong to?
+  3. Check the domain variable list above — does a standard SDTM variable exist for this concept?
+     - If YES → sdtm_variable_type: "standard", use the exact variable name from the list
+     - If NOT in the list → sdtm_variable_type: "supp", use SUPPxx dataset and assign a meaningful QNAM
+  4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
+  5. Is the variable name ≤8 characters? If not, abbreviate to fit.
+  6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  
+  **Constraints:**
+  - Variable names ≤8 chars. If longer, use SUPPxx.
+  - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
+  - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
+  - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
+  
+  **Output (JSON only):**
+  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AECOM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  
+  **Examples (select relevant patterns for reference):**
+  
+  Standard variables:
+  - "不良事件/严重程度" → AE.AETOXGR
+  - "不良事件/是否严重" → AE.AESER
+  
+  SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
+  - "不良事件/备注" → SUPPAE.QVAL (QNAM="AECOM")
+  
+  **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
+  
+  Return only valid JSON.
+  
+  '''
+# ---

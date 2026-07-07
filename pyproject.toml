@@ -1,0 +1,144 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isdtaim"
+version = "1.0.0"
+description = "Intelligent SDTM Mapping System (iSDTaiM)"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration (requires fixtures)",
+    "e2e: marks tests as end-to-end (may call external services)",
+    "characterization: marks golden / snapshot tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+# ---------------------------------------------------------------------------
+# coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = [
+    "*/__pycache__/*",
+    "*/tests/*",
+    "*/archive/*",
+    "src/web/static/*",
+]
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "data",
+    "my_test",
+    "tests/fixtures",
+    "**/archive/**",
+    "**/__pycache__/**",
+    ".venv",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "C4",   # flake8-comprehensions
+    "PIE",  # flake8-pie
+    "SIM",  # flake8-simplify
+    "RUF",  # Ruff-specific
+]
+ignore = [
+    "E501",   # line-too-long (handled by formatter)
+    "B008",   # function call in argument defaults (FastAPI pattern)
+    "SIM108", # ternary over if-else (not always clearer)
+    "RUF001", # string contains ambiguous unicode (CJK content)
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B", "SIM", "UP"]
+"scripts/**" = ["B", "SIM"]
+"src/prompts/**" = ["E501"]
+"src/config/domain_semantic_map.py" = ["E501", "RUF012"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+ignore_missing_imports = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+follow_imports = "silent"
+exclude = [
+    "tests/",
+    "data/",
+    "my_test/",
+    "archive/",
+    "scripts/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "src.config.settings",
+    "src.models.*",
+    "src.infrastructure.*",
+    "src.processors.normalizer",
+    "src.processors.deterministic_validator",
+    "src.processors.mapping_critic",
+]
+disallow_untyped_defs = true
+check_untyped_defs = true

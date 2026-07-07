@@ -1,0 +1,222 @@
+# GitLab CI pipeline for iSDTaiM
+#
+# Pipeline stages:
+#   - lint      : ruff static analysis + prompt YAML validation
+#   - typecheck : mypy on the strict subset defined in pyproject.toml
+#   - test      : pytest unit + characterization suites against Python 3.11 / 3.12
+#                 includes prompt snapshot tests
+#   - coverage  : unified coverage report with enforced threshold
+#
+# All jobs must use the project runner tagged `python_runner`. Jobs without `tags`
+# are scheduled on any shared runner (e.g. "shared …") — set default tags below.
+#
+# python_runner uses the shell executor with a distro Python (PEP 668). Do not
+# pip-install into the system interpreter — use a job-local venv (see .python-base).
+# The `image:` key is only used by Docker/Kubernetes executors; it is ignored here.
+
+default:
+  interruptible: true
+  tags:
+    - python_runner
+
+stages:
+  - lint
+  - typecheck
+  - test
+  - coverage
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+  # Internal PyPI mirror can exceed pip's default 15s read timeout; avoid flaky CI.
+  PIP_DEFAULT_TIMEOUT: "120"
+  PIP_RETRIES: "8"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+# Cache only the pip download cache (NOT the venv).  A cached venv carries
+# platform/Python-version-specific binaries and is easily corrupted when the
+# py311 and py312 jobs share one cache key — so each job rebuilds a fresh venv
+# while pip restores wheels from cache (fast).  Key includes requirements.txt
+# so the cache is invalidated when dependencies change.
+cache:
+  key:
+    files:
+      - requirements.txt
+    prefix: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .pip-cache/
+
+.python-base:
+  before_script:
+    # Build a fresh job-local venv, then activate it in an OS-agnostic way:
+    # Linux puts the activate script under venv/bin, Windows (Git-Bash) under
+    # venv/Scripts.  If neither exists the runner is likely a non-bash Windows
+    # executor — fail loudly so the log explains why (see docs/CICD_GUIDE.md).
+    - |
+      python3 -m venv venv || python -m venv venv
+      if [ -f venv/bin/activate ]; then . venv/bin/activate
+      elif [ -f venv/Scripts/activate ]; then . venv/Scripts/activate
+      else echo "ERROR: venv activate not found (non-bash Windows executor?)"; exit 1; fi
+      python -m pip install --upgrade pip --quiet
+      pip install --quiet -r requirements.txt
+      pip install --quiet ruff mypy pytest pytest-cov syrupy pydantic pydantic-settings
+    - python -V
+
+# ---------------------------------------------------------------------------
+# Stage: lint — preflight diagnostics.
+# When the pipeline is red, read THIS job's log first: it prints the runner OS,
+# Python, and pip config WITHOUT building a venv, so it reveals the environment
+# in one push.  Does not inherit .python-base.  See docs/CICD_GUIDE.md.
+# ---------------------------------------------------------------------------
+preflight:
+  stage: lint
+  script:
+    - 'echo "==== OS ===="    ; uname -a || ver || echo "no uname/ver"'
+    - 'echo "==== shell ===="  ; echo "arg0=$0  SHELL=$SHELL"'
+    - 'echo "==== Python ====" ; python3 --version || python --version || echo "no python"'
+    - 'echo "==== pip ===="    ; python3 -m pip --version || python -m pip --version || echo "no pip"'
+    - 'echo "==== pip config ====" ; python3 -m pip config list || true'
+  allow_failure: true
+
+# ---------------------------------------------------------------------------
+# Stage: lint
+# ---------------------------------------------------------------------------
+ruff:
+  extends: .python-base
+  stage: lint
+  script:
+    - python -m ruff check src tests scripts
+    - python -m ruff format --check src tests scripts
+
+# ---------------------------------------------------------------------------
+# Stage: typecheck
+# ---------------------------------------------------------------------------
+mypy:
+  extends: .python-base
+  stage: typecheck
+  script:
+    # Older mypy rejects numpy 2.x's PEP 695 stubs under python_version 3.11;
+    # pull a modern mypy here only. "|| true" keeps a stale mirror from turning
+    # this (already allow_failure) job into a hard stop.
+    - pip install --quiet -U "mypy>=1.18.0" || true
+    - python -m mypy src
+  allow_failure: true # strict subset only; full-tree checks still in progress
+
+# ---------------------------------------------------------------------------
+# Stage: test (matrix over Python versions)
+# ---------------------------------------------------------------------------
+.test-template:
+  extends: .python-base
+  stage: test
+  script:
+    - python -V
+    - >
+      python -m pytest tests/unit tests/characterization
+      -v
+      --tb=short
+      --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    expire_in: 7 days
+
+test:py311:
+  extends: .test-template
+
+test:py312:
+  extends: .test-template
+  allow_failure: true # duplicate of host Python on shell executor; keep for future Docker matrix
+
+# ---------------------------------------------------------------------------
+# Stage: coverage
+# ---------------------------------------------------------------------------
+coverage:
+  extends: .python-base
+  stage: coverage
+  needs:
+    - job: test:py311
+      artifacts: false
+  script:
+    # Re-run with coverage flags; pytest-cov is fast because Python bytecode
+    # is already compiled and packages are cached in the shared venv.
+    - >
+      python -m pytest tests/unit tests/characterization
+      --tb=short
+      --junitxml=report-coverage.xml
+      --cov=src
+      --cov-report=term-missing
+      --cov-report=xml:coverage.xml
+      --cov-report=html:htmlcov
+      --cov-fail-under=30
+      -q
+  coverage: '/TOTAL.*?(\d+(?:\.\d+)?)%/'
+  artifacts:
+    when: always
+    paths:
+      - coverage.xml
+      - htmlcov/
+    reports:
+      junit: report-coverage.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    expire_in: 7 days
+
+# ---------------------------------------------------------------------------
+# Optional: pre-commit hook verification (kept manual to stay fast)
+# ---------------------------------------------------------------------------
+pre-commit:
+  extends: .python-base
+  stage: lint
+  script:
+    - pip install pre-commit
+    - pre-commit run --all-files
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+    - when: manual
+      allow_failure: true
+
+# ---------------------------------------------------------------------------
+# Stage: lint – Prompt YAML validation
+# Runs on every change to prompt files so CI catches structural errors early.
+# ---------------------------------------------------------------------------
+prompt:validate:
+  extends: .python-base
+  stage: lint
+  script:
+    - python scripts/prompt_ci/validate_prompts.py
+  rules:
+    - changes:
+        - src/prompts/**/*
+        - scripts/prompt_ci/**/*
+      when: always
+    - when: never
+
+# ---------------------------------------------------------------------------
+# Stage: test – Prompt snapshot tests
+# Fails when a YAML change alters rendered prompt output without updating
+# snapshots. Developer must run: pytest --snapshot-update tests/unit/test_prompt_snapshot.py
+# ---------------------------------------------------------------------------
+prompt:snapshot:
+  extends: .python-base
+  stage: test
+  script:
+    - >
+      python -m pytest tests/unit/test_prompt_snapshot.py
+      -v
+      --tb=short
+      --junitxml=report-prompt-snapshot.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-prompt-snapshot.xml
+    expire_in: 7 days
+  rules:
+    - changes:
+        - src/prompts/**/*
+        - tests/unit/test_prompt_snapshot.py
+      when: always
+    - when: never

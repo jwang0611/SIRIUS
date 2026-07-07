@@ -1,0 +1,84 @@
+# Data files
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.doc
+*.docx
+*.pkl
+*.parquet
+
+# Ignore data content but keep directory structure
+data/raw/*
+data/output/*
+data/processed/*
+!data/raw/.gitkeep
+!data/output/.gitkeep
+!data/processed/.gitkeep
+
+# Specific JSON files to ignore
+*.json
+!**/example*.json
+!**/template*.json
+!data/knowledge_base/structured/*.json
+!data/knowledge_base/structured/*.parquet
+# Keep knowledge_base key subdirectories tracked
+!data/knowledge_base/template_spec/*.xlsx
+# Keep example files for user guide
+!data/examples/*.xlsx
+
+# Environment and config
+.env
+.cursorrules
+
+# Logs
+*.log
+
+# Test fixtures (auto-generated)
+tests/fixtures/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Type / lint / test caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+report*.xml
+.tox/
+.cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Local scratch / experiments
+my_test/
+
+# Archive folders
+**/archive/
+
+# Virtual environment
+venv/
+
+# Temporary docs
+docs/
+
+CLAUDE.md
+
+# audit logs
+data/audit_logs/

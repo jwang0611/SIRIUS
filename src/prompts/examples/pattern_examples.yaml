@@ -1,0 +1,118 @@
+version: "1.0.0"
+
+# Few-shot examples organized by pattern type.
+# Each example: domain, input ("table/variable"), output (SDTM variable), type (standard|supp)
+# Optional fields: testcd, supp (dataset name), qnam
+examples:
+  term:
+    - {domain: AE, input: "不良事件/不良事件名称", output: AETERM,  type: standard}
+    - {domain: CM, input: "合并用药/药物名称",     output: CMTRT,   type: standard}
+    - {domain: MH, input: "既往病史/疾病名称",     output: MHTERM,  type: standard}
+    - {domain: PR, input: "手术操作/手术名称",     output: PRTRT,   type: standard}
+    - {domain: DS, input: "受试者处置/处置原因",   output: DSTERM,  type: standard}
+    - {domain: EX, input: "用药记录/治疗药物",     output: EXTRT,   type: standard}
+
+  date:
+    - {domain: AE, input: "不良事件/开始日期",     output: AESTDTC,  type: standard}
+    - {domain: AE, input: "不良事件/结束日期",     output: AEENDTC,  type: standard}
+    - {domain: CM, input: "合并用药/开始日期",     output: CMSTDTC,  type: standard}
+    - {domain: CM, input: "合并用药/结束日期",     output: CMENDTC,  type: standard}
+    - {domain: LB, input: "实验室检查/采集日期",   output: LBDTC,    type: standard}
+    - {domain: VS, input: "生命体征/测量日期",     output: VSDTC,    type: standard}
+    - {domain: EX, input: "用药记录/给药开始日期", output: EXSTDTC,  type: standard}
+
+  result:
+    - {domain: LB, input: "实验室检查/白细胞计数", output: LBORRES, testcd: WBC,      type: standard}
+    - {domain: LB, input: "实验室检查/血红蛋白",   output: LBORRES, testcd: HGB,      type: standard}
+    - {domain: VS, input: "生命体征/收缩压",       output: VSORRES, testcd: SYSBP,    type: standard}
+    - {domain: VS, input: "生命体征/舒张压",       output: VSORRES, testcd: DIABP,    type: standard}
+    - {domain: VS, input: "生命体征/体温",         output: VSORRES, testcd: TEMP,     type: standard}
+    - {domain: VS, input: "生命体征/心率",         output: VSORRES, testcd: HR,       type: standard}
+    - {domain: EG, input: "心电图/心率",           output: EGORRES, testcd: HR,       type: standard}
+    - {domain: EG, input: "心电图/QT间期",         output: EGORRES, testcd: QTINT,    type: standard}
+    - {domain: QS, input: "问卷量表/评分",         output: QSORRES, testcd: SCORE,    type: standard}
+    - {domain: TR, input: "肿瘤测量/病灶直径",     output: TRORRES, testcd: DIAMETER, type: standard}
+    - {domain: RS, input: "疗效评估/总体疗效",     output: RSORRES, testcd: OVRLRESP, type: standard}
+
+  supp:
+    - {domain: AE, input: "不良事件/备注",              output: QVAL, supp: SUPPAE, qnam: AECOM,    type: supp}
+    - {domain: CM, input: "合并用药/备注",              output: QVAL, supp: SUPPCM, qnam: CMCOM,    type: supp}
+    - {domain: CM, input: "合并用药/适应症若为其他请说明", output: QVAL, supp: SUPPCM, qnam: CMINDOTH, type: supp}
+    - {domain: PR, input: "手术操作/备注",              output: QVAL, supp: SUPPPR, qnam: PRCOM,    type: supp}
+    - {domain: PR, input: "手术操作/原因若为其他请说明", output: QVAL, supp: SUPPPR, qnam: PRINDOTH, type: supp}
+    - {domain: PE, input: "体格检查/备注",              output: QVAL, supp: SUPPPE, qnam: PECOM,    type: supp}
+    - {domain: TU, input: "肿瘤病灶/备注",              output: QVAL, supp: SUPPTU, qnam: TUCOM,    type: supp}
+    - {domain: MH, input: "既往病史/其他说明",          output: QVAL, supp: SUPPMH, qnam: MHCOM,    type: supp}
+
+  category:
+    - {domain: AE, input: "不良事件/分类",     output: AECAT,  type: standard}
+    - {domain: CM, input: "合并用药/用药分类", output: CMCAT,  type: standard}
+    - {domain: CM, input: "合并用药/用药子分类", output: CMSCAT, type: standard}
+    - {domain: MH, input: "既往病史/病史分类", output: MHCAT,  type: standard}
+    - {domain: PR, input: "手术操作/操作分类", output: PRCAT,  type: standard}
+
+  dose:
+    - {domain: CM, input: "合并用药/剂量",     output: CMDOSE,   type: standard}
+    - {domain: CM, input: "合并用药/剂量单位", output: CMDOSU,   type: standard}
+    - {domain: CM, input: "合并用药/给药途径", output: CMROUTE,  type: standard}
+    - {domain: CM, input: "合并用药/给药频率", output: CMDOSFRQ, type: standard}
+    - {domain: EX, input: "用药记录/给药剂量", output: EXDOSE,   type: standard}
+    - {domain: EX, input: "用药记录/剂量单位", output: EXDOSU,   type: standard}
+    - {domain: EX, input: "用药记录/给药途径", output: EXROUTE,  type: standard}
+
+  location:
+    - {domain: TU, input: "肿瘤病灶/病灶位置", output: TULOC, type: standard}
+    - {domain: PR, input: "手术操作/手术部位", output: PRLOC, type: standard}
+    - {domain: VS, input: "生命体征/测量部位", output: VSLOC, type: standard}
+    - {domain: PE, input: "体格检查/检查部位", output: PELOC, type: standard}
+
+  ae_specific:
+    - {domain: AE, input: "不良事件/严重程度",        output: AETOXGR, type: standard}
+    - {domain: AE, input: "不良事件/是否严重",        output: AESER,   type: standard}
+    - {domain: AE, input: "不良事件/与研究药物的关系", output: AEREL,   type: standard}
+    - {domain: AE, input: "不良事件/采取的措施",      output: AEACN,   type: standard}
+    - {domain: AE, input: "不良事件/转归",           output: AEOUT,   type: standard}
+
+  fa_specific:
+    - {domain: FA, input: "肿瘤病史/肿瘤诊断名称(THCLDX)",   output: "FAORRES when FATESTCD=THDIA",  type: standard}
+    - {domain: FA, input: "肿瘤病史/当前疾病部位(THLOC)",     output: "FAORRES when FATESTCD=THLOC",  type: standard}
+    - {domain: FA, input: "肿瘤病史/首次确诊病理类型(THPTYP)", output: "FAORRES when FATESTCD=THCLA",  type: standard}
+    - {domain: FA, input: "肿瘤病史/其他病理类型(THPTYPO)",   output: QVAL, supp: SUPPFA, qnam: FAOROTH, type: supp}
+    - {domain: FA, input: "肿瘤病史/首次确诊日期(THINDAT)",   output: "FAORRES when FATESTCD=THFDTC", type: standard}
+
+  indication:
+    - {domain: CM, input: "合并用药/适应症",   output: CMINDC, type: standard}
+    - {domain: PR, input: "手术操作/手术原因", output: PRINDC, type: standard}
+
+  status:
+    - {domain: MH, input: "既往病史/是否持续", output: MHENRF, type: standard}
+    - {domain: CM, input: "合并用药/是否持续", output: CMENRF, type: standard}
+    - {domain: PR, input: "手术操作/是否持续", output: QVAL,   supp: SUPPPR, qnam: PRONGO, type: supp}
+
+# Keyword → pattern mapping (used by _detect_variable_patterns)
+variable_pattern_keywords:
+  term:        ["名称", "name", "term", "药物", "疾病", "手术", "治疗"]
+  date:        ["日期", "date", "时间", "开始", "结束", "start", "end"]
+  result:      ["结果", "值", "计数", "测量", "评分", "result", "value", "score"]
+  supp:        ["备注", "说明", "其他", "comment", "remark", "other", "specify"]
+  category:    ["分类", "类别", "类型", "category", "type"]
+  dose:        ["剂量", "单位", "途径", "频率", "dose", "unit", "route", "frequency"]
+  location:    ["位置", "部位", "location", "site", "loc"]
+  ae_specific: ["严重", "关系", "措施", "转归", "severity", "relation", "action", "outcome"]
+  indication:  ["适应症", "原因", "indication", "reason"]
+  status:      ["持续", "是否", "ongoing", "status"]
+
+# Domain → patterns to auto-add when that domain is inferred
+domain_pattern_triggers:
+  AE:  [ae_specific]
+  FA:  [fa_specific]
+  LB:  [result]
+  VS:  [result]
+  EG:  [result]
+  QS:  [result]
+  TR:  [result]
+  RS:  [result]
+  CM:  [dose]
+  EX:  [dose]
+  TU:  [location]
+  PR:  [location]

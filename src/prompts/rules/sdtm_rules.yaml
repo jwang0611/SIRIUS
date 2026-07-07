@@ -1,0 +1,128 @@
+version: "1.0.0"
+
+rules:
+  # ========== CORE RULES (Always apply) ==========
+  RULE_VAR_001: "All SDTM variable names MUST NOT exceed 8 characters."
+  RULE_SUPP_001: "Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx."
+  RULE_SUPP_002: "SUPP variables with same Annotation Variable across tables must have consistent QNAM values."
+
+  # ========== PATTERN RULES (Apply to multiple domains) ==========
+  # Date patterns
+  RULE_DATE_001: "Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required."
+  RULE_DATE_002: "Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP)."
+  # Test/Result patterns (Findings domains: LB, VS, EG, PE, QS, PC, PP, TR, RS)
+  RULE_FIND_001: "Test name/项目名称 → --TEST; Test code → --TESTCD (derive from test name)."
+  RULE_FIND_002: "Result/结果 → --ORRES (original), --STRESC (character), --STRESN (numeric)."
+  RULE_FIND_003: "Unit/单位 → --ORRESU (original unit), --STRESU (standard unit)."
+  RULE_FIND_004: "Reference range → --STNRLO (low), --STNRHI (high). Applies to LB domain."
+  # Term patterns (Events/Interventions: AE, CM, MH, PR, EX, DS)
+  RULE_TERM_001: "Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM)."
+  RULE_TERM_002: "Decoded term → --DECOD (e.g., AEDECOD, DSDECOD, CMDECOD)."
+  # Category patterns
+  RULE_CAT_001: "Category/分类 → --CAT; Subcategory/子分类 → --SCAT. Applies to all domains."
+  # Location/Position patterns
+  RULE_LOC_001: "Location/部位/位置 → --LOC (e.g., TULOC, PRLOC, VSLOC, PELOC)."
+  RULE_LOC_002: "Position/体位 → --POS (e.g., VSPOS, EGPOS). For vital signs and ECG."
+  # Method patterns
+  RULE_METHOD_001: "Method/方法 → --METHOD (e.g., TUMETHOD, EGMETHOD). Other method → SUPPxx.xxMEOTH."
+  # Dose patterns (CM, EX, PR)
+  RULE_DOSE_001: "Dose/剂量 → --DOSE; Dose unit → --DOSU; Form → --DOSFRM; Frequency → --DOSFRQ."
+  RULE_DOSE_002: "Route/给药途径 → --ROUTE (e.g., CMROUTE, EXROUTE, PRROUTE)."
+  # Status patterns
+  RULE_STAT_001: "Performed/是否执行 (--PERF) → maps to --STAT/--REASND when not performed."
+
+  # ========== DOMAIN-SPECIFIC RULES ==========
+  # AE (Adverse Events)
+  RULE_AE_001: "AE-specific: Severity/严重程度 → AETOXGR; Serious/严重 → AESER; Relationship/相关性 → AEREL."
+  RULE_AE_002: "AE-specific: Outcome/结局 → AEOUT; Action taken/采取措施 → AEACN."
+  RULE_AE_003: "AE-specific: SAE Start Date → SUPPAE.SAESTDTC."
+  # CM (Concomitant Medications)
+  RULE_CM_001: "CM identification: prior/concomitant/既往/合并/伴随 medication/药物治疗/用药 → CM domain."
+  RULE_CM_002: "CM-specific: Indication/适应症 → CMINDC."
+  # MH (Medical History)
+  RULE_MH_001: "MH identification: medical history/既往史/病史 → MH domain."
+  # PR (Procedures)
+  RULE_PR_001: "PR identification: procedure/surgery/手术/操作/放疗/化疗/非药物治疗 → PR domain."
+  # TU/TR/RS (Oncology)
+  RULE_ONCO_001: "Lesion identification (ID, location, description) → TU domain."
+  RULE_ONCO_002: "Lesion measurements → TR with TRTESTCD (DIAMETER, SUMDIAM, TUMSTATE)."
+  RULE_ONCO_003: "Response assessment/疗效评估 → RS with RSTESTCD and RSORRES."
+  # DM (Demographics)
+  RULE_DM_001: "Demographics: Age → AGE/AGEU; Sex → SEX; Race → RACE; Ethnicity → ETHNIC; Subject ID → USUBJID/SUBJID."
+  # DS (Disposition)
+  RULE_DS_001: "Disposition: Term → DSTERM/DSDECOD; Category → DSCAT; Date → DSSTDTC."
+  # EX (Exposure)
+  RULE_EX_001: "Exposure: Treatment name → EXTRT. Use DOSE/ROUTE patterns for dosing info."
+  # FA (Findings About)
+  RULE_FA_001: "FA domain: If annotation_variable does NOT contain '其他', map to FAORRES with a study-specific FATESTCD (≤8 chars, abbreviated from context). Format: 'FAORRES when FATESTCD=XX'. FATESTCD is NOT always the metadata_variable — it may be abbreviated (e.g., THPTYP→THCLA, THINDAT→THFDTC) or identical (e.g., THLOC→THLOC, THTNMT→THTNMT). sdtm_variable_type='standard'."
+  RULE_FA_002: "FA domain: If annotation_variable contains '其他', map to SUPPFA. Format: 'QVAL when QNAM=FAOROTH when FATESTCD=XX', where XX is the FATESTCD of the parent (non-'其他') variable that this '其他' field belongs to. sdtm_variable_type='supp'."
+  RULE_FA_003: "FA domain: Date fields (日期/date) ALSO map to FAORRES with a date-related FATESTCD (e.g., THINDAT→FAORRES when FATESTCD=THFDTC). Do NOT use FADTC for study-specific date findings in FA."
+  # QS (Questionnaires)
+  RULE_QS_001: "Questionnaire/问卷/量表/评分 → QS domain. Use FIND patterns for test/result."
+  # PC/PP (Pharmacokinetics)
+  RULE_PK_001: "PK concentration → PC domain; PK parameters → PP domain. Use FIND patterns."
+  # IS (Immunogenicity Specimen)
+  RULE_IS_001: "ADA/NAB/免疫原性检验/免疫原性样本 → IS domain."
+  # SDTM IG 3.4 additional domains
+  RULE_OE_001: "Ophthalmic examinations/眼科检查/眼底检查/视力 → OE domain. Use FIND patterns (OEORRES, OETESTCD)."
+  RULE_MK_001: "Musculoskeletal findings/骨骼检查/骨密度 → MK domain. Use FIND patterns (MKORRES, MKTESTCD)."
+  RULE_GF_001: "Genomic findings/基因检测/FISH检查/基因组 → GF domain. Use FIND patterns (GFORRES, GFTESTCD)."
+  RULE_CP_001: "Cell phenotyping/细胞因子/免疫表型/流式细胞 → CP domain. Sample collection → CPDTC, CPCAT."
+  RULE_XU_001: "Unplanned procedures/其他计划外检查 → XU domain. Use FIND patterns (XUORRES, XUTESTCD)."
+  RULE_APMH_001: "Associated persons medical history/家族史/亲属病史 → APMH domain. Relationship → SREL; Term → MHTERM."
+
+# Core rules always applied
+core_rules:
+  - RULE_VAR_001
+  - RULE_SUPP_001
+  - RULE_SUPP_002
+
+# Pattern rules by type (loaded based on domain category)
+pattern_rules:
+  DATE:   [RULE_DATE_001, RULE_DATE_002]
+  FIND:   [RULE_FIND_001, RULE_FIND_002, RULE_FIND_003, RULE_FIND_004]
+  TERM:   [RULE_TERM_001, RULE_TERM_002]
+  CAT:    [RULE_CAT_001]
+  LOC:    [RULE_LOC_001, RULE_LOC_002]
+  METHOD: [RULE_METHOD_001]
+  DOSE:   [RULE_DOSE_001, RULE_DOSE_002]
+  STAT:   [RULE_STAT_001]
+
+# Domain-specific rules by domain code
+domain_rules:
+  AE: [RULE_AE_001, RULE_AE_002, RULE_AE_003]
+  DS: [RULE_DS_001]
+  CM: [RULE_CM_001, RULE_CM_002]
+  MH: [RULE_MH_001]
+  PR: [RULE_PR_001]
+  EX: [RULE_EX_001]
+  DM: [RULE_DM_001]
+  TU: [RULE_ONCO_001, RULE_ONCO_002, RULE_ONCO_003]
+  TR: [RULE_ONCO_001, RULE_ONCO_002, RULE_ONCO_003]
+  RS: [RULE_ONCO_001, RULE_ONCO_002, RULE_ONCO_003]
+  QS: [RULE_QS_001]
+  PC: [RULE_PK_001]
+  PP: [RULE_PK_001]
+  IS: [RULE_IS_001]
+  FA: [RULE_FA_001, RULE_FA_002, RULE_FA_003]
+  LB: []
+  VS: []
+  EG: []
+  PE: []
+  MB: []
+  MO: []
+  SC: []
+  # SDTM IG 3.4 domains
+  OE: [RULE_OE_001]
+  MK: [RULE_MK_001]
+  GF: [RULE_GF_001]
+  CP: [RULE_CP_001]
+  XU: [RULE_XU_001]
+  APMH: [RULE_APMH_001]
+
+# Domain type groupings (determines which pattern_rules are loaded per domain)
+domain_types:
+  FINDINGS:      [LB, VS, EG, PE, QS, PC, PP, TR, RS, IS, MB, MO, FA, SC]
+  EVENTS:        [AE, DS]
+  INTERVENTIONS: [CM, MH, PR, EX]
+  ONCOLOGY:      [TU, TR, RS]

@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Guide - iSDTaiM</title>
+  <link rel="icon" type="image/svg+xml" href="logo.svg" />
+  <link rel="stylesheet" href="guide.css" />
+</head>
+<body>
+
+<!-- ==================== Header ==================== -->
+<header class="guide-header">
+  <a href="../" class="brand">
+    <img src="logo.svg" alt="iSDTaiM" />
+    <span class="brand-title">iSDTaiM User Guide <span>v1.0</span></span>
+  </a>
+  <div class="header-actions">
+    <div class="theme-toggle" id="theme-toggle" title="Toggle theme">
+      <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <div class="theme-track"><div class="theme-thumb"></div></div>
+      <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </div>
+    <a href="../" class="back-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>
+      Back to App
+    </a>
+  </div>
+</header>
+
+<!-- ==================== Sidebar TOC ==================== -->
+<div class="guide-layout">
+  <nav class="guide-sidebar" id="sidebar">
+    <div class="toc-title">Contents</div>
+    <ul class="toc-list">
+      <li><a class="toc-link" href="#intro">项目介绍</a></li>
+      <li><a class="toc-link" href="#quickstart">快速上手</a>
+        <ul class="toc-sub">
+          <li><a class="toc-link" href="#qs-workflow">三步工作流</a></li>
+          <li><a class="toc-link" href="#qs-upload-notes">上传注意事项</a></li>
+        </ul>
+      </li>
+      <li><a class="toc-link" href="#recommendation">智能推荐流程</a>
+        <ul class="toc-sub">
+          <li><a class="toc-link" href="#rec-domain">Domain 推断</a></li>
+          <li><a class="toc-link" href="#rec-kb">知识库匹配（级联预测）</a></li>
+          <li><a class="toc-link" href="#rec-ai">AI 推理优化</a></li>
+          <li><a class="toc-link" href="#rec-validate">后处理与一致性校验</a></li>
+        </ul>
+      </li>
+      <li><a class="toc-link" href="#sdtm-spec-fill-rules">SDTM Spec 填充规则</a>
+        <ul class="toc-sub">
+          <li><a class="toc-link" href="#sm-general">通用规则 &amp; 高亮</a></li>
+          <li><a class="toc-link" href="#sm-content">CONTENT 表单</a></li>
+          <li><a class="toc-link" href="#sm-codelist">CODELIST 表单</a></li>
+          <li><a class="toc-link" href="#sm-domain">Domain 表单</a></li>
+          <li><a class="toc-link" href="#sm-supp">SUPP 变量</a></li>
+          <li><a class="toc-link" href="#sm-fixed">固定 Variable</a></li>
+          <li><a class="toc-link" href="#sm-meddra">MedDRA &amp; WHODRUG</a></li>
+          <li><a class="toc-link" href="#sm-test-sheet">xxTEST 表单</a></li>
+          <li><a class="toc-link" href="#sm-ig-diff">IG 3.2 vs IG 3.4</a></li>
+        </ul>
+      </li>
+      <li><a class="toc-link" href="#faq">常见问题</a></li>
+    </ul>
+  </nav>
+
+  <!-- Mobile sidebar toggle -->
+  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+
+  <!-- ==================== Main Content ==================== -->
+  <main class="guide-main">
+
+    <!-- ===== 1. 项目介绍 ===== -->
+    <section class="guide-section" id="intro">
+      <h2>项目介绍</h2>
+      <p><strong>iSDTaiM</strong>（intelligent SDTM）是一套基于 RAG + LLM 技术的智能化 CRF 到 CDISC SDTM 映射系统，帮助统计编程人员大幅减少手工映射工作量。</p>
+
+      <h3>能做什么？</h3>
+      <ul>
+        <li><strong>AI 智能推荐</strong> &mdash; 上传 eCRF 数据定义文件后，系统会结合历史映射知识库和 AI 模型，自动为每个 CRF 变量推荐对应的 SDTM Domain 和变量名</li>
+        <li><strong>知识库加速</strong> &mdash; 支持上传项目历史的 ALS2SDTM 映射文件作为参考，让推荐结果更贴合项目实际</li>
+        <li><strong>Spec 自动生成</strong> &mdash; 基于人工 QC 确认后的映射文件 + SDTM 模板，一键生成完整的 SDTM Spec Excel 文档</li>
+      </ul>
+
+      <h3>整体流程</h3>
+      <p>使用 iSDTaiM 的典型工作流程分为三大步骤：</p>
+      <ol>
+        <li><strong>上传 &amp; 预处理</strong> &mdash; 上传 eCRF 原始文件，系统自动提取变量信息</li>
+        <li><strong>AI 推荐 &amp; 人工 QC</strong> &mdash; AI 生成映射推荐，用户下载结果进行审核和修正</li>
+        <li><strong>生成 Spec</strong> &mdash; 上传 QC 后的映射文件，选择模板，自动生成 SDTM 规范文档</li>
+      </ol>
+    </section>
+
+    <!-- ===== 2. 快速上手 ===== -->
+    <section class="guide-section" id="quickstart">
+      <h2>快速上手</h2>
+
+      <h3 id="qs-workflow">三步工作流</h3>
+      <div class="step-flow">
+        <div class="step-card">
+          <div class="step-num">01</div>
+          <h4>上传 &amp; 预处理</h4>
+          <p>上传 eCRF 数据定义 Excel（ALS 原始文件），系统自动提取变量信息并生成结构化数据。如有历史项目的 ALS2SDTM 映射文件，也可一并上传，系统会将其作为知识库参考，提升后续推荐准确率。</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">02</div>
+          <h4>AI 智能推荐</h4>
+          <p>选择步骤 1 中处理好的文件，选择语言和 AI 模型，点击"生成推荐"。系统自动为每个 CRF 变量推荐 SDTM 映射。完成后请<strong>及时下载</strong> Excel 结果进行人工审核。</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">03</div>
+          <h4>生成 Spec 文档</h4>
+          <p>上传经过 QC 确认的 ALS2SDTM 映射文件，选择 SDTM 模板，点击"生成 Spec"。系统自动填充各 Domain 表单、CONTENT、CODELIST 等内容，生成完整的 SDTM 规范文档。完成后请<strong>及时下载</strong> Excel 结果进行人工审核。</p>
+        </div>
+      </div>
+
+      <h3 id="qs-upload-notes">上传文件注意事项</h3>
+      <div class="callout callout-warn">
+        <strong>重要</strong>
+        请在上传前仔细检查文件格式，避免因格式问题导致处理失败。
+      </div>
+      <h4>ALS 原始文件（Step 1 左侧卡片）
+        <a href="../examples/als_example.xlsx" class="example-link" download>下载示例</a>
+      </h4>
+      <ul>
+        <li>支持格式：<code>.xls</code>、<code>.xlsx</code>、<code>.xlsm</code></li>
+        <li>文件应为 eCRF 数据库定义列表（ALS 原始文件），目前支持<strong>百奥知 4.1</strong> 和<strong>太美</strong> EDC 系统导出的原始文件，上传前请在页面选择对应的 EDC 系统，文件如示例所示</li>
+        <li>上传后系统会自动提取并转换为结构化数据</li>
+      </ul>
+      <h4>ALS2SDTM 示例文件（Step 1 右侧卡片）
+        <a href="../examples/als2sdtm_example_as_kb.xlsx" class="example-link" download>下载示例</a>
+      </h4>
+      <ul>
+        <li>可选上传，用于增强 AI 推荐效果</li>
+        <li>上传时需要选择正确的表单名称，表单必须信息如示例文件所示，否则无法正确推荐</li>
+        <li>建议上传与当前项目同类型（如同适应症）的历史映射文件，效果最佳</li>
+      </ul>
+      <h4>QC 后的 ALS2SDTM 文件（Step 3）
+        <a href="../examples/als2sdtm_example_for_spec.xlsx" class="example-link" download>下载示例</a>
+      </h4>
+      <ul>
+        <li>应为步骤 2 生成的推荐结果经过人工审核修正后的版本</li>
+        <li>上传时需要选择包含映射数据的表单，表单必须信息如示例文件所示，否则无法正确生成 Spec</li>
+        <li>确保 Domain 和 Variable 列的内容正确，因为这将直接影响 Spec 生成结果</li>
+      </ul>
+      <div class="callout callout-tip">
+        <strong>提示</strong>
+        每位用户的上传文件相互独立，关闭浏览器后会自动清理。如需立即清理，可点击页面底部的"清理文件"按钮。
+      </div>
+    </section>
+
+    <!-- ===== 3. 智能推荐流程 ===== -->
+    <section class="guide-section" id="recommendation">
+      <h2>智能推荐流程</h2>
+      <p>在 Step 2 中点击"生成推荐"后，系统会对每个 CRF 变量依次执行以下流程，自动给出 SDTM Domain 和变量名的推荐结果。</p>
+
+      <div class="callout callout-tip">
+        <strong>建议</strong>
+        上传与当前项目相似的历史映射文件作为项目知识库，可以显著提升推荐准确率。系统会优先参考这些历史映射给出建议。
+      </div>
+
+      <h3 id="rec-domain">第一步：Domain 推断</h3>
+      <p>系统首先根据 CRF 表单名称和变量描述，推断每个变量应归属的 SDTM Domain（如 AE、DM、VS 等），为后续匹配缩小范围。推断按以下顺序依次尝试，一旦命中即确定：</p>
+      <table>
+        <thead>
+          <tr><th>顺序</th><th>依据</th><th>举例</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>CRF 表单名称精确匹配</td><td>表名为"不良事件" &rarr; 对应 AE</td></tr>
+          <tr><td>2</td><td>CRF 表单名称包含关键词</td><td>表名含"超声心动图" &rarr; 对应 CV</td></tr>
+          <tr><td>3</td><td>CRF 表单名称通用关键词</td><td>表名含"实验室" &rarr; 对应 LB</td></tr>
+          <tr><td>4</td><td>变量描述语义匹配</td><td>描述含"不良事件名称" &rarr; 对应 AE</td></tr>
+          <tr><td>5</td><td>表代码直接匹配</td><td>代码为"VS" &rarr; 对应 VS</td></tr>
+        </tbody>
+      </table>
+      <p>如果 AI 最终推荐的 Domain 不在 SDTM 标准列表中（如拼写错误），系统会自动纠正，并降低该条推荐的置信度分数，提醒用户关注。</p>
+
+      <h3 id="rec-kb">第二步：知识库匹配（4 级级联预测）</h3>
+      <p>确定候选 Domain 后，系统采用 <strong>4 级级联退出</strong>策略，高置信度时自动跳过 LLM 调用，大幅降低成本和延迟：</p>
+      <table>
+        <thead>
+          <tr><th>级别</th><th>匹配方式</th><th>条件</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Level 1</strong></td>
+            <td>KB 精确匹配</td>
+            <td>CRF 表名 + 变量描述完全一致</td>
+            <td>直接采用历史映射结果，置信度最高，无需调用 AI</td>
+          </tr>
+          <tr>
+            <td><strong>Level 2</strong></td>
+            <td>KB 高置信度</td>
+            <td>语义相似度 &ge; 0.85</td>
+            <td>知识库匹配到高置信度结果，直接采纳</td>
+          </tr>
+          <tr>
+            <td><strong>Level 3</strong></td>
+            <td>RAG 增强匹配</td>
+            <td>RAG 检索得分 &ge; 0.70</td>
+            <td>从知识库检索相关片段，高置信度时直接采纳，跳过 LLM</td>
+          </tr>
+          <tr>
+            <td><strong>Level 4</strong></td>
+            <td>LLM 完整推理</td>
+            <td>以上均不满足</td>
+            <td>调用 AI 模型综合推理，结合知识库参考和 SDTM 规则给出推荐</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>知识库包括<strong>默认知识库</strong>（通用 SDTM 映射参考）和您在 Step 1 上传的<strong>项目知识库</strong>（历史 ALS2SDTM 文件）。上传与当前项目相似的历史映射文件，可以让更多变量在 Level 1-3 直接命中，显著减少 LLM 调用。</p>
+
+      <h3 id="rec-ai">第三步：AI 推理优化</h3>
+      <p>当进入 Level 4 LLM 推理时，系统通过以下优化提升推荐准确率：</p>
+      <ul>
+        <li><strong>结构化 Prompt</strong> &mdash; 采用版本化 YAML 模板管理提示词，包含 6 步推理清单引导 AI 系统化分析（临床概念 &rarr; 域推断 &rarr; 标准/SUPP 判定 &rarr; TESTCD &rarr; 变量名长度 &rarr; 表内一致性）</li>
+        <li><strong>表内上下文注入</strong> &mdash; 自动注入同 CRF 表的变量列表和已映射结果，帮助 AI 保持表内 Domain 和变量映射的一致性</li>
+        <li><strong>智能域变量展示</strong> &mdash; 候选域较少时展示全部标准变量列表，减少 AI 发明非标准变量名的概率</li>
+        <li><strong>动态规则 &amp; 示例</strong> &mdash; 根据推断的 Domain 类型（发现/事件/干预等）动态选择相关规则和匹配的 Few-shot 示例</li>
+        <li><strong>IG 3.4 域支持</strong> &mdash; 新增 OE、MK、GF、CP、XU、APMH 等 IG 3.4 新域的关键词映射和规则</li>
+      </ul>
+
+      <h3 id="rec-validate">第四步：后处理与一致性校验</h3>
+      <p>无论通过哪个级别获得推荐结果，系统都会执行以下验证和校验：</p>
+
+      <h4>确定性规则验证（逐条校验）</h4>
+      <table>
+        <thead>
+          <tr><th>校验项</th><th>行为</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>域合法性</strong></td><td>无效域自动替换为推断域，降低置信度（&times;0.7，最高 0.6），标记 <code>invalid_domain_corrected</code></td></tr>
+          <tr><td><strong>变量名长度</strong></td><td>&gt;8 字符时自动查找该域最相似的标准变量名修正（相似度 &ge; 0.6）；无匹配则截断至 8 字符并降低分数</td></tr>
+          <tr><td><strong>变量-域前缀一致性</strong></td><td>标记前缀不匹配（如 AE 域中出现 CM 开头变量），提醒用户关注</td></tr>
+          <tr><td><strong>IG 3.4 标准变量校验</strong></td><td>标准变量自动对照 IG 3.4 域变量列表（63 域），非标准变量标记提醒</td></tr>
+        </tbody>
+      </table>
+
+      <h4>批量一致性校验（12 项跨记录检查）</h4>
+      <table>
+        <thead>
+          <tr><th>检查项</th><th>严重度</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>同表域一致性</td><td>warning</td><td>同一 CRF 表变量映射到过多不同域时预警</td></tr>
+          <tr><td>Findings TESTCD 关联</td><td>warning</td><td>发现类域的 ORRES 变量缺少对应 TESTCD</td></tr>
+          <tr><td>变量名合法性</td><td>error</td><td>变量名超过 8 字符或包含空格</td></tr>
+          <tr><td>域合法性</td><td>error</td><td>域不在合法 SDTM 域列表中</td></tr>
+          <tr><td>重复映射</td><td>info</td><td>同一变量从不同来源产生重复推荐</td></tr>
+          <tr><td>SUPP 完整性</td><td>error</td><td>SUPP 记录缺少 <code>supp_dataset</code>、<code>supp_variable</code> 或 <code>sdtm_variable</code> 非 QVAL</td></tr>
+          <tr><td>分数合理性</td><td>error/warning</td><td>分数超出 [0,1] 或个别分数 &lt; 0.5</td></tr>
+          <tr><td>KB 表达式完整性</td><td>error</td><td>KB 记录变量名截断后条件表达式被破坏</td></tr>
+          <tr><td>SUPP 命名规范</td><td>error</td><td>SUPP QNAM 不符合 <code>^[A-Z0-9]{1,8}$</code> 格式</td></tr>
+          <tr><td>变量覆盖率</td><td>error</td><td>输入 CRF 变量缺少有效推荐</td></tr>
+          <tr><td>未映射比例</td><td>warning</td><td>批次级 UNMAPPED 变量占比超过 10%</td></tr>
+          <tr><td>低置信度比例</td><td>warning</td><td>置信度 &lt; 0.7 的变量占比超过 20%</td></tr>
+        </tbody>
+      </table>
+      <p>校验完成后，系统自动去除重复推荐，保留每个变量置信度最高的结果。</p>
+    </section>
+
+    <!-- ===== 4. SDTM Spec 填充规则 ===== -->
+    <section class="guide-section" id="sdtm-spec-fill-rules">
+      <h2>SDTM Spec 填充规则</h2>
+
+      <h3 id="sm-general">通用规则 &amp; 高亮</h3>
+      <ol>
+        <li>支持基于 SDTM IG 3.2 与 IG 3.4 模板文件进行填充，系统通过读取模板 <code>CONTENT!B4</code> 的版本号自动选择对应配置。</li>
+        <li>系统仅修改 ALS 文件中涉及的 Domain 表单，其余模板表单保持不变。</li>
+        <li>H 列（转换定义列）在所有 ALS Domain 表单中自动启用<strong>自动换行</strong>。</li>
+        <li>生成完成后默认激活 CONTENT 表单。</li>
+      </ol>
+      <div class="callout callout-warn">
+        <strong>高亮颜色说明</strong>
+        <ul style="margin:0.5em 0 0">
+          <li><strong style="color:var(--c-orange)">黄色高亮</strong> &mdash; 系统自动填充的内容（默认开启，可通过配置关闭）</li>
+          <li><strong style="color:#ef4444">红色高亮</strong> &mdash; 需要重点关注的内容：SUPP 变量 Label 长度超过 40 字符，或转换定义来源于多个 rawdata</li>
+          <li><strong style="color:#6cb4ee">蓝色高亮</strong> &mdash; ALS 中存在但模板中无对应行的 SDTM 变量（未匹配变量），自动插入新行</li>
+          <li><strong style="color:var(--c-orange)">黄色 Sheet 标签</strong> &mdash; 被修改过的表单标签会标记为黄色，便于快速识别</li>
+        </ul>
+      </div>
+
+      <h3 id="sm-content">CONTENT 表单</h3>
+      <table>
+        <thead>
+          <tr><th>规则</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>F 列（来源）更新</strong></td>
+            <td>ALS 中涉及的每个 Domain，F 列自动<strong>替换</strong>为该域对应的 CRF 表名列表（<code>metadata_table</code> 去重排序后逗号分隔）。非 DM 域自动追加 <code>SDTM.DM</code>；发现类域（Findings）自动追加 <code>SDTM.SV</code>。</td>
+          </tr>
+          <tr>
+            <td><strong>SUPPxx 行插入</strong></td>
+            <td>当 ALS 产生 SUPP 变量时，在对应 Domain 块末尾插入一行 <code>SUPP{xx}</code>，自动填充 A~H 列（名称、描述、结构、数据集、用途、排序变量等），F 列自动复制父域来源。A 列带超链接指向父域表单。</td>
+          </tr>
+          <tr>
+            <td><strong>非标准 Domain</strong></td>
+            <td>ALS 中存在但模板中没有的合法 2 字母 Domain，在 CONTENT 末尾追加一行，B 列标记为 <code>非标准域 XX (请确认)</code>，以<strong style="color:var(--c-orange)">黄色高亮</strong>提醒用户确认。</td>
+          </tr>
+          <tr>
+            <td><strong>超链接修复</strong></td>
+            <td>所有 SUPP 行插入完成后，自动重建 A 列超链接：标准域指向自身表单，SUPPxx 指向父域表单。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="sm-codelist">CODELIST 表单</h3>
+      <table>
+        <thead>
+          <tr><th>规则</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>自动填充 TESTCD</strong></td>
+            <td>从 ALS 的条件映射（<code>when xxTESTCD=VALUE</code>）中提取 TESTCD 值，自动写入 CODELIST。每行填写 A（域）、B（TESTCD 变量名）、E（<code>Char</code>）、F（TESTCD 值）。</td>
+          </tr>
+          <tr>
+            <td><strong>I 列（Label）</strong></td>
+            <td>自动填充 ALS 文件中的变量标签（<code>variable_label</code>）。</td>
+          </tr>
+          <tr>
+            <td><strong>J 列（EDC VAR）</strong></td>
+            <td>自动填充 CRF 变量名（<code>metadata_variable</code>），表头自动设为 <code>EDC VAR</code>。</td>
+          </tr>
+          <tr>
+            <td><strong>合并规则</strong></td>
+            <td>已有行（同 Domain + TESTCD 变量 + TESTCD 值）仅<strong>补填空白</strong>的 I/J 列；新增行在该 Domain 块末尾<strong>插入</strong>新行，不会覆盖模板下方已有内容。</td>
+          </tr>
+          <tr>
+            <td><strong>xxTEST 列</strong></td>
+            <td>xxTEST 值需<strong>用户自行定义</strong>，系统不自动填充。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="sm-domain">Domain 表单</h3>
+      <p>系统仅修改 ALS 中涉及的 2 字母 Domain 表单（如 AE、DM、VS 等），从第 14 行开始填写。</p>
+      <table>
+        <thead>
+          <tr><th>规则</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>H 列（转换定义）</strong></td>
+            <td>
+              根据 ALS 映射类型自动生成转换定义：
+              <ul>
+                <li><strong>普通映射</strong>：<code>[RAW]表名.变量名</code>；多来源用 <code>;</code> 换行分隔</li>
+                <li><strong>条件映射</strong>：<code>[RAW]表名.变量名 when xxTESTCD=VALUE;</code> 逐条列出</li>
+                <li><strong>赋值映射</strong>：<code>赋值为"VALUE"</code>（可附加 when 条件）</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>F 列（来源）</strong></td>
+            <td>
+              映射变量统一更新为 <code>CRF</code>；以 TESTCD 结尾的变量设为 <code>指定</code>；赋值类映射设为 <code>指定</code>。已有的 <code>指定</code>/<code>衍生</code> 值保持不变。固定变量规则可能进一步覆盖（见下方）。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>编码变量注释</strong></td>
+            <td>带编码的 raw 变量通过 ALS 自动识别，仅在变量为<strong>单选</strong>时追加注释：<code>注：请根据rawdata里变量对应的编码描述进行赋值</code>。</td>
+          </tr>
+          <tr>
+            <td><strong>日期变量注释</strong></td>
+            <td>变量名以 <code>DTC</code> 或 <code>DAT</code> 结尾时（含 SUPP 变量），自动追加：<code>注：统一为ISO8601格式</code>。</td>
+          </tr>
+          <tr>
+            <td><strong>SPID/GRPID 注释</strong></td>
+            <td>变量名以 <code>SPID</code> 或 <code>GRPID</code> 结尾时，自动追加：<code>注：统一为z2格式</code>。</td>
+          </tr>
+          <tr>
+            <td><strong>未匹配变量</strong></td>
+            <td>ALS 中存在但模板无对应行的 SDTM 变量，在最后一行 SDTM 行之后<strong>插入新行</strong>，以<strong style="color:#6cb4ee">蓝色高亮</strong>标记（A、B、F、H、I 列），B 列留空需用户自行填写 Label。</td>
+          </tr>
+          <tr>
+            <td><strong>D10 排序公式</strong></td>
+            <td>自动生成 <code>INDEX-MATCH</code> 公式，引用 CONTENT 的 H 列排序变量。</td>
+          </tr>
+          <tr>
+            <td><strong>CONTENT 返回链接</strong></td>
+            <td>每个 Domain 表单底部自动添加指向 CONTENT 对应行的 <code>HYPERLINK</code> 公式。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="sm-supp">SUPP 变量处理</h3>
+      <p>ALS 中 <code>QVAL when QNAM=xxx</code> 格式的映射自动识别为 SUPP 变量，处理规则如下：</p>
+      <table>
+        <thead>
+          <tr><th>规则</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>行插入</strong></td>
+            <td>删除模板中原有的 SUPP 行，在最后一行 SDTM 行之后按 ALS 原始行号（<code>source_order</code>）顺序插入新 SUPP 行。</td>
+          </tr>
+          <tr>
+            <td><strong>自动填充列</strong></td>
+            <td>
+              A = QNAM 值，B = ALS 变量标签，C = <code>Char</code>，D = <code>200</code>（数值），F = <code>CRF</code>，H = <code>[RAW]表名.变量名</code> + 注释，I = <code>SUPP</code>，J = <code>=ROW()-13</code>。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>多来源合并</strong></td>
+            <td>同一 QNAM 的多个 ALS 来源用 <code>;</code> 换行合并。</td>
+          </tr>
+          <tr>
+            <td><strong>附加条件</strong></td>
+            <td>如 <code>QVAL when QNAM=MIRESOTH when MITEST=MLH1</code>，<code>when MITEST=MLH1</code> 部分会追加到 H 列转换定义中。</td>
+          </tr>
+          <tr>
+            <td><strong style="color:#ef4444">红色高亮提醒</strong></td>
+            <td>SUPP 变量的 B 列（Label）在以下任一情况以<strong style="color:#ef4444">红色高亮</strong>：Label 有效长度 &gt; 40 字符（中文字符按 3 计算）；或 H 列转换定义引用了多个 <code>[RAW]</code> 来源。</td>
+          </tr>
+          <tr>
+            <td><strong>D 列格式</strong></td>
+            <td>长度以数值写入并复制模板参考行的 <code>number_format</code>，保持 <code>$200</code> 格式一致。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="sm-fixed">固定 Variable 写法</h3>
+      <div class="callout callout-tip">
+        <strong>说明</strong>
+        以下规则在映射完成后统一执行，由 <code>config.yaml</code> 中的 <code>fixed_variable_rules</code> 配置驱动，会<strong>覆盖</strong>映射阶段写入的 H/F 值。
+      </div>
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>F 列</th><th>H 列（转换定义）</th><th>备注</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>STUDYID</strong></td>
+            <td>DM：不变；其他：指定</td>
+            <td>DM：不变；其他：<code>DM.STUDYID</code></td>
+            <td>跨域引用，除 DM 外所有 domain 统一</td>
+          </tr>
+          <tr>
+            <td><strong>USUBJID</strong> (DM)</td>
+            <td>衍生</td>
+            <td>通过 "-" 连接 STUDYID, SITEID, SUBJID</td>
+            <td>仅 DM 表单</td>
+          </tr>
+          <tr>
+            <td><strong>USUBJID</strong> (非 DM)</td>
+            <td>指定</td>
+            <td><code>DM.USUBJID</code></td>
+            <td>跨域引用</td>
+          </tr>
+          <tr>
+            <td><strong>DOMAIN</strong></td>
+            <td>指定</td>
+            <td><code>xx</code>（该表单名称，如 AE）</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td><strong>xxSEQ</strong></td>
+            <td>衍生</td>
+            <td><code>=CONCATENATE("按照变量 ",$D$10,"排序...")</code></td>
+            <td>D10 通过 INDEX-MATCH 引用 CONTENT H 列</td>
+          </tr>
+          <tr>
+            <td><strong>xxTESTCD</strong></td>
+            <td>指定</td>
+            <td><code>=HYPERLINK("#CODELIST!A1","赋值参考CODELIST表")</code></td>
+            <td>覆盖映射阶段的 TESTCD 列表，实际值在 CODELIST；无 CODELIST 表时跳过</td>
+          </tr>
+          <tr>
+            <td><strong>xxTEST</strong></td>
+            <td>指定</td>
+            <td><code>=HYPERLINK("#CODELIST!A1","赋值参考CODELIST表")</code></td>
+            <td>同上；匹配 <code>.*TEST$</code>（不含 TESTCD）</td>
+          </tr>
+          <tr>
+            <td><strong>xxDY</strong></td>
+            <td>衍生</td>
+            <td>计算 xxDY = (数值型 xxDTC - 数值型 DM.RFSTDTC)；&ge;0 加 1；日期缺失则为空</td>
+            <td>自动匹配对应 DTC 变量（如 AESTDY &rarr; AESTDTC）</td>
+          </tr>
+          <tr>
+            <td><strong>VISIT / VISITNUM</strong></td>
+            <td>不变</td>
+            <td><code>=HYPERLINK("#VISIT!A1","转换定义参考VISIT表")</code></td>
+            <td>排除 TA/TD/TE/TI/TS/TV；模板无 VISIT 表时（如 IG 3.4）自动跳过</td>
+          </tr>
+          <tr>
+            <td><strong>VISITDY</strong></td>
+            <td>不变</td>
+            <td><em>（清空为空值）</em></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td><strong>xxSTAT</strong></td>
+            <td>不变</td>
+            <td><em>追加</em>：注：若 xxORRES 为空，则赋值"未查"</td>
+            <td>追加到已有内容之后，不覆盖</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="sm-meddra">MedDRA &amp; WHODRUG 编码变量</h3>
+      <p>当 ALS 中涉及以下 Domain 时，系统自动填充对应的 MedDRA / WHODRUG 标准编码变量：</p>
+      <table>
+        <thead>
+          <tr><th>Domain</th><th>编码类型</th><th>操作方式</th><th>变量</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>AE</strong></td>
+            <td>MedDRA</td>
+            <td>更新已有 SDTM 行</td>
+            <td>AELLT, AELLTCD, AEDECOD, AEPTCD, AEHLT, AEHLTCD, AEHLGT, AEHLGTCD, AEBODSYS, AEBDSYCD, AESOC, AESOCCD；另插入 SUPP <code>AEDVER</code>（字典版本）</td>
+          </tr>
+          <tr>
+            <td><strong>CM</strong></td>
+            <td>WHODRUG</td>
+            <td>插入 SUPP 行</td>
+            <td>ATC1, ATC1CD, ATC2, ATC2CD, ATC3, ATC3CD, ATC4, ATC4CD, CMDVER</td>
+          </tr>
+          <tr>
+            <td><strong>MH</strong></td>
+            <td>MedDRA</td>
+            <td>插入 SUPP 行</td>
+            <td>MHBDSYCD, MHSOC, MHSOCCD, MHHLGT, MHHLGTCD, MHHLT, MHHLTCD, MHPTCD, MHLLT, MHLLTCD, MHDVER</td>
+          </tr>
+          <tr>
+            <td><strong>PR</strong></td>
+            <td>MedDRA</td>
+            <td>插入 SUPP 行</td>
+            <td>PRBODSYS, PRBDSYCD, PRSOC, PRSOCCD, PRHLGT, PRHLGTCD, PRHLT, PRHLTCD, PRPTCD, PRLLT, PRLLTCD, PRDVER</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>所有编码变量的 F 列设为 <code>指定</code>，E 列标记对应的受控术语（<code>MedDRA</code> 或 <code>WHODRUG</code>），H 列填写引用"编码明细"表对应字段的转换定义。</p>
+
+      <h3 id="sm-test-sheet">xxTEST 表单</h3>
+      <p>勾选"Create TEST sheets"选项后（默认开启），系统会为每个有条件映射（TESTCD/TEST）的 Domain 前缀生成辅助参考表：</p>
+      <table>
+        <thead>
+          <tr><th>条件类型</th><th>目标表单</th><th>追加列</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>when xxTESTCD=VALUE</code></td>
+            <td><code>xxTEST</code>（如 FATEST、EGTEST）</td>
+            <td><code>CRF_TESTCD</code>、<code>CRF_ORRES</code></td>
+          </tr>
+          <tr>
+            <td><code>when xxTEST=VALUE</code></td>
+            <td>同上</td>
+            <td><code>CRF_TEST</code>、<code>CRF_ORRES</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p>每行对应一个不同的条件值，<code>CRF_ORRES</code> 列列出该条件下的所有 <code>[RAW]</code> 来源引用。列从表单已有内容的右侧追加，不影响原有数据。如模板中无对应 xxTEST 表单则跳过（仅输出警告）。</p>
+
+      <h3 id="sm-ig-diff">IG 3.2 与 IG 3.4 模板差异</h3>
+      <div class="callout callout-tip">
+        <strong>配置自动选择</strong>
+        系统读取模板 <code>CONTENT!B4</code> 的版本号，自动选择 <code>config.yaml</code>（IG 3.2）或 <code>config_ig34.yaml</code>（IG 3.4）。IG 3.4 配置继承 IG 3.2，仅覆盖差异部分。
+      </div>
+      <table>
+        <thead>
+          <tr><th>差异项</th><th>IG 3.2</th><th>IG 3.4</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>F 列来源标签</strong></td>
+            <td>中文：<code>指定</code>、<code>衍生</code></td>
+            <td>英文：<code>Assigned</code>、<code>Derived</code></td>
+          </tr>
+          <tr>
+            <td><strong>Findings 类识别</strong></td>
+            <td>CONTENT E 列 = <code>发现</code></td>
+            <td>CONTENT E 列 = <code>Findings</code>（同时兼容 <code>发现</code>）</td>
+          </tr>
+          <tr>
+            <td><strong>VISIT 超链接</strong></td>
+            <td>有 VISIT 表时写入超链接</td>
+            <td>通常无 VISIT 表（使用 SV），自动跳过</td>
+          </tr>
+          <tr>
+            <td><strong>其他规则</strong></td>
+            <td colspan="2">完全一致（固定变量、编码变量、SUPP 处理等全部继承）</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===== 6. FAQ ===== -->
+    <section class="guide-section" id="faq">
+      <h2>常见问题</h2>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+          文件上传失败？
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a">
+          <p>文件上传失败通常是因为文件名包含特殊字符或不可识别字符（如中文括号、特殊符号等）。请尝试将文件名修改为简单的英文或数字命名（例如 <code>ALS_raw.xlsx</code>），然后重新上传。</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+          上传的 ALS2SDTM 示例文件提示转换失败？
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a">
+          <p>请检查以下几点：</p>
+          <ul>
+            <li>文件中必须包含 <code>SDTM_Domain</code> 和 <code>SDTM_Variable</code> 列（注意大小写）</li>
+            <li>上传时是否选择了正确的 Sheet 名称</li>
+            <li>确认文件格式为 <code>.xls</code>、<code>.xlsx</code> 或 <code>.xlsm</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+          AI 推荐的结果不太准确，如何提升？
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a">
+          <p>以下几种方式可以有效提升推荐准确率：</p>
+          <ul>
+            <li><strong>上传项目知识库</strong>：在 Step 1 上传同类型项目的历史 ALS2SDTM 文件，系统会优先参考这些映射</li>
+            <li><strong>选择合适的 AI 模型</strong>：默认推荐使用 <strong>Gemini 3 Flash Preview</strong>，不同模型在 SDTM 映射任务上的表现可能不同，可以尝试切换模型</li>
+            <li><strong>使用中文语言</strong>：如果 CRF 表单为中文，建议选择中文语言模式</li>
+          </ul>
+          <p>无论如何，AI 推荐结果仅供参考，<strong>请务必进行人工 QC 审核</strong>后再用于生成 Spec。</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+          同一个变量出现了多条推荐结果？
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a">
+          <p>系统已内置自动去重机制，会为每个变量保留置信度最高的推荐。如仍在结果中看到同一变量的多条记录，可能是 AI 认为该变量可以映射到不同的 Domain（属于正常情况）。建议在 QC 阶段选择最合适的一条即可。</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+          生成的 Spec 文件中哪些是自动填充的内容？
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a">
+          <p>系统自动填充的内容均以<strong style="color:var(--c-orange)">黄色高亮</strong>标记，方便您一眼识别。此外，label 过长或来源于多个 rawdata 的 SUPP 变量会以<strong style="color:#ef4444">红色高亮</strong>提示，建议重点关注这些内容。</p>
+          <p>详细的填充规则请参见上方的 <a href="#sdtm-spec-fill-rules" style="color:var(--c-blue)">SDTM Spec 填充规则</a> 章节。</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+          Spec 生成后 Excel 打开提示修复？
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a">
+          <p>少数情况下，模板中某些单元格的特殊公式可能触发 Excel 修复提示。通常点击"是"允许修复即可正常使用，不会影响文件内容。如果问题反复出现，请将模板文件和生成的 Spec 文件一起反馈给开发团队排查。</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+          推荐过程中断或处理很慢怎么办？
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a">
+          <p>AI 推荐需要逐个处理每个 CRF 变量，变量数量较多时可能需要几分钟到十几分钟。处理过程中请保持页面打开，不要关闭浏览器。</p>
+          <p>如果需要中断处理，可以点击"取消"按钮。已处理的部分会自动保存，下次可以选择"断点续跑"从中断处继续。</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+          我的上传文件和数据安全吗？
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a">
+          <p>每位用户的上传文件完全独立隔离，其他用户无法访问您的文件。关闭浏览器后系统会自动清理您的文件。如需立即清理，可点击页面底部的"清理文件"按钮。</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ==================== Script ==================== -->
+<script>
+(function() {
+  // Theme toggle
+  var toggle = document.getElementById('theme-toggle');
+  var saved = localStorage.getItem('theme') || 'dark';
+  if (saved === 'light') document.body.classList.add('light-theme');
+
+  toggle.addEventListener('click', function() {
+    document.body.classList.toggle('light-theme');
+    localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
+  });
+
+  // Mobile sidebar
+  var sidebarBtn = document.getElementById('sidebar-toggle');
+  var sidebar = document.getElementById('sidebar');
+  sidebarBtn.addEventListener('click', function() {
+    sidebar.classList.toggle('open');
+  });
+
+  // Close sidebar on link click (mobile)
+  sidebar.querySelectorAll('.toc-link').forEach(function(link) {
+    link.addEventListener('click', function() {
+      if (window.innerWidth <= 720) sidebar.classList.remove('open');
+    });
+  });
+
+  // Active TOC tracking via IntersectionObserver
+  var sections = document.querySelectorAll('.guide-section');
+  var tocLinks = document.querySelectorAll('.toc-link');
+
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        var id = entry.target.id;
+        tocLinks.forEach(function(l) {
+          l.classList.toggle('active', l.getAttribute('href') === '#' + id);
+        });
+      }
+    });
+  }, { rootMargin: '-20% 0px -60% 0px' });
+
+  sections.forEach(function(s) { observer.observe(s); });
+})();
+</script>
+</body>
+</html>

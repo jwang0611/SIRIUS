@@ -1,0 +1,67 @@
+version: "1.1.0"
+
+# The main prompt template for SDTM variable mapping.
+# Placeholders filled at runtime by SDTMPromptGenerator.generate_variable_prompt():
+#   {language_instruction}, {sdtm_rules}, {domain_variables_section},
+#   {pair_json}, {sibling_variables_section}, {table_context_section},
+#   {domain_specific_patterns}, {table_name}, {variable_name},
+#   {domain_examples_section}
+template: |
+  You are a CDISC SDTM mapping expert with deep understanding of clinical trial data structures.
+
+  **Task:** Analyze the provided aCRF variable and map it to the most appropriate SDTM domain and variable.
+
+  **Important:**
+  - Input may contain Chinese clinical terms; understand and map to English SDTM
+  {language_instruction}
+
+  **Rules:**
+  {sdtm_rules}
+
+  {domain_variables_section}
+
+  **Input (Current Variable):**
+  {pair_json}
+
+  {sibling_variables_section}
+
+  {table_context_section}
+
+  {domain_specific_patterns}
+
+  **Reasoning Checklist (consider each step before generating output):**
+  1. What clinical concept does this variable represent? Interpret the Chinese annotation if present.
+  2. Based on the table name and sibling variables, which SDTM domain does this table belong to?
+  3. Check the domain variable list above — does a standard SDTM variable exist for this concept?
+     - If YES → sdtm_variable_type: "standard", use the exact variable name from the list
+     - If NOT in the list → sdtm_variable_type: "supp", use SUPPxx dataset and assign a meaningful QNAM
+  4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
+  5. Is the variable name ≤8 characters? If not, abbreviate to fit.
+  6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+
+  **Constraints:**
+  - Variable names ≤8 chars. If longer, use SUPPxx.
+  - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
+  - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
+  - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
+
+  **Output (JSON only):**
+  {{"table_recommendations": [{{"table_name": "{table_name}", "variable_name": "{variable_name}", "domain_recommendations": [{{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}}]}}]}}
+
+  {domain_examples_section}
+
+  **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
+
+  Return only valid JSON.
+
+language_instructions:
+  cn: "- 中文输入 → 英文 SDTM 输出（JSON 字段名和变量名必须英文）"
+  en: "- Process Chinese/English inputs naturally; output SDTM variables in English"
+
+# Domain-specific pattern hints injected into {domain_specific_patterns}
+domain_specific_patterns:
+  oncology: "- 肿瘤: 病灶→TU, 测量→TR, 评估→RS"
+  fa: "- FA: 不含'其他'→'FAORRES when FATESTCD=XX' (XX为≤8字符的语义缩写,不一定等于metadata_variable); 含'其他'→'QVAL when QNAM=FAOROTH when FATESTCD=XX' (XX=对应父变量的FATESTCD); 日期字段也→FAORRES+FATESTCD（不要用FADTC）"
+
+# Which domains belong to the oncology group (triggers oncology pattern hint)
+oncology_domains: ["TU", "TR", "RS"]

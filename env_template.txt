@@ -1,0 +1,161 @@
+# iSDTaiM 环境配置模板
+# 复制此文件为 .env 并填入真实的API密钥
+
+# ================================
+# AI 模型配置
+# ================================
+
+# OpenRouter 配置
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+
+# ================================
+# 系统配置
+# ================================
+
+# 默认AI提供商 (openai/google/deepseek/openrouter)
+DEFAULT_AI_PROVIDER=openrouter
+
+# 默认模型
+DEFAULT_MODEL=google/gemini-3-flash-preview
+
+# 提示词语言 (cn/en)
+DEFAULT_LANGUAGE=en
+
+# ================================
+# RAG 配置
+# ================================
+
+# 向量化模型 (用于 RAG 检索和 KB 模糊匹配)
+RAG_EMBED_MODEL=Qwen3-Embed
+
+# 检索结果数量
+TOP_K_RETRIEVAL=3
+
+# KB默认文件 (始终加载，作为基础知识库)
+# 存放于 data/knowledge_base/structured/ 目录下
+# 例如: ALS2SDTM_common.parquet
+RAG_KB_DEFAULT_FILE=
+
+# 注意: 用户通过网页上传的 example 文件会自动生成 session KB，
+# 与默认 KB 合并使用，关闭浏览器时自动清理
+
+# ================================
+# 处理配置
+# ================================
+
+# 是否启用并行处理 (true/false)
+# 并行模式使用线程池同时处理多个变量，大幅提高处理速度
+SDTM_ENABLE_PARALLEL=true
+
+# 并行处理线程数 (1-20)
+# 建议根据 API 速率限制调整，默认 5
+SDTM_MAX_WORKERS=5
+
+# ================================
+# 级联预测策略 (Cascade Prediction)
+# ================================
+# 4级级联策略，高置信度时跳过LLM调用以降低成本和延迟
+#
+# Level 1: KB 精确匹配 (confidence >= KB_MIN_CONFIDENCE) → 直接采纳
+# Level 2: KB 高置信度 (confidence >= CASCADE_KB_HIGH_CONF) → 直接采纳
+# Level 3: RAG 增强检索 (top_score >= CASCADE_RAG_HIGH_CONF) → 直接采纳
+# Level 4: LLM 推理 (以上均不满足时) → 调用LLM
+
+# KB 最小置信度阈值 (Level 1 安全下限，需同时满足 source=eCRF_direct_match)
+KB_MIN_CONFIDENCE=0.8
+
+# KB 高置信度阈值 (Level 2 退出阈值，KB建议直接采纳)
+CASCADE_KB_HIGH_CONF=0.85
+
+# RAG 高置信度阈值 (Level 3 退出阈值，RAG结果直接采纳)
+CASCADE_RAG_HIGH_CONF=0.7
+
+# KB 域覆盖置信度 (超过此阈值时允许覆盖推断域)
+KB_DOMAIN_OVERRIDE_CONF=0.85
+
+# 批处理大小
+BATCH_SIZE=10
+
+# LLM API 调用频率限制 (请求/分钟)
+# 并行模式下使用令牌桶算法进行线程安全的速率控制
+RATE_LIMIT_RPM=120
+
+# ================================
+# Web API 速率限制 (防滥用)
+# ================================
+
+# 文件上传接口
+RATE_LIMIT_UPLOAD=30/minute
+
+# AI 任务启动接口
+RATE_LIMIT_AI_JOB=10/minute
+
+# 一般 API 接口
+RATE_LIMIT_GENERAL=60/minute
+
+# 读取操作接口
+RATE_LIMIT_READ=120/minute
+
+# ================================
+# GxP 合规 / 安全配置
+# ================================
+
+# 审计日志开关 (GxP-compliant audit trail)
+AUDIT_LOG_ENABLED=true
+
+# PHI/PII 数据脱敏开关 (LLM 调用前自动脱敏)
+DATA_MASKING_ENABLED=true
+
+# ================================
+# 日志配置
+# ================================
+
+# 日志级别 (DEBUG/INFO/WARNING/ERROR)
+LOG_LEVEL=INFO
+
+# 是否保存完整AI交互日志 (prompt + response)
+# 日志保存在 data/output/logs/ai_interactions_YYYYMMDD.log
+SDTM_LOG_AI=true
+
+# 是否保存KB匹配事件日志 (知识库查询细节)
+SAVE_AI_INTERACTIONS=true
+
+# ================================
+# 路径配置
+# ================================
+
+# 知识库路径
+KNOWLEDGE_BASE_PATH=data/knowledge_base
+
+# 原始数据路径
+RAW_DATA_PATH=data/raw
+
+# 处理数据路径
+PROCESSED_DATA_PATH=data/processed
+
+# 知识库结构化数据路径
+KNOWLEDGE_STRUCTURED_PATH=data/knowledge_base/structured
+
+# 通用输出路径
+OUTPUT_PATH=data/output
+
+# ================================
+# Spec Mapper 专用路径
+# ================================
+
+# SDTM 模板文件路径（模板文件直接放在 documents 目录下）
+SPEC_TEMPLATE_PATH=data/knowledge_base/documents
+
+# Spec 输出路径（最终生成的说明文件）
+SPEC_OUTPUT_PATH=data/spec_output
+
+# ALS 文件输出路径（从 CRF 生成的中间文件）
+ALS_OUTPUT_PATH=data/output
+
+# ALS 默认 Sheet 名称
+ALS_DEFAULT_SHEET=Sheet1
+
+# Spec Mapper 是否高亮显示新映射
+SPEC_HIGHLIGHT_MAPPINGS=true

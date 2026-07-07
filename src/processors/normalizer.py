@@ -1,0 +1,308 @@
+"""Pure helpers for normalising SDTM recommendations.
+
+Historically this logic lived inside ``PostprocessMixin`` as methods that
+relied on heavy ``self`` state (debug flag, deterministic validator,
+semantic maps). That made the core algorithm hard to test and hard to
+reuse from the new ``RecommendationOrchestrator``.
+
+The functions here are **pure**: input → output, no I/O, no logging
+side-effects. The mixin now delegates to them, and so does the new
+:class:`RecommendationNormalizer` service.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+_MULTI_DOMAIN_SPLIT = re.compile(r"[|/;]")
+_WHEN_CLAUSE_RE = re.compile(r"\s+when\s+", re.IGNORECASE)
+_DOMAIN_TOKEN_SPLIT = re.compile(r"[|/,\s]+")
+
+QVARS: frozenset[str] = frozenset({"QNAM", "QLABEL", "QVAL", "QORIG", "QEVAL", "IDVAR", "IDVARVAL"})
+
+STANDARD_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "TRT",
+        "DECOD",
+        "STDTC",
+        "ENDTC",
+        "DOSE",
+        "DOSU",
+        "DOSFRM",
+        "DOSFRQ",
+        "ROUTE",
+        "INDC",
+        "CAT",
+        "SCAT",
+        "TERM",
+        "PRESP",
+        "OCCUR",
+        "STAT",
+        "LOC",
+        "ORRES",
+        "ORRESU",
+        "STRESC",
+        "STRESN",
+        "STRESU",
+        "DTC",
+        "SEQ",
+        "SPID",
+        "GRPID",
+        "REFID",
+        "LNKID",
+        "TESTCD",
+        "TEST",
+        "SER",
+        "REL",
+        "ACN",
+        "OUT",
+        "TOXGR",
+        "ONGO",
+        "BODSYS",
+        "SOC",
+    }
+)
+
+COMMENT_KEYWORDS: tuple[str, ...] = (
+    "备注",
+    "说明",
+    "注释",
+    "评论",
+    "自由文本",
+    "其他",
+    "其他说明",
+    "其他指定",
+    "comment",
+    "comments",
+    "note",
+    "notes",
+    "remark",
+    "remarks",
+    "other specify",
+    "other",
+)
+
+
+# ---------------------------------------------------------------------------
+# Small predicates
+# ---------------------------------------------------------------------------
+def is_standard_variable_name(name: str | None) -> bool:
+    """Return True when ``name`` looks like ``{domain}{SUFFIX}`` (e.g. ``AEOCCUR``)."""
+    if not name or len(name) < 3:
+        return False
+    upper = name.upper()
+    if len(upper) < 4 or not upper[:2].isalpha():
+        return False
+    suffix = upper[2:]
+    return suffix in STANDARD_SUFFIXES or any(suffix.endswith(s) for s in STANDARD_SUFFIXES)
+
+
+def is_comment_like_variable(variable_name: str) -> bool:
+    vn = (variable_name or "").lower()
+    return any(kw in vn for kw in COMMENT_KEYWORDS)
+
+
+# ---------------------------------------------------------------------------
+# Domain filtering
+# ---------------------------------------------------------------------------
+def filter_recs_by_domain(
+    domain_recs: Sequence[dict[str, Any]],
+    target_domain: str | None,
+) -> list[dict[str, Any]]:
+    """Keep only recommendations whose domain matches ``target_domain``."""
+    if not target_domain:
+        return list(domain_recs)
+
+    target_upper = target_domain.strip().upper()
+    kept: list[dict[str, Any]] = []
+    for rec in domain_recs:
+        domain_value = str(rec.get("domain", "")).upper()
+        tokens: list[str] = []
+        for token in _DOMAIN_TOKEN_SPLIT.split(domain_value):
+            token = token.strip()
+            if not token:
+                continue
+            tokens.append(token)
+            if token.startswith("SUPP") and len(token) > 4:
+                tokens.append(token[4:])
+        if target_upper in tokens:
+            kept.append(rec)
+    return kept
+
+
+# ---------------------------------------------------------------------------
+# Compound-clause decomposition  (e.g. "FAORRES when FATESTCD=THDIAG")
+# ---------------------------------------------------------------------------
+def decompose_when_clause(rec: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``rec`` with any ``... when KEY=VAL`` clause expanded."""
+    sdtm_var = rec.get("sdtm_variable")
+    if not isinstance(sdtm_var, str) or not _WHEN_CLAUSE_RE.search(sdtm_var):
+        return dict(rec)
+
+    out = dict(rec)
+    parts = _WHEN_CLAUSE_RE.split(sdtm_var)
+    out["sdtm_variable"] = parts[0].strip()
+    for clause in parts[1:]:
+        clause = clause.strip()
+        if "=" not in clause:
+            continue
+        key, _, val = clause.partition("=")
+        key_upper = key.strip().upper()
+        val = val.strip()
+        if key_upper.endswith("TESTCD") and not out.get("testcd"):
+            out["testcd"] = val
+        elif key_upper == "QNAM" and not out.get("supp_variable"):
+            out["supp_variable"] = val
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Multi-domain resolution
+# ---------------------------------------------------------------------------
+def resolve_multi_domain(
+    rec: dict[str, Any],
+    is_valid_domain_fn: Callable[[str], bool],
+) -> dict[str, Any]:
+    """Pick a single domain/variable pair when the LLM returns ``AE|FA`` style output."""
+    domain = str(rec.get("domain", "")).upper()
+    sdtm_var = rec.get("sdtm_variable")
+
+    if not _MULTI_DOMAIN_SPLIT.search(domain):
+        return dict(rec)
+
+    out = dict(rec)
+    domain_parts = [d.strip().upper() for d in _MULTI_DOMAIN_SPLIT.split(domain) if d.strip()]
+    original_multi_domain = domain
+
+    chosen = domain_parts[0] if domain_parts else domain
+    for candidate in domain_parts:
+        if is_valid_domain_fn(candidate):
+            chosen = candidate
+            break
+
+    if sdtm_var and _MULTI_DOMAIN_SPLIT.search(str(sdtm_var)):
+        var_parts = [v.strip() for v in _MULTI_DOMAIN_SPLIT.split(str(sdtm_var)) if v.strip()]
+        try:
+            domain_idx = domain_parts.index(chosen)
+        except ValueError:
+            domain_idx = 0
+        out["sdtm_variable"] = var_parts[domain_idx] if domain_idx < len(var_parts) else var_parts[0]
+
+    out["domain"] = chosen
+    out["original_multi_domain"] = original_multi_domain
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Variable-type classification
+# ---------------------------------------------------------------------------
+def classify_variable_type(
+    rec: dict[str, Any],
+    variable_name: str,
+) -> str:
+    """Return ``'supp'`` or ``'standard'`` following the same rules as the mixin."""
+    var_type = str(rec.get("sdtm_variable_type", "")).lower()
+    domain = str(rec.get("domain", "")).upper()
+    sdtm_var = rec.get("sdtm_variable")
+    supp_ds = rec.get("supp_dataset")
+    supp_var = rec.get("supp_variable")
+
+    if is_comment_like_variable(variable_name) and var_type != "supp":
+        return "supp"
+
+    if var_type not in ("standard", "supp"):
+        if (
+            supp_ds
+            or supp_var
+            or (isinstance(sdtm_var, str) and sdtm_var.upper() in QVARS)
+            or domain.startswith("SUPP")
+        ):
+            return "supp"
+        return "standard"
+
+    if var_type == "standard" and (
+        supp_var or (isinstance(sdtm_var, str) and sdtm_var.upper() in QVARS) or domain.startswith("SUPP")
+    ):
+        return "supp"
+
+    return var_type
+
+
+# ---------------------------------------------------------------------------
+# Deduplication
+# ---------------------------------------------------------------------------
+def dedupe_by_key(
+    normalized: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep the highest-scoring rec per ``(domain, sdtm_variable, testcd, supp_variable)``."""
+    seen: dict[tuple, int] = {}
+    deduped: list[dict[str, Any]] = []
+    for rec in normalized:
+        key = (
+            str(rec.get("domain", "")).upper(),
+            str(rec.get("sdtm_variable", "")).upper(),
+            str(rec.get("testcd", "")).upper(),
+            str(rec.get("supp_variable", "")).upper(),
+        )
+        score = rec.get("score", 0)
+        if key in seen:
+            idx = seen[key]
+            if score > deduped[idx].get("score", 0):
+                deduped[idx] = dict(rec)
+        else:
+            seen[key] = len(deduped)
+            deduped.append(dict(rec))
+    return deduped
+
+
+# ---------------------------------------------------------------------------
+# Cleaned-record projection (the mixin's final step)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class CleanedRecord:
+    domain: str
+    sdtm_variable: str
+    sdtm_variable_type: str
+    score: float
+    source: str
+    variable_name: str
+    testcd: str = ""
+    supp_dataset: str = ""
+    supp_variable: str = ""
+
+
+def to_cleaned_dict(rec: dict[str, Any], *, variable_name: str) -> dict[str, Any]:
+    """Project ``rec`` to the minimal cleaned form used by downstream consumers."""
+    var_type = str(rec.get("sdtm_variable_type", "")).lower()
+    base: dict[str, Any] = {
+        "domain": rec.get("domain", ""),
+        "sdtm_variable": rec.get("sdtm_variable", ""),
+        "sdtm_variable_type": rec.get("sdtm_variable_type", ""),
+        "score": rec.get("score", 0.9),
+        "testcd": rec.get("testcd", ""),
+        "source": rec.get("source", ""),
+        "variable_name": variable_name,
+    }
+    if var_type == "supp":
+        base["supp_dataset"] = rec.get("supp_dataset", "")
+        base["supp_variable"] = rec.get("supp_variable", "")
+    return base
+
+
+__all__ = [
+    "COMMENT_KEYWORDS",
+    "QVARS",
+    "STANDARD_SUFFIXES",
+    "CleanedRecord",
+    "classify_variable_type",
+    "decompose_when_clause",
+    "dedupe_by_key",
+    "filter_recs_by_domain",
+    "is_comment_like_variable",
+    "is_standard_variable_name",
+    "resolve_multi_domain",
+    "to_cleaned_dict",
+]

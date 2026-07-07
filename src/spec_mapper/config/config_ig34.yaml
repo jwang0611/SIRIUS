@@ -1,0 +1,17 @@
+# SDTM IG 3.4 template configuration.
+#
+# Inherits everything from config.yaml via "_extends" and only declares what
+# differs for the English IG 3.4 template. Selected automatically by SpecMapper
+# when the template's CONTENT!B4 (SDTM version) is 3.4.
+_extends: config.yaml
+
+# The IG 3.4 template's "Source" column is English. The mapper and fixed/external
+# coding rules write Chinese source labels ("指定"/"衍生"); translate them to the
+# template's language here. "CRF" is language-neutral and left as-is.
+source_label_overrides:
+  "指定": "Assigned"
+  "衍生": "Derived"
+
+# Assignment mapping phrase in Transformation definition (column H).
+# Example: equals to "随机化" when [RAW]RANDYN = 是
+assignment_transformation_prefix: "equals to"
