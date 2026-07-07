@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import argparse
+import os
+import runpy
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -75,3 +79,56 @@ def index():
     if not index_file.exists():
         return JSONResponse({"message": "前端尚未部署"}, status_code=503)
     return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
+
+
+def _resolve_script_path(script_arg: str) -> Path:
+    script_path = Path(script_arg)
+    candidates = []
+    if script_path.is_absolute():
+        candidates.append(script_path)
+    else:
+        candidates.extend(
+            [
+                Path.cwd() / script_path,
+                Path(os.getenv("SIRIUS_BACKEND_RUNTIME_ROOT", "")) / script_path,
+                Path(os.getenv("SIRIUS_BACKEND_SOURCE_ROOT", "")) / script_path,
+                Path(__file__).parent / script_path,
+            ]
+        )
+
+    for candidate in candidates:
+        if str(candidate) and candidate.is_file():
+            return candidate
+
+    raise FileNotFoundError(f"Script not found: {script_arg}")
+
+
+def _run_script(script_arg: str) -> None:
+    script_path = _resolve_script_path(script_arg)
+    sys.argv = [str(script_path), *sys.argv[2:]]
+    runpy.run_path(str(script_path), run_name="__main__")
+
+
+def _run_server() -> None:
+    parser = argparse.ArgumentParser(description="Run the SIRIUS FastAPI backend.")
+    parser.add_argument("--host", default=os.getenv("SIRIUS_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.getenv("SIRIUS_PORT", "8000")))
+    args = parser.parse_args()
+
+    import uvicorn
+
+    uvicorn.run(app, host=args.host, port=args.port)
+
+
+def main() -> None:
+    # PyInstaller builds use this module as the executable entrypoint. The web
+    # backend also launches helper scripts through sys.executable, so dispatch a
+    # leading scripts/*.py argument to the script inside the embedded runtime.
+    if len(sys.argv) > 1 and sys.argv[1].replace("\\", "/").startswith("scripts/"):
+        _run_script(sys.argv[1])
+        return
+    _run_server()
+
+
+if __name__ == "__main__":
+    main()

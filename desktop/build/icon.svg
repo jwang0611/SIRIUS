@@ -1,0 +1,19 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="siriusBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#252320" />
+      <stop offset="100%" stop-color="#181715" />
+    </linearGradient>
+    <linearGradient id="siriusStar" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e8a55a" />
+      <stop offset="55%" stop-color="#cc785c" />
+      <stop offset="100%" stop-color="#a9583e" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#siriusBg)" />
+  <path d="M256 72 C268 184 324 240 440 256 C324 272 268 328 256 440 C244 328 188 272 72 256 C188 240 244 184 256 72 Z"
+        fill="url(#siriusStar)" stroke="#faf9f5" stroke-width="6" stroke-linejoin="round" />
+  <path d="M392 124 C396 158 412 174 446 178 C412 182 396 198 392 232 C388 198 372 182 338 178 C372 174 388 158 392 124 Z"
+        fill="#5db8a6" opacity="0.9" />
+  <circle cx="256" cy="256" r="26" fill="#faf9f5" opacity="0.92" />
+</svg>

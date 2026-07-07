@@ -20,6 +20,7 @@ data/processed/*
 *.json
 !**/example*.json
 !**/template*.json
+!desktop/package.json
 !data/knowledge_base/structured/*.json
 !data/knowledge_base/structured/*.parquet
 # Keep knowledge_base key subdirectories tracked
