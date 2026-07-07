@@ -39,7 +39,7 @@ def test_configure_logging_attaches_handlers(clean_env, tmp_path):
 def test_configure_logging_creates_log_file(clean_env, tmp_path):
     settings = Settings.from_env()
     configure_logging(settings, log_dir=tmp_path, force=True)
-    assert (tmp_path / "isdtaim.log").exists()
+    assert (tmp_path / "sirius.log").exists()
 
 
 def test_log_level_applied_from_settings(clean_env, tmp_path, monkeypatch):
@@ -75,8 +75,8 @@ def test_noisy_loggers_quieted(clean_env, tmp_path):
 
 
 def test_get_logger_returns_named_logger():
-    log = get_logger("isdtaim.test")
-    assert log.name == "isdtaim.test"
+    log = get_logger("sirius.test")
+    assert log.name == "sirius.test"
 
 
 def test_readonly_dir_falls_back_to_console_only(clean_env):

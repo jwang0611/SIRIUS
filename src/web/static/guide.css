@@ -1,5 +1,5 @@
-/* ==================== iSDTaiM User Guide ==================== */
-/* Standalone guide page — reuses CSS variables from styles.css */
+/* ==================== SIRIUS User Guide ==================== */
+/* Standalone guide page — aligned with the SIRIUS warm accent palette */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -14,12 +14,12 @@
   --text-60: rgba(255, 255, 255, 0.6);
   --text-40: rgba(255, 255, 255, 0.4);
   --is-dark: 1;
-  --c-cyan: #22d3ee;
-  --c-blue: #3b82f6;
-  --c-purple: #8b5cf6;
-  --c-green: #10b981;
-  --c-orange: #f59e0b;
-  --c-pink: #ec4899;
+  --c-cyan: #5db8a6;
+  --c-blue: #cc785c;
+  --c-purple: #a9583e;
+  --c-green: #5db8a6;
+  --c-orange: #e8a55a;
+  --c-pink: #cc785c;
   --c-current: var(--c-blue);
   --radius: 12px;
   --radius-sm: 8px;

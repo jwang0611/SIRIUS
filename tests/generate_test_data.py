@@ -1,5 +1,5 @@
 """
-Generate minimal synthetic test data for iSDTaiM smoke tests.
+Generate minimal synthetic test data for SIRIUS smoke tests.
 
 Usage:
     python tests/generate_test_data.py [--output-dir tests/fixtures]
@@ -333,7 +333,7 @@ def create_template_spec(out_dir: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate iSDTaiM smoke-test fixtures")
+    parser = argparse.ArgumentParser(description="Generate SIRIUS smoke-test fixtures")
     parser.add_argument(
         "--output-dir",
         default="tests/fixtures",

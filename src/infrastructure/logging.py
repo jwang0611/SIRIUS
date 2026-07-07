@@ -33,7 +33,7 @@ def configure_logging(
     """
     global _CONFIGURED
     if _CONFIGURED and not force:
-        return logging.getLogger("isdtaim")
+        return logging.getLogger("sirius")
 
     cfg = settings or get_settings()
     level = getattr(logging, cfg.runtime.log_level, logging.INFO)
@@ -55,7 +55,7 @@ def configure_logging(
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
         file_handler = logging.handlers.RotatingFileHandler(
-            target_dir / "isdtaim.log",
+            target_dir / "sirius.log",
             maxBytes=5 * 1024 * 1024,
             backupCount=3,
             encoding="utf-8",
@@ -72,7 +72,7 @@ def configure_logging(
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     _CONFIGURED = True
-    logger = logging.getLogger("isdtaim")
+    logger = logging.getLogger("sirius")
     logger.debug("Logging configured (level=%s)", cfg.runtime.log_level)
     return logger
 

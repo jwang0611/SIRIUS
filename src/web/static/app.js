@@ -1,22 +1,220 @@
-// ==================== iSDTaiM App v4 ====================
-// Premium dark/light theme with advanced animations
-// Features: Particle background, scroll animations, enhanced theme toggle
+// ==================== SIRIUS Web App ====================
+// SDTM Intelligent Recommendation & Inference Unified System
+// Sidebar navigation · zh/en i18n · warm/light/dark themes.
+
+// ==================== i18n ====================
+const I18N = {
+  zh: {
+    'sidebar.system': '智能推理统一系统',
+    'nav.dashboard': '工作台', 'nav.dashboard.desc': '任务总览与快速操作',
+    'nav.upload': '上传预处理', 'nav.upload.desc': 'ALS 文件导入与转换',
+    'nav.recommend': '智能推荐', 'nav.recommend.desc': '4 级级联推荐与推理',
+    'nav.specgen': '生成 Spec', 'nav.specgen.desc': 'SDTM 规范文档输出',
+    'nav.library': '知识库', 'nav.library.desc': '标准 / 模板 / 历史映射',
+    'nav.guide': '使用指南', 'nav.guide.desc': '系统帮助文档',
+
+    'dash.title': 'SDTM 智能推理工作台',
+    'dash.lead': 'SIRIUS — SDTM 智能推荐与推理统一系统。基于 RAG 级联策略，从 CRF 变量到 SDTM 规范的端到端智能映射。',
+    'dash.btn.guide': '使用指南', 'dash.btn.new': '开始新任务',
+    'kpi.kb': '知识库文档', 'kpi.kb.sub': '已索引示例映射',
+    'kpi.acc': '推荐准确率', 'kpi.acc.sub': '尚未接入后端统计',
+    'kpi.domains': '支持域', 'kpi.cascade': '级联层级', 'kpi.cascade.sub': 'KB → RAG → LLM',
+    'pipe.upload': '上传预处理', 'pipe.upload.desc': 'ALS 文件转 JSON',
+    'pipe.recommend': '智能推荐', 'pipe.recommend.desc': '级联推荐与推理',
+    'pipe.specgen': '生成 Spec', 'pipe.specgen.desc': 'SDTM 规范输出',
+    'dash.workflow': '三步式工作流程',
+    'dash.wf1.title': '上传预处理', 'dash.wf1.desc': '上传百奥知 / 太美 EDC 的 ALS 文件，自动转换为结构化 JSON。',
+    'dash.wf2.title': '智能推荐与推理', 'dash.wf2.desc': '4 级级联策略生成 SDTM 变量映射，人工 QC 后确认。',
+    'dash.wf3.title': '生成规范文档', 'dash.wf3.desc': '基于 QC 后的映射填充 SDTM Spec 模板，输出完整规范。',
+
+    'upload.title': '上传预处理',
+    'upload.lead': '上传 eCRF 数据定义 Excel 文件（ALS），系统将自动识别格式并转换为结构化 JSON 数据。',
+    'upload.formats': '支持 .xls / .xlsx / .xlsm',
+    'upload.edc.label': 'EDC 系统',
+    'upload.raw.desc': '上传 eCRF 数据定义 Excel 文件',
+    'upload.drop.text': '拖入文件或点击上传',
+    'upload.example.desc': '上传已有的映射示例文件（可选）',
+    'upload.example.hint': '用于构建项目专属知识库 · 提升推荐精度',
+    'upload.btn': '上传并转换',
+    'upload.foot.left': '支持百奥知 4.1 与太美 EDC 格式自动适配',
+    'upload.foot.right': '转换结果保存至会话空间',
+
+    'rec.title': '智能推荐与推理',
+    'rec.lead': '选择已处理的 JSON 文件，SIRIUS 将通过 4 级级联策略（推荐 + 推理）生成 SDTM 变量映射。',
+    'rec.btn.generate': '生成推荐', 'rec.btn.resume': '恢复任务', 'rec.btn.stop': '停止',
+    'rec.cascade.title': '4 级级联策略',
+    'rec.cascade.1': 'KB 精确匹配', 'rec.cascade.2': 'KB 高置信度', 'rec.cascade.3': 'RAG 增强', 'rec.cascade.4': 'LLM 推理',
+    'rec.progress.label': '推荐生成中',
+    'rec.foot.left': '级联策略优先使用知识库精确匹配，逐级降级',
+    'rec.foot.right': '所有推荐均需人工 QC 确认',
+
+    'spec.title': '生成规范文档',
+    'spec.lead': '基于已完成 QC 的 ALS2SDTM 映射文件，填充 SDTM Spec 模板生成完整规范文档。',
+    'spec.upload': '上传 ALS2SDTM', 'spec.select': '选择文件...',
+    'spec.checkbox': '创建 TEST sheets',
+    'spec.btn.generate': '生成 Spec',
+    'spec.progress.label': '正在处理',
+    'spec.foot.left': '输出文件符合 CDISC SDTM IG 标准格式',
+    'spec.foot.right': 'Spec 文件包含变量定义、Codelist、Origin',
+
+    'lib.title': '知识库管理',
+    'lib.lead': '管理 RAG 检索的历史映射文档、CDISC 标准定义和项目特定知识。',
+    'lib.ref.title': 'CDISC 标准库', 'lib.ref.desc': 'SDTM IG 3.2 / 3.4 标准、变量定义、Controlled Terminology。',
+    'lib.hist.title': '历史映射库', 'lib.hist.desc': '已验证的 ALS2SDTM 映射示例，用于 KB 精确匹配与 RAG 增强。',
+    'lib.proj.title': '项目知识库', 'lib.proj.desc': '当前会话积累的项目专属映射规则与用户修正反馈。',
+    'lib.stat.entries': '知识条目', 'lib.stat.domains': 'SDTM 域', 'lib.stat.coverage': '覆盖率',
+    'lib.foot.left': '知识库自动从用户修正中持续学习',
+    'lib.foot.right': '支持 Parquet 格式高效检索',
+
+    'guide.title': '使用指南', 'guide.lead': '系统使用方法与最佳实践。', 'guide.open': '打开完整手册',
+    'guide.qs.title': '快速开始', 'guide.qs.desc': '5 分钟完成第一个 SDTM 映射任务。从上传到 Spec 输出的完整流程。',
+    'guide.wf.title': '工作流程详解', 'guide.wf.desc': '3 步流水线每个环节的详细操作说明与参数配置。',
+    'guide.faq.title': '常见问题', 'guide.faq.desc': '文件格式要求、EDC 适配、映射质量提升等常见问题解答。',
+
+    'edc.bioknow': '百奥知 4.1', 'edc.taimei.btn': '太美 EDC',
+    'footer.cleanup': '清理会话文件',
+    'dialog.sheet.title': '请选择要转换的 Sheet', 'dialog.sheet.confirm': '确认转换',
+    'dialog.als.title': '请选择 ALS 文件中的 Sheet', 'dialog.als.confirm': '确认选择',
+    'dialog.cancel': '取消'
+  },
+  en: {
+    'sidebar.system': 'Inference Unified System',
+    'nav.dashboard': 'Dashboard', 'nav.dashboard.desc': 'Overview & quick actions',
+    'nav.upload': 'Upload', 'nav.upload.desc': 'ALS file import & conversion',
+    'nav.recommend': 'Recommend', 'nav.recommend.desc': '4-level cascade & inference',
+    'nav.specgen': 'Gen Spec', 'nav.specgen.desc': 'SDTM spec document output',
+    'nav.library': 'Knowledge Base', 'nav.library.desc': 'Standards / Templates / History',
+    'nav.guide': 'User Guide', 'nav.guide.desc': 'System documentation',
+
+    'dash.title': 'SDTM Inference Workbench',
+    'dash.lead': 'SIRIUS — SDTM Intelligent Recommendation & Inference Unified System. End-to-end intelligent mapping from CRF variables to SDTM specifications via RAG cascade.',
+    'dash.btn.guide': 'User Guide', 'dash.btn.new': 'New Task',
+    'kpi.kb': 'KB Documents', 'kpi.kb.sub': 'Indexed example mappings',
+    'kpi.acc': 'Accuracy', 'kpi.acc.sub': 'Backend stats not yet wired',
+    'kpi.domains': 'Domains', 'kpi.cascade': 'Cascade Levels', 'kpi.cascade.sub': 'KB → RAG → LLM',
+    'pipe.upload': 'Upload', 'pipe.upload.desc': 'ALS to JSON',
+    'pipe.recommend': 'Recommend', 'pipe.recommend.desc': 'Cascade & inference',
+    'pipe.specgen': 'Gen Spec', 'pipe.specgen.desc': 'SDTM spec output',
+    'dash.workflow': 'Three-Step Workflow',
+    'dash.wf1.title': 'Upload & Preprocess', 'dash.wf1.desc': 'Upload BioKnow / TaiMei EDC ALS files and auto-convert to structured JSON.',
+    'dash.wf2.title': 'Recommendation & Inference', 'dash.wf2.desc': '4-level cascade generates SDTM variable mapping, confirmed after manual QC.',
+    'dash.wf3.title': 'Generate Spec Document', 'dash.wf3.desc': 'Fill SDTM Spec templates from QC-completed mappings to output a full specification.',
+
+    'upload.title': 'Upload & Preprocess',
+    'upload.lead': 'Upload eCRF data definition Excel files (ALS). The system will auto-detect the format and convert to structured JSON.',
+    'upload.formats': 'Supports .xls / .xlsx / .xlsm',
+    'upload.edc.label': 'EDC System',
+    'upload.raw.desc': 'Upload eCRF data definition Excel file',
+    'upload.drop.text': 'Drag & drop or click to browse',
+    'upload.example.desc': 'Upload existing mapping examples (optional)',
+    'upload.example.hint': 'Build project-specific KB · Improve recommendation accuracy',
+    'upload.btn': 'Upload & Convert',
+    'upload.foot.left': 'Auto-adapts to BioKnow 4.1 & TaiMei EDC formats',
+    'upload.foot.right': 'Results saved to session workspace',
+
+    'rec.title': 'Recommendation & Inference',
+    'rec.lead': 'Select processed JSON files. SIRIUS generates SDTM variable mapping via 4-level cascade (recommendation + inference).',
+    'rec.btn.generate': 'Generate', 'rec.btn.resume': 'Resume Task', 'rec.btn.stop': 'Stop',
+    'rec.cascade.title': '4-Level Cascade Strategy',
+    'rec.cascade.1': 'KB Exact Match', 'rec.cascade.2': 'KB High Confidence', 'rec.cascade.3': 'RAG Enhanced', 'rec.cascade.4': 'LLM Inference',
+    'rec.progress.label': 'Generating recommendations',
+    'rec.foot.left': 'Cascade prioritizes KB exact match, falling back progressively',
+    'rec.foot.right': 'All recommendations require manual QC',
+
+    'spec.title': 'Generate Spec Document',
+    'spec.lead': 'Based on QC-completed ALS2SDTM mapping files, fill SDTM Spec templates to generate complete specification documents.',
+    'spec.upload': 'Upload ALS2SDTM', 'spec.select': 'Select file...',
+    'spec.checkbox': 'Create TEST sheets',
+    'spec.btn.generate': 'Generate Spec',
+    'spec.progress.label': 'Processing',
+    'spec.foot.left': 'Output complies with CDISC SDTM IG standard format',
+    'spec.foot.right': 'Spec includes variable definitions, Codelists, Origins',
+
+    'lib.title': 'Knowledge Base',
+    'lib.lead': 'Manage RAG retrieval documents, CDISC standard definitions, and project-specific knowledge.',
+    'lib.ref.title': 'CDISC Standards', 'lib.ref.desc': 'SDTM IG 3.2 / 3.4 standards, variable definitions, Controlled Terminology.',
+    'lib.hist.title': 'Historical Mappings', 'lib.hist.desc': 'Validated ALS2SDTM examples for KB exact match and RAG enhancement.',
+    'lib.proj.title': 'Project KB', 'lib.proj.desc': 'Session-accumulated project-specific mapping rules and user corrections.',
+    'lib.stat.entries': 'Entries', 'lib.stat.domains': 'SDTM Domains', 'lib.stat.coverage': 'Coverage',
+    'lib.foot.left': 'KB continuously learns from user corrections',
+    'lib.foot.right': 'Parquet-based efficient retrieval',
+
+    'guide.title': 'User Guide', 'guide.lead': 'System usage and best practices.', 'guide.open': 'Open Full Manual',
+    'guide.qs.title': 'Quick Start', 'guide.qs.desc': 'Complete your first SDTM mapping in 5 minutes. Full workflow from upload to spec output.',
+    'guide.wf.title': 'Workflow Details', 'guide.wf.desc': 'Detailed instructions and parameter configuration for each pipeline step.',
+    'guide.faq.title': 'FAQ', 'guide.faq.desc': 'File format requirements, EDC adaptation, mapping quality improvements.',
+
+    'edc.bioknow': 'BioKnow 4.1', 'edc.taimei.btn': 'TaiMei EDC',
+    'footer.cleanup': 'Clean session files',
+    'dialog.sheet.title': 'Select the Sheet to convert', 'dialog.sheet.confirm': 'Confirm',
+    'dialog.als.title': 'Select the Sheet in the ALS file', 'dialog.als.confirm': 'Confirm',
+    'dialog.cancel': 'Cancel'
+  }
+};
+
+function setLang(lang) {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('#langToggle button').forEach((b) => b.classList.toggle('on', b.dataset.l === lang));
+  const dict = I18N[lang] || I18N.zh;
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const key = el.getAttribute('data-i18n');
+    if (dict[key] !== undefined) el.textContent = dict[key];
+  });
+  try { localStorage.setItem('sirius-lang', lang); } catch (e) {}
+}
+
+// ==================== Theme ====================
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t === 'default' ? '' : t);
+  document.querySelectorAll('#themeToggle button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+  try { localStorage.setItem('sirius-theme', t); } catch (e) {}
+}
+
+// ==================== Screen navigation ====================
+function go(id) {
+  document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('active', s.id === 's-' + id));
+  document.querySelectorAll('.navitem').forEach((n) => n.classList.toggle('active', n.dataset.screen === id));
+  document.querySelectorAll('.pipe-step').forEach((p) => p.classList.toggle('active', p.dataset.go === id));
+  const content = document.querySelector('.content');
+  if (content) content.scrollTop = 0;
+}
+
+function initNav() {
+  document.querySelectorAll('.navitem[data-screen]').forEach((n) => n.addEventListener('click', () => go(n.dataset.screen)));
+  document.querySelectorAll('[data-go]').forEach((el) => el.addEventListener('click', () => go(el.dataset.go)));
+  const toggle = document.getElementById('sidebar-toggle');
+  if (toggle) toggle.addEventListener('click', () => document.getElementById('appShell').classList.toggle('sidebar-off'));
+  document.querySelectorAll('#langToggle button').forEach((b) => b.addEventListener('click', () => setLang(b.dataset.l)));
+  document.querySelectorAll('#themeToggle button').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.t)));
+}
+
+// Restore persisted preferences and wire navigation as early as possible.
+(function initPreferences() {
+  let t; try { t = localStorage.getItem('sirius-theme'); } catch (e) {}
+  if (t) setTheme(t);
+  let l; try { l = localStorage.getItem('sirius-lang'); } catch (e) {}
+  if (l) setLang(l);
+})();
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initNav);
+} else {
+  initNav();
+}
 
 // ==================== Session Management ====================
 // 生成或恢复 Session ID，用于隔离不同用户的文件和任务
 function getSessionId() {
-  let sessionId = sessionStorage.getItem('isdtaim_session_id');
+  let sessionId = sessionStorage.getItem('sirius_session_id');
   if (!sessionId) {
-    // 生成唯一的 session ID: sess_时间戳_随机字符串
     sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    sessionStorage.setItem('isdtaim_session_id', sessionId);
+    sessionStorage.setItem('sirius_session_id', sessionId);
   }
   return sessionId;
 }
 
 const SESSION_ID = getSessionId();
 
-// 初始化 session（通知后端）
 async function initSession() {
   try {
     await fetch('api/session/init', {
@@ -64,7 +262,6 @@ function scheduleCleanupOnUnload() {
 }
 
 // 立即取消待执行的清理（不等待 DOMContentLoaded，尽早执行！）
-// 这是关键：必须在延迟清理执行前取消它
 (function cancelPendingCleanupImmediately() {
   fetch('api/session/cancel-cleanup', {
     method: 'POST',
@@ -72,9 +269,7 @@ function scheduleCleanupOnUnload() {
     body: JSON.stringify({ session_id: SESSION_ID })
   }).then(() => {
     console.log('[Session] Cancelled pending cleanup for:', SESSION_ID);
-  }).catch(() => {
-    // 忽略错误，可能没有待执行的清理
-  });
+  }).catch(() => {});
 })();
 
 // 手动清理 session 资源的函数
@@ -82,7 +277,7 @@ async function manualCleanupSession() {
   if (!confirm('确定要清理本次会话上传的所有文件吗？\n\n这将删除：\n- 上传的原始文件\n- 生成的 JSON 映射文件\n- AI 推荐输出文件\n- Spec 输出文件')) {
     return;
   }
-  
+
   try {
     const response = await fetch('api/session/cleanup', {
       method: 'POST',
@@ -90,23 +285,20 @@ async function manualCleanupSession() {
       body: JSON.stringify({ session_id: SESSION_ID })
     });
     const result = await response.json();
-    
+
     if (result.status === 'success') {
       showToast({
         type: 'success',
         title: '清理完成',
         message: `已清理 ${result.cleaned_files} 个文件，${result.cleaned_jobs} 个任务`
       });
-      
-      // 刷新文件列表
+
       if (typeof loadProcessedFiles === 'function') loadProcessedFiles();
       if (typeof loadALSFiles === 'function') loadALSFiles();
-      
-      // 生成新的 session ID
+
       const newSessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      sessionStorage.setItem('isdtaim_session_id', newSessionId);
-      
-      // 提示用户页面将刷新
+      sessionStorage.setItem('sirius_session_id', newSessionId);
+
       setTimeout(() => {
         if (confirm('清理完成。是否刷新页面以开始新的会话？')) {
           window.location.reload();
@@ -116,126 +308,28 @@ async function manualCleanupSession() {
       throw new Error(result.detail || '清理失败');
     }
   } catch (error) {
-    showToast({
-      type: 'error',
-      title: '清理失败',
-      message: error.message
-    });
+    showToast({ type: 'error', title: '清理失败', message: error.message });
   }
 }
 
 // 注册页面关闭事件（安排延迟清理）
-// pagehide 比 beforeunload 更可靠：bfcache、移动端关闭等场景均能触发
 window.addEventListener('pagehide', scheduleCleanupOnUnload);
 window.addEventListener('beforeunload', scheduleCleanupOnUnload);
 
 // 页面加载时：初始化 session
 document.addEventListener('DOMContentLoaded', async () => {
-  // 初始化 session（取消清理已在脚本顶部立即执行）
   await initSession();
-  
-  // 绑定手动清理按钮事件
   const cleanupBtn = document.getElementById('cleanup-session');
   if (cleanupBtn) {
     cleanupBtn.addEventListener('click', manualCleanupSession);
   }
 });
 
-// ==================== Initialize Particle Background ====================
-let particleBackground = null;
-
-function initParticles() {
-  if (window.ParticleBackground) {
-    particleBackground = new ParticleBackground('particles-canvas');
-    
-    // Update particles theme based on current state
-    const currentStep = parseInt(document.body.dataset.step) || 1;
-    const isDark = !document.body.classList.contains('light-theme');
-    particleBackground.updateTheme(currentStep, isDark);
-  }
-}
-
-// Initialize particles when DOM is ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initParticles);
-} else {
-  initParticles();
-}
-
-// ==================== Scroll-Triggered Animations ====================
-function initScrollAnimations() {
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
-          // Optional: unobserve after first trigger for performance
-          // observer.unobserve(entry.target);
-        }
-      });
-    },
-    {
-      threshold: 0.1,
-      rootMargin: '0px 0px -50px 0px'
-    }
-  );
-
-  document.querySelectorAll('.animate-on-scroll').forEach((el) => {
-    observer.observe(el);
-  });
-}
-
-// Initialize scroll animations
-initScrollAnimations();
-
-// ==================== Enhanced Theme Toggle ====================
-const themeToggle = document.getElementById('theme-toggle');
-const savedTheme = localStorage.getItem('theme') || 'dark';
-
-// Apply saved theme on load
-if (savedTheme === 'light') {
-  document.body.classList.add('light-theme');
-}
-
-themeToggle?.addEventListener('click', function() {
-  // Add switching animation class
-  this.classList.add('switching');
-  
-  // Toggle theme
-  document.body.classList.toggle('light-theme');
-  const isLight = document.body.classList.contains('light-theme');
-  localStorage.setItem('theme', isLight ? 'light' : 'dark');
-  
-  // Update particle background theme
-  if (particleBackground) {
-    const currentStep = parseInt(document.body.dataset.step) || 1;
-    particleBackground.updateTheme(currentStep, !isLight);
-  }
-  
-  // Remove switching class after animation
-  setTimeout(() => {
-    this.classList.remove('switching');
-  }, 500);
-});
-
 // ==================== Toast 提示系统 ====================
 const toastContainer = document.getElementById("toast-container");
 
-/**
- * 显示Toast提示
- * @param {Object} options - Toast配置
- * @param {string} options.type - 类型: success | warning | error | info
- * @param {string} options.title - 标题
- * @param {string} options.message - 消息内容
- * @param {number} options.duration - 显示时长(ms)，默认4000
- */
 function showToast({ type = "info", title = "", message = "", duration = 4000 }) {
-  const icons = {
-    success: "✅",
-    warning: "⚠️",
-    error: "❌",
-    info: "ℹ️"
-  };
+  const icons = { success: "✅", warning: "⚠️", error: "❌", info: "ℹ️" };
 
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
@@ -250,7 +344,6 @@ function showToast({ type = "info", title = "", message = "", duration = 4000 })
 
   toastContainer.appendChild(toast);
 
-  // 自动移除
   if (duration > 0) {
     setTimeout(() => {
       toast.classList.add("toast-exit");
@@ -261,178 +354,7 @@ function showToast({ type = "info", title = "", message = "", duration = 4000 })
   return toast;
 }
 
-// ==================== Tab switching with horizontal slide animation ====================
-let isTransitioning = false;
-let currentStep = 1;
-
-document.querySelectorAll('.pipe-tab').forEach(tab => {
-  tab.addEventListener('click', function() {
-    if (isTransitioning) return;
-    
-    const newStep = parseInt(this.dataset.step);
-    const currentPanel = document.querySelector('.panel[style*="block"]') || document.querySelector('.panel:not([style*="none"])');
-    const newPanel = document.getElementById('panel-' + newStep);
-    
-    // Skip if clicking current tab
-    if (currentStep === newStep) return;
-    
-    isTransitioning = true;
-    const goingForward = newStep > currentStep;
-    
-    // Ripple effect
-    const ripple = document.createElement('span');
-    ripple.className = 'ripple';
-    this.appendChild(ripple);
-    setTimeout(() => ripple.remove(), 600);
-    
-    // Update active state
-    document.querySelectorAll('.pipe-tab').forEach(t => t.classList.remove('active'));
-    this.classList.add('active');
-    
-    // Update body step for theming
-    document.body.dataset.step = newStep;
-    
-    // Update particle background for new step
-    if (particleBackground) {
-      const isDark = !document.body.classList.contains('light-theme');
-      particleBackground.updateTheme(newStep, isDark);
-    }
-    
-    // Animate out current panel (direction based on navigation)
-    if (currentPanel) {
-      currentPanel.classList.add(goingForward ? 'panel-out' : 'panel-out-right');
-    }
-    
-    // Wait for exit animation, then show new panel
-    setTimeout(() => {
-      // Hide all panels and reset classes
-      document.querySelectorAll('.panel').forEach(p => {
-        p.style.display = 'none';
-        p.classList.remove('panel-out', 'panel-out-right');
-        p.style.animation = '';
-      });
-      
-      // Show new panel with correct animation direction
-      newPanel.style.display = 'block';
-      newPanel.style.animation = goingForward 
-        ? 'panel-in 0.55s cubic-bezier(0.16, 1, 0.3, 1)' 
-        : 'panel-in-left 0.55s cubic-bezier(0.16, 1, 0.3, 1)';
-      
-      // Re-trigger scroll animations for newly visible panel
-      newPanel.querySelectorAll('.animate-on-scroll').forEach(el => {
-        el.classList.remove('visible');
-        // Force reflow
-        void el.offsetWidth;
-        // Re-observe
-        setTimeout(() => {
-          if (isElementInViewport(el)) {
-            el.classList.add('visible');
-          }
-        }, 100);
-      });
-      
-      // Update current step
-      currentStep = newStep;
-      
-      // Allow next transition after animation completes
-      setTimeout(() => {
-        isTransitioning = false;
-      }, 550);
-    }, 250);
-  });
-});
-
-// Helper function to check if element is in viewport
-function isElementInViewport(el) {
-  const rect = el.getBoundingClientRect();
-  return (
-    rect.top >= 0 &&
-    rect.left >= 0 &&
-    rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-    rect.right <= (window.innerWidth || document.documentElement.clientWidth)
-  );
-}
-
-// ==================== Button click animation ====================
-document.querySelectorAll('.btn').forEach(btn => {
-  btn.addEventListener('click', function(e) {
-    this.classList.add('clicked');
-    
-    // Create ripple effect at click position
-    const rect = this.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    const ripple = document.createElement('span');
-    ripple.className = 'ripple';
-    ripple.style.left = x + 'px';
-    ripple.style.top = y + 'px';
-    this.appendChild(ripple);
-    
-    setTimeout(() => {
-      this.classList.remove('clicked');
-      ripple.remove();
-    }, 600);
-  });
-});
-
-// ==================== Brand shimmer effect every 5 seconds ====================
-function brandShimmer() {
-  const brand = document.querySelector('.brand-main');
-  if (brand) {
-    brand.classList.add('shimmer');
-    setTimeout(() => brand.classList.remove('shimmer'), 2000);
-  }
-}
-setInterval(brandShimmer, 5000);
-setTimeout(brandShimmer, 1500); // Initial shimmer
-
-// ==================== URL Parameter Handling ====================
-// Check for step parameter in URL and navigate to the correct step
-function handleURLStepParameter() {
-  const params = new URLSearchParams(window.location.search);
-  const stepParam = params.get('step');
-  const alsFileParam = params.get('als_file');
-  
-  if (stepParam) {
-    const targetStep = parseInt(stepParam);
-    if (targetStep >= 1 && targetStep <= 3) {
-      // Simulate clicking the target tab
-      const targetTab = document.querySelector(`.pipe-tab[data-step="${targetStep}"]`);
-      if (targetTab) {
-        // Use setTimeout to ensure DOM is ready
-        setTimeout(() => {
-          targetTab.click();
-          
-          // If als_file parameter is present and we're going to step 3, auto-select the file
-          if (alsFileParam && targetStep === 3) {
-            setTimeout(() => {
-              if (alsFileSelect) {
-                // Find and select the option
-                for (let i = 0; i < alsFileSelect.options.length; i++) {
-                  if (alsFileSelect.options[i].value === alsFileParam) {
-                    alsFileSelect.selectedIndex = i;
-                    break;
-                  }
-                }
-              }
-            }, 500);
-          }
-          
-          // Clear the URL parameters to avoid re-triggering on refresh
-          const cleanURL = window.location.pathname;
-          window.history.replaceState({}, document.title, cleanURL);
-        }, 100);
-      }
-    }
-  }
-}
-
-// Call on page load
-document.addEventListener('DOMContentLoaded', handleURLStepParameter);
-
 // ==================== Step 1 Elements ====================
-// ALS 原始文件
 const fileRaw = document.getElementById("file-raw");
 const dropZoneRaw = document.getElementById("drop-zone-raw");
 const filenameRaw = document.getElementById("filename-raw");
@@ -533,16 +455,16 @@ function validateExcelFile(file) {
 
 function setupDropZone(dropZone, fileInput, filenameDisplay, validate = true) {
   if (!dropZone || !fileInput) return;
-  
+
   dropZone.addEventListener('click', () => fileInput.click());
-  
+
   dropZone.addEventListener('dragover', e => {
     e.preventDefault();
     dropZone.classList.add('dragover');
   });
-  
+
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-  
+
   dropZone.addEventListener('drop', e => {
     e.preventDefault();
     dropZone.classList.remove('dragover');
@@ -552,22 +474,14 @@ function setupDropZone(dropZone, fileInput, filenameDisplay, validate = true) {
         return;
       }
       fileInput.files = e.dataTransfer.files;
-      
-      // Add visual feedback
       dropZone.classList.add('file-selected');
-      
       if (filenameDisplay) {
         filenameDisplay.textContent = file.name;
       }
-      showToast({
-        type: "info",
-        title: "文件已选择",
-        message: `已选择: ${file.name}`,
-        duration: 2000
-      });
+      showToast({ type: "info", title: "文件已选择", message: `已选择: ${file.name}`, duration: 2000 });
     }
   });
-  
+
   fileInput.addEventListener('change', () => {
     if (fileInput.files.length > 0) {
       const file = fileInput.files[0];
@@ -577,19 +491,11 @@ function setupDropZone(dropZone, fileInput, filenameDisplay, validate = true) {
         dropZone.classList.remove('file-selected');
         return;
       }
-      
-      // Add visual feedback
       dropZone.classList.add('file-selected');
-      
       if (filenameDisplay) {
         filenameDisplay.textContent = file.name;
       }
-      showToast({
-        type: "info",
-        title: "文件已选择",
-        message: `已选择: ${file.name}`,
-        duration: 2000
-      });
+      showToast({ type: "info", title: "文件已选择", message: `已选择: ${file.name}`, duration: 2000 });
     } else {
       dropZone.classList.remove('file-selected');
     }
@@ -604,33 +510,27 @@ setupDropZone(dropZoneAlsOutput, fileAlsOutput, filenameAlsOutput, true);
 async function uploadRawFile() {
   const file = fileRaw?.files?.[0];
   if (!file) {
-    showToast({
-      type: "warning",
-      title: "请选择文件",
-      message: "请先选择一个ALS原始文件再上传"
-    });
+    showToast({ type: "warning", title: "请选择文件", message: "请先选择一个ALS原始文件再上传" });
     statusRaw.textContent = "请选择文件";
     return;
   }
-  
-  // 前端预检查：文件格式
+
   if (!validateExcelFile(file)) {
     statusRaw.textContent = `文件格式错误`;
     return;
   }
-  
+
   const formData = new FormData();
   formData.append("file", file);
   statusRaw.textContent = "上传中...";
 
-  // 根据 EDC 系统选择对应的 API 端点
   const apiEndpoint = selectedEdcSystem === "taimei" ? "api/upload/raw_taimei" : "api/upload/raw";
   const edcLabel = selectedEdcSystem === "taimei" ? "太美" : "百奥知 4.1";
-  
+
   try {
     const response = await fetchWithSession(apiEndpoint, { method: "POST", body: formData });
     const data = await response.json();
-    
+
     if (!response.ok) {
       const errorMsg = data.detail || "上传失败";
       let friendlyMsg = errorMsg;
@@ -659,27 +559,21 @@ async function uploadRawFile() {
           friendlyMsg = "不支持的文件格式，请上传 Excel 文件 (.xls, .xlsx, .xlsm)";
         }
       }
-      
-      showToast({
-        type: "error",
-        title: toastTitle,
-        message: friendlyMsg,
-        duration: 6000
-      });
+
+      showToast({ type: "error", title: toastTitle, message: friendlyMsg, duration: 6000 });
       throw new Error(friendlyMsg);
     }
-    
+
     statusRaw.textContent = `✅ 成功：${data.message}`;
-    
+
     showToast({
       type: "success",
       title: "上传成功",
       message: `[${edcLabel}] 文件已处理并转换为JSON，已自动刷新映射文件列表`
     });
-    
-    // 自动刷新 Step2 的映射文件列表
+
     loadProcessedFiles();
-    
+
   } catch (err) {
     statusRaw.textContent = `❌ ${err.message}`;
   }
@@ -694,11 +588,7 @@ async function uploadExampleFile() {
   const file = fileExample?.files?.[0];
   if (!file) {
     statusExample.textContent = "请选择文件";
-    showToast({
-      type: "warning",
-      title: "请选择文件",
-      message: "请先选择一个文件再上传"
-    });
+    showToast({ type: "warning", title: "请选择文件", message: "请先选择一个文件再上传" });
     return;
   }
   const formData = new FormData();
@@ -709,7 +599,6 @@ async function uploadExampleFile() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "上传失败");
     uploadedExamplePath = data.stored_to;
-    // 填充 sheet 下拉并弹出对话框
     if (exampleSheetSelect && Array.isArray(data.sheets) && data.sheets.length) {
       exampleSheetSelect.innerHTML = "";
       data.sheets.forEach((name) => {
@@ -725,11 +614,7 @@ async function uploadExampleFile() {
     }
   } catch (err) {
     statusExample.textContent = `❌ ${err.message}`;
-    showToast({
-      type: "error",
-      title: "上传失败",
-      message: err.message
-    });
+    showToast({ type: "error", title: "上传失败", message: err.message });
   }
 }
 
@@ -737,7 +622,6 @@ if (uploadExampleBtn) {
   uploadExampleBtn.addEventListener("click", uploadExampleFile);
 }
 
-// 取消选择
 if (sheetCancelBtn) {
   sheetCancelBtn.addEventListener("click", () => {
     sheetDialog?.close();
@@ -745,16 +629,11 @@ if (sheetCancelBtn) {
   });
 }
 
-// 确认转换
 if (sheetConfirmBtn) {
   sheetConfirmBtn.addEventListener("click", async () => {
     const sheet = exampleSheetSelect?.value || "";
     if (!sheet) {
-      showToast({
-        type: "warning",
-        title: "请选择Sheet",
-        message: "请从列表中选择一个要转换的Sheet"
-      });
+      showToast({ type: "warning", title: "请选择Sheet", message: "请从列表中选择一个要转换的Sheet" });
       return;
     }
     sheetDialog?.close();
@@ -768,24 +647,11 @@ if (sheetConfirmBtn) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "转换失败");
       statusExample.textContent = `✅ 转换完成，输出目录：${data.output_dir}`;
-      
-      showToast({
-        type: "success",
-        title: "转换成功",
-        message: `Sheet "${sheet}" 已转换完成，已自动刷新映射文件列表`
-      });
-      
-      // 自动刷新 Step2 的映射文件列表
+      showToast({ type: "success", title: "转换成功", message: `Sheet "${sheet}" 已转换完成，已自动刷新映射文件列表` });
       loadProcessedFiles();
-      
     } catch (err) {
       statusExample.textContent = `❌ ${err.message}`;
-      showToast({
-        type: "error",
-        title: "转换失败",
-        message: err.message,
-        duration: 6000
-      });
+      showToast({ type: "error", title: "转换失败", message: err.message, duration: 6000 });
     }
   });
 }
@@ -841,8 +707,7 @@ async function pollJob(jobId) {
     }
     const data = await response.json();
     renderProgress(data.processed, data.total);
-    
-    // Build display message based on state
+
     let displayMessage = "";
     const stateLabels = {
       pending: "⏳ 等待中",
@@ -851,9 +716,8 @@ async function pollJob(jobId) {
       failed: "❌ 失败",
       cancelled: "⏸️ 已暂停"
     };
-    
+
     if (data.message) {
-      // If message already has emoji/context, show it directly
       if (data.message.startsWith("📌") || data.message.startsWith("✅") || data.message.startsWith("正在处理")) {
         displayMessage = data.message;
       } else {
@@ -862,28 +726,22 @@ async function pollJob(jobId) {
     } else {
       displayMessage = stateLabels[data.state] || data.state;
     }
-    
+
     if (progressText) progressText.textContent = displayMessage;
-    
+
     if (data.message && data.message.includes("用时")) {
       const match = data.message.match(/用时\s([\d\.]+s)/);
       if (match && elapsedText) elapsedText.textContent = `耗时：${match[1]}`;
     }
 
     if (data.state === "completed") {
-      const fileName = data.output_excel ? data.output_excel.split('/').pop().split('\\').pop() : '';
-      
       if (downloadArea) {
         downloadArea.innerHTML = `
           <div class="success-message">
             <h3>✅ 推荐生成成功！</h3>
             <div class="download-buttons">
-              <a href="api/jobs/${jobId}/download?format=excel" target="_blank" class="download-btn">
-                📥 下载 Excel
-              </a>
-              <a href="api/jobs/${jobId}/download?format=json" target="_blank" class="download-btn">
-                📥 下载 JSON
-              </a>
+              <a href="api/jobs/${jobId}/download?format=excel" target="_blank" class="download-btn">📥 下载 Excel</a>
+              <a href="api/jobs/${jobId}/download?format=json" target="_blank" class="download-btn">📥 下载 JSON</a>
             </div>
           </div>
         `;
@@ -907,19 +765,14 @@ async function pollJob(jobId) {
 runJobBtn?.addEventListener("click", async () => {
   const selectedFile = processedSelect?.value;
   if (!selectedFile || selectedFile === "暂无文件") {
-    showToast({
-      type: "warning",
-      title: "请选择文件",
-      message: "请先准备 data/processed 下的 JSON 文件"
-    });
+    showToast({ type: "warning", title: "请选择文件", message: "请先准备 data/processed 下的 JSON 文件" });
     return;
   }
 
   resetProgress();
   if (progressContainer) progressContainer.style.display = "block";
   if (progressText) progressText.textContent = "任务已提交...";
-  
-  // Hide resume button when starting new job
+
   if (resumeJobBtn) resumeJobBtn.style.display = "none";
   lastCancelledJobFile = null;
 
@@ -932,9 +785,7 @@ runJobBtn?.addEventListener("click", async () => {
 
   const response = await fetchWithSession("api/recommendations", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
@@ -955,35 +806,26 @@ let lastCancelledJobFile = null;
 
 cancelJobBtn?.addEventListener("click", async () => {
   if (!currentJobId) {
-    showToast({
-      type: "info",
-      title: "无任务运行",
-      message: "当前没有运行中的任务"
-    });
+    showToast({ type: "info", title: "无任务运行", message: "当前没有运行中的任务" });
     return;
   }
   try {
     const response = await fetchWithSession(`api/jobs/${currentJobId}/cancel`, { method: "POST" });
     const data = await response.json();
-    
+
     if (progressText) progressText.textContent = "任务已终止，进度已保存";
     clearTimeout(pollTimer);
     pollTimer = null;
     currentJobId = null;
-    
-    // Show resume button if task can be resumed
+
     if (data.can_resume && data.json_file) {
       lastCancelledJobFile = data.json_file;
       if (resumeJobBtn) {
         resumeJobBtn.style.display = "inline-flex";
       }
     }
-    
-    showToast({
-      type: "success",
-      title: "任务已终止",
-      message: "进度已保存，可以点击「Resume Task」继续"
-    });
+
+    showToast({ type: "success", title: "任务已终止", message: "进度已保存，可以点击「恢复任务」继续" });
   } catch (err) {
     if (progressText) progressText.textContent = `终止失败：${err.message}`;
   }
@@ -993,15 +835,10 @@ cancelJobBtn?.addEventListener("click", async () => {
 resumeJobBtn?.addEventListener("click", async () => {
   const selectedFile = processedSelect?.value || lastCancelledJobFile;
   if (!selectedFile || selectedFile === "暂无文件") {
-    showToast({
-      type: "warning",
-      title: "请选择文件",
-      message: "请选择要恢复的任务文件"
-    });
+    showToast({ type: "warning", title: "请选择文件", message: "请选择要恢复的任务文件" });
     return;
   }
 
-  // Don't reset progress - keep showing current progress
   if (progressContainer) progressContainer.style.display = "block";
   if (progressText) progressText.textContent = "正在恢复任务...";
   resumeJobBtn.style.display = "none";
@@ -1010,7 +847,7 @@ resumeJobBtn?.addEventListener("click", async () => {
     json_file: selectedFile,
     language: languageSelect?.value || "cn",
     model_name: modelSelect?.value || "google/gemini-2.5-flash",
-    resume: true,  // Enable resume mode
+    resume: true,
   };
 
   try {
@@ -1029,21 +866,15 @@ resumeJobBtn?.addEventListener("click", async () => {
     const data = await response.json();
     currentJobId = data.job_id;
     lastCancelledJobFile = null;
-    
-    showToast({
-      type: "info",
-      title: "任务已恢复",
-      message: "正在从上次进度继续处理..."
-    });
-    
-    // Start polling immediately to get current progress
+
+    showToast({ type: "info", title: "任务已恢复", message: "正在从上次进度继续处理..." });
+
     pollJob(currentJobId);
   } catch (err) {
     if (progressText) progressText.textContent = `恢复失败：${err.message}`;
   }
 });
 
-// Hide progress on initial load
 resetProgress();
 
 // ==================== Step 3: Upload ALS Output ====================
@@ -1051,11 +882,7 @@ async function uploadAlsOutput() {
   const file = fileAlsOutput?.files?.[0];
   if (!file) {
     statusAlsOutput.textContent = "请选择文件";
-    showToast({
-      type: "warning",
-      title: "请选择文件",
-      message: "请先选择一个文件再上传"
-    });
+    showToast({ type: "warning", title: "请选择文件", message: "请先选择一个文件再上传" });
     return;
   }
   const formData = new FormData();
@@ -1065,22 +892,15 @@ async function uploadAlsOutput() {
     const response = await fetchWithSession("api/upload/als_output", { method: "POST", body: formData });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "上传失败");
-    
+
     uploadedAlsOutputPath = data.stored_to;
-    
-    // 检查返回的 sheets 列表
+
     if (Array.isArray(data.sheets) && data.sheets.length > 0) {
       if (data.sheets.length === 1) {
-        // 只有一个 sheet，自动选择，跳过对话框
         selectedAlsSheet = data.sheets[0];
         statusAlsOutput.textContent = `✅ 上传成功（Sheet: ${selectedAlsSheet}）`;
-        showToast({
-          type: "success",
-          title: "上传成功",
-          message: `已自动选择 Sheet: ${selectedAlsSheet}`
-        });
+        showToast({ type: "success", title: "上传成功", message: `已自动选择 Sheet: ${selectedAlsSheet}` });
       } else {
-        // 多个 sheet，弹出选择对话框
         alsSheetSelect.innerHTML = "";
         data.sheets.forEach((name) => {
           const opt = document.createElement("option");
@@ -1092,24 +912,15 @@ async function uploadAlsOutput() {
         alsSheetDialog?.showModal();
       }
     } else {
-      // 没有检测到 sheets，使用默认值
       selectedAlsSheet = "Sheet1";
       statusAlsOutput.textContent = `✅ 上传成功`;
-      showToast({
-        type: "success",
-        title: "上传成功",
-        message: `文件已保存，使用默认 Sheet`
-      });
+      showToast({ type: "success", title: "上传成功", message: `文件已保存，使用默认 Sheet` });
     }
-    
+
     loadALSFiles();
   } catch (err) {
     statusAlsOutput.textContent = `❌ ${err.message}`;
-    showToast({
-      type: "error",
-      title: "上传失败",
-      message: err.message
-    });
+    showToast({ type: "error", title: "上传失败", message: err.message });
   }
 }
 
@@ -1117,11 +928,9 @@ if (uploadAlsOutputBtn) {
   uploadAlsOutputBtn.addEventListener("click", uploadAlsOutput);
 }
 
-// ALS Sheet 选择对话框事件处理
 if (alsSheetCancelBtn) {
   alsSheetCancelBtn.addEventListener("click", () => {
     alsSheetDialog?.close();
-    // 使用第一个 sheet 作为默认值
     if (alsSheetSelect?.options?.length > 0) {
       selectedAlsSheet = alsSheetSelect.options[0].value;
     }
@@ -1135,11 +944,7 @@ if (alsSheetConfirmBtn) {
     selectedAlsSheet = sheet;
     alsSheetDialog?.close();
     statusAlsOutput.textContent = `✅ 已选择 Sheet: ${selectedAlsSheet}`;
-    showToast({
-      type: "success",
-      title: "Sheet 已选择",
-      message: `将使用 Sheet: ${selectedAlsSheet} 进行映射`
-    });
+    showToast({ type: "success", title: "Sheet 已选择", message: `将使用 Sheet: ${selectedAlsSheet} 进行映射` });
   });
 }
 
@@ -1148,13 +953,13 @@ async function loadALSFiles() {
   try {
     const response = await fetchWithSession("api/als-files");
     const data = await response.json();
-    
+
     alsFileSelect.innerHTML = "";
     if (data.files.length === 0) {
       alsFileSelect.innerHTML = '<option value="">暂无 ALS2SDTM 文件</option>';
       return;
     }
-    
+
     data.files.forEach(file => {
       const option = document.createElement("option");
       option.value = file.file_id;
@@ -1171,13 +976,13 @@ async function loadTemplateFiles() {
   try {
     const response = await fetchWithSession("api/template-files");
     const data = await response.json();
-    
+
     templateSelect.innerHTML = "";
     if (data.files.length === 0) {
       templateSelect.innerHTML = '<option value="">暂无模板文件</option>';
       return;
     }
-    
+
     const DEFAULT_TEMPLATE = "SDTM_template_IG3.2.xlsx";
     data.files.forEach(file => {
       const option = document.createElement("option");
@@ -1203,22 +1008,14 @@ runSpecMapperBtn?.addEventListener("click", async () => {
   const alsFile = alsFileSelect?.value;
   const templateFile = templateSelect?.value;
   const outputName = specOutputName?.value?.trim() || 'final_spec';
-  
+
   if (!alsFile || alsFile === "" || alsFile === "暂无 ALS2SDTM 文件") {
-    showToast({
-      type: "warning",
-      title: "请选择文件",
-      message: "请选择 ALS2SDTM 文件"
-    });
+    showToast({ type: "warning", title: "请选择文件", message: "请选择 ALS2SDTM 文件" });
     return;
   }
-  
+
   if (!templateFile || templateFile === "" || templateFile === "暂无模板文件") {
-    showToast({
-      type: "warning",
-      title: "请选择模板",
-      message: "请选择模板文件"
-    });
+    showToast({ type: "warning", title: "请选择模板", message: "请选择模板文件" });
     return;
   }
 
@@ -1232,16 +1029,13 @@ runSpecMapperBtn?.addEventListener("click", async () => {
     });
     return;
   }
-  
-  // Show progress
+
   if (specProgressContainer) specProgressContainer.style.display = "block";
   if (specDownloadArea) specDownloadArea.innerHTML = "";
-  if (specProgressFill) {
-    specProgressFill.style.width = "0%";
-  }
+  if (specProgressFill) specProgressFill.style.width = "0%";
   if (specProgressPct) specProgressPct.textContent = "0%";
   if (specProgressText) specProgressText.textContent = "正在初始化 Spec Mapper...";
-  
+
   const payload = {
     als_file: alsFile,
     template_file: templateFile,
@@ -1251,100 +1045,77 @@ runSpecMapperBtn?.addEventListener("click", async () => {
     create_test_sheets: createTestSheets?.checked ?? true,
     project_name: projectNameRaw
   };
-  
+
   try {
     const response = await fetchWithSession("api/spec-mapper/run", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    
+
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       throw new Error(formatApiErrorBody(err) || "任务提交失败");
     }
-    
+
     const data = await response.json();
     currentSpecJobId = data.job_id;
     pollSpecJob(currentSpecJobId);
-    
+
   } catch (error) {
     if (specProgressText) specProgressText.textContent = `错误: ${error.message}`;
     if (specProgressPct) specProgressPct.textContent = "失败";
-    showToast({
-      type: "error",
-      title: "任务提交失败",
-      message: error.message
-    });
+    showToast({ type: "error", title: "任务提交失败", message: error.message });
   }
 });
 
 // Poll Spec Mapper job
 function pollSpecJob(jobId) {
   if (specPollTimer) clearInterval(specPollTimer);
-  
+
   specPollTimer = setInterval(async () => {
     try {
       const response = await fetchWithSession(`api/jobs/${jobId}`);
       if (!response.ok) throw new Error("Job not found");
-      
+
       const job = await response.json();
-      
+
       const progress = job.processed || 0;
       const total = job.total || 100;
       const percentage = Math.round((progress / total) * 100);
-      
+
       if (specProgressFill) specProgressFill.style.width = `${percentage}%`;
       if (specProgressPct) specProgressPct.textContent = `${percentage}%`;
       if (specProgressText) specProgressText.textContent = job.message || "处理中...";
-      
+
       if (job.state === "completed") {
         clearInterval(specPollTimer);
         if (specProgressPct) specProgressPct.textContent = "✓ 完成";
-        
+
         if (job.output_excel && specDownloadArea) {
-          // 构建下载按钮 HTML
           let downloadButtons = `
-            <a href="api/jobs/${jobId}/download?format=excel" class="download-btn">
-              📥 下载 Spec Excel
-            </a>
+            <a href="api/jobs/${jobId}/download?format=excel" class="download-btn">📥 下载 Spec Excel</a>
           `;
-          
           downloadButtons += `
-            <button onclick="window.location.reload()" class="download-btn">
-              🔄 刷新页面
-            </button>
+            <button onclick="window.location.reload()" class="download-btn">🔄 刷新页面</button>
           `;
-          
           specDownloadArea.innerHTML = `
             <div class="success-message">
               <h3>✅ Spec 生成成功！</h3>
-              <div class="download-buttons">
-                ${downloadButtons}
-              </div>
+              <div class="download-buttons">${downloadButtons}</div>
             </div>
           `;
         }
-        
-        showToast({
-          type: "success",
-          title: "Spec 生成成功",
-          message: "SDTM 规范文档已生成完成"
-        });
+
+        showToast({ type: "success", title: "Spec 生成成功", message: "SDTM 规范文档已生成完成" });
       } else if (job.state === "failed") {
         clearInterval(specPollTimer);
         if (specProgressPct) specProgressPct.textContent = "✗ 失败";
         const failMsg = typeof job.message === "string" ? job.message : String(job.message ?? "");
         if (specProgressText) specProgressText.textContent = `错误: ${failMsg}`;
-        showToast({
-          type: "error",
-          title: "Spec 生成失败",
-          message: failMsg
-        });
+        showToast({ type: "error", title: "Spec 生成失败", message: failMsg });
       }
-      
+
     } catch (error) {
       console.error("Poll error:", error);
     }
@@ -1360,44 +1131,30 @@ const deleteAlsFileBtn = document.getElementById("delete-als-file");
 deleteAlsFileBtn?.addEventListener("click", async () => {
   const selectedFile = alsFileSelect?.value;
   if (!selectedFile || selectedFile === "" || selectedFile === "暂无 ALS2SDTM 文件") {
-    showToast({
-      type: "warning",
-      title: "请选择文件",
-      message: "请先选择一个要删除的文件"
-    });
+    showToast({ type: "warning", title: "请选择文件", message: "请先选择一个要删除的文件" });
     return;
   }
-  
-  // Confirm deletion
+
   if (!confirm(`确定要删除文件 "${selectedFile}" 吗？此操作不可恢复。`)) {
     return;
   }
-  
+
   try {
     const response = await fetchWithSession(`api/als-files/${encodeURIComponent(selectedFile)}`, {
       method: "DELETE"
     });
-    
+
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.detail || "删除失败");
     }
-    
-    showToast({
-      type: "success",
-      title: "删除成功",
-      message: `文件 "${selectedFile}" 已删除`
-    });
-    
-    // Reload file list
+
+    showToast({ type: "success", title: "删除成功", message: `文件 "${selectedFile}" 已删除` });
+
     loadALSFiles();
-    
+
   } catch (error) {
-    showToast({
-      type: "error",
-      title: "删除失败",
-      message: error.message
-    });
+    showToast({ type: "error", title: "删除失败", message: error.message });
   }
 });
 

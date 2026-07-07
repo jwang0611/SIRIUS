@@ -2,12 +2,12 @@
 
 ## 概述
 
-`spec_mapper` 模块已成功集成到 iSDTaiM 项目中，提供从 ALS 文件到 SDTM Spec 模板的自动映射功能。
+`spec_mapper` 模块已成功集成到 SIRIUS 项目中，提供从 ALS 文件到 SDTM Spec 模板的自动映射功能。
 
 ## 目录结构
 
 ```
-isdtaim/
+sirius/
 ├── src/
 │   └── spec_mapper/              # ALS to Spec 映射模块
 │       ├── __init__.py           # SpecMapper 入口 & 编排
@@ -232,7 +232,7 @@ output_format:
       │ (generate_sdtm_recommendations.py)
       ↓
 ┌─────────────┐
-│  ALS File   │ (iSDTaiM 生成的 ALS)
+│  ALS File   │ (SIRIUS 生成的 ALS)
 └─────┬───────┘
       │
       │ (spec_mapper)
@@ -277,7 +277,7 @@ async def generate_spec(request: SpecRequest):
 
 ```bash
 # 确保在项目根目录
-cd /path/to/isdtaim
+cd /path/to/sirius
 
 # 测试导入
 python -c "from src.spec_mapper import SpecMapper; print('OK')"
@@ -338,7 +338,7 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 - 新增 `CodelistRecord` 模型，支持 `metadata_variable` 字段
 
 ### v0.1.0 (2025-12-11)
-- 集成到 iSDTaiM 项目
+- 集成到 SIRIUS 项目
 - 移除 GUI 依赖
 - 改为相对导入路径
 - 添加公开 API (SpecMapper, map_als_to_spec)
@@ -347,7 +347,7 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 
 ## 贡献者
 
-- iSDTaiM Team
+- SIRIUS Team
 - 原 als2spec 项目团队
 
 ## 许可证

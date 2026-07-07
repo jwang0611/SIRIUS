@@ -18,7 +18,7 @@ embeddings.py
 - OPENROUTER_BASE_URL （默认 https://ai-api.qilu-pharma.com/v1）
 
 示例运行：
-python -m src.rag.embeddings --kb-path isdtaim/knowledge_base/structured
+python -m src.rag.embeddings --kb-path data/knowledge_base/structured
 """
 
 import argparse
@@ -125,7 +125,7 @@ def build_embeddings(kb_path: str, model: str = "Qwen3-Embed") -> list[dict[str,
 def parse_args():
     p = argparse.ArgumentParser(description="生成知识库 Embeddings（OpenRouter 内网版本）")
     p.add_argument(
-        "--kb-path", default="isdtaim/data/knowledge_base/structured", help="知识库目录（包含 .parquet 文件）"
+        "--kb-path", default="data/knowledge_base/structured", help="知识库目录（包含 .parquet 文件）"
     )
     p.add_argument("--model", default="Qwen3-Embed", help="Embedding 模型名")
     return p.parse_args()

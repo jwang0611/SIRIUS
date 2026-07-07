@@ -25,7 +25,7 @@ from src.web.session_manager import session_manager, start_cleanup_scheduler
 # Wire up cross-module references
 session_manager.set_job_manager(job_manager)
 
-app = FastAPI(title="ISDTAIM 控制台", version="1.0.0")
+app = FastAPI(title="SIRIUS 控制台", version="1.0.0")
 
 # Rate limiter
 app.state.limiter = limiter

@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "isdtaim"
+name = "sirius"
 version = "1.0.0"
-description = "Intelligent SDTM Mapping System (iSDTaiM)"
+description = "SIRIUS - SDTM Intelligent Recommendation & Inference Unified System"
 requires-python = ">=3.11"
 readme = "README.md"
 

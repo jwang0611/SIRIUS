@@ -1,5 +1,5 @@
 """
-Knowledge Base Manager for iSDTaiM
+Knowledge Base Manager for SIRIUS
 
 This module provides high-level management functionality for the knowledge base,
 including data loading, querying, and maintenance operations.
