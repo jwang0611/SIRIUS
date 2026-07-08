@@ -162,7 +162,9 @@ class ExcelWriter:
                 # Keep Source column labels language-aware even for generic
                 # mapper updates (e.g. assignment mappings that set F="指定").
                 if update.col == 6 and isinstance(value, str):
-                    value = self._src_label(value)
+                    mapped = self._src_label(value)
+                    if mapped is not None:
+                        value = mapped
                 self.update_cell_value(
                     update.sheet_name,
                     update.row,

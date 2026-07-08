@@ -756,7 +756,7 @@ class Mapper:
         for (domain, target_var), remaining_entries in simple_overlap_groups.items():
             if not remaining_entries:
                 continue
-            seen_trans: set[str] = set()
+            seen_trans = set()
             unique_trans: list[str] = []
             for m in remaining_entries:
                 trans = self._generate_transformation(m.als_record)
