@@ -97,11 +97,11 @@ class ExcelReader:
             sdtm_variable_col = find_column("sdtm_variable", "sdtm_variable_en")
 
             # Optional column for [RAW] reference table name
-            metadata_table_col = find_column("metadata_table", None)
+            metadata_table_col = find_column("metadata_table")
 
             # Optional columns for codelist handling
-            component_type_col = find_column("component_type", None)
-            codelist_name_col = find_column("codelist_name", None)
+            component_type_col = find_column("component_type")
+            codelist_name_col = find_column("codelist_name")
 
             # Check for missing required columns
             missing_cols = []
