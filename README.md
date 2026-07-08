@@ -17,7 +17,7 @@ SIRIUS 当前提供 **Web 端**前端，未来将扩展为三套前端形态，�
 - **批量一致性校验**：MappingCritic 对全批次结果做跨记录一致性检查（同表域一致性、TESTCD 关联、变量名合法性）
 - **持续学习循环**：用户修正通过 API 反馈到 Session KB，下次映射自动引用修正结果
 - **GxP 审计日志**：结构化 JSONL 审计追踪，记录每次映射操作的输入/输出/级联层级/时间
-- **数据脱敏**：PHI/PII 自动识别与脱敏（SSN、受试者 ID、DOB 等），符合临床数据合规要求
+- **数据脱敏**：LLM 调用前对常见 PHI/PII 模式（SSN、受试者 ID、DOB、邮箱、电话等）做尽力（best-effort）脱敏；当前正则以英文格式为主，本地化标识符（如身份证号）覆盖为后续项
 - **Domain 智能推断**：基于 annotation_table 关键词自动推断 SDTM Domain
 - **知识库匹配**：支持默认 KB 和用户上传的项目特定 KB
 - **向量检索**：基于语义相似度的知识片段检索
@@ -47,9 +47,13 @@ sirius/
 │   │   ├── deterministic_validator.py # 确定性规则引擎（变量名/域验证）
 │   │   ├── mapping_critic.py        # 批量映射一致性校验
 │   │   └── io_helpers.py            # IOHelpersMixin — 文件 I/O & 日志
-│   ├── prompts/                      # 提示词模块
-│   │   ├── sdtm_prompts_simple.py   # Prompt 模板 & 动态构建
-│   │   └── sdtm_rules.py           # Domain 特定规则库
+│   ├── prompts/                      # 提示词模块（内容以 YAML 为准）
+│   │   ├── templates/               # Prompt 模板 YAML (variable_mapping.yaml)
+│   │   ├── rules/                   # Domain 规则 YAML (sdtm_rules.yaml)
+│   │   ├── examples/               # 模式示例 YAML (pattern_examples.yaml)
+│   │   ├── loader.py               # Cached YAML Loader
+│   │   ├── sdtm_prompts_simple.py   # Prompt 动态构建
+│   │   └── sdtm_rules.py           # 规则加载适配
 │   ├── rag/                          # RAG 核心模块
 │   │   ├── chunker.py               # 文档分块
 │   │   ├── embeddings.py            # 向量嵌入
@@ -321,6 +325,8 @@ Session KB 会同时用于：
 - 受试者标识（SUBJID、USUBJID 模式）
 - 出生日期（DOB 上下文关联）
 - 邮箱地址和电话号码
+
+> ⚠️ 当前脱敏正则以英文/美式格式为主，尚未覆盖本地化标识符（如中国大陆 18 位身份证号、国内手机号格式、中文姓名）。在这些格式下不应假设已完成脱敏；本地化模式为待办项。
 
 ### MappingCritic 一致性校验
 

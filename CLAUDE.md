@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## What This Is
 
-`iSDTaiM` is a Python 3.11 clinical data standards application for intelligent CRF / ALS to SDTM mapping. It provides:
+`SIRIUS` is a Python 3.11 clinical data standards application for intelligent CRF / ALS to SDTM mapping. It provides:
 
 - a FastAPI + static Web UI workflow for upload, preprocessing, AI recommendation, review artifacts, and Spec generation
 - a 4-level recommendation cascade: KB direct match, KB high confidence, RAG-enhanced context, and LLM fallback
