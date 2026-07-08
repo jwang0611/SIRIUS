@@ -60,7 +60,7 @@ class CorrectionResponse(BaseModel):
 def _get_corrections_file(session_id: str) -> Path:
     """Return the parquet path for session-level corrections."""
     kb_dir = session_manager.get_session_kb_dir(session_id)
-    return kb_dir / f"corrections_{session_id[:12]}.parquet"
+    return kb_dir / f"corrections_{session_manager.session_dir_key(session_id)}.parquet"
 
 
 def _load_existing_corrections(path: Path) -> pd.DataFrame:
