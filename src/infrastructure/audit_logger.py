@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.infrastructure.session_key import safe_session_key
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +46,11 @@ class AuditLogger:
         enabled: bool = True,
     ):
         self.session_id = session_id
+        # Filesystem-safe, collision-free key for the log FILENAME. The raw
+        # session_id is still recorded in each entry body for traceability,
+        # but a hostile X-Session-ID (e.g. containing "/") must not be able to
+        # traverse the path or silently break the audit write.
+        self._log_key = safe_session_key(session_id) if session_id else "unknown"
         self.log_dir = Path(log_dir)
         self.enabled = enabled
         self._lock = threading.Lock()
@@ -204,7 +211,7 @@ class AuditLogger:
         """Append a JSON line entry to the session audit log file."""
         with self._lock:
             try:
-                log_file = self.log_dir / f"audit_{self.session_id}.jsonl"
+                log_file = self.log_dir / f"audit_{self._log_key}.jsonl"
                 with open(log_file, "a", encoding="utf-8") as f:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 self._entry_count += 1

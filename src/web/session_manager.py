@@ -11,6 +11,8 @@ from pathlib import Path
 from threading import Lock, Timer
 from typing import Any
 
+from src.infrastructure.session_key import safe_session_key
+
 
 @dataclass
 class SessionInfo:
@@ -80,18 +82,35 @@ class SessionManager:
                 return list(self._sessions[session_id].kb_files)
             return []
 
+    @staticmethod
+    def session_dir_key(session_id: str) -> str:
+        """返回 session 的磁盘目录名（文件系统安全、无碰撞）。
+
+        委托给 :func:`safe_session_key`。该 key 是完整 ``session_id`` 的纯
+        函数（**不截断**）且始终附带原始 id 的哈希后缀，因此不同 session
+        永远落在不同目录，即便清洗后的可读前缀相同（如 ``"a/b"`` 与
+        ``"ab"``）；同时剥离路径分隔符与 ``..`` 穿越序列，使得攻击者构造的
+        ``X-Session-ID`` 无法逃逸出 sessions 根目录。
+
+        历史实现使用 ``session_id[:12]``，而前端 ID 形如
+        ``sess_<13位毫秒时间戳>_<随机>``，截断后仅保留 ``sess_`` + 7 位
+        时间戳，导致同一 ~16.7 分钟窗口内的所有用户共用一个目录（KB /
+        corrections / project 数据互相串档并可能被彼此清理误删）。
+        """
+        return safe_session_key(session_id)
+
     def get_session_kb_dir(self, session_id: str) -> Path:
         """获取 session 专属的 KB 输出目录，如果不存在则创建"""
-        kb_session_dir = Path("data/knowledge_base/sessions") / session_id[:12]
+        kb_session_dir = Path("data/knowledge_base/sessions") / self.session_dir_key(session_id)
         kb_session_dir.mkdir(parents=True, exist_ok=True)
         return kb_session_dir
 
-    def _clean_session_files(self, session_id_prefix: str) -> bool:
+    def _clean_session_files(self, session_id: str) -> bool:
         """
         删除 session 目录下的临时文件（excel/json/parquet），目录本身保留。
         返回 True 表示清理完成（目录可能仍然存在但已无目标文件）。
         """
-        kb_session_dir = Path("data/knowledge_base/sessions") / session_id_prefix
+        kb_session_dir = Path("data/knowledge_base/sessions") / self.session_dir_key(session_id)
         if not kb_session_dir.exists():
             return True
 
@@ -111,13 +130,13 @@ class SessionManager:
         """
         清理指定 session 的所有文件和任务：
         - 删除已追踪的普通文件
-        - 删除 sessions/{session_id[:12]} 下的 excel/json/parquet
+        - 删除 sessions/{session_dir_key} 下的 excel/json/parquet
         - 目录保留（由定时/启动清理处理）
         """
         with self._lock:
             if session_id not in self._sessions:
                 print(f"[Session] 清理请求: session {session_id[:12]}... 不存在")
-                cleaned_session_dir = self._clean_session_files(session_id[:12])
+                cleaned_session_dir = self._clean_session_files(session_id)
                 return {
                     "cleaned_files": 0,
                     "cleaned_session_dir": cleaned_session_dir,
@@ -150,7 +169,7 @@ class SessionManager:
                 print(f"[Session] 删除失败: {file_path} - {e}")
 
         # 删除 session 目录下的 excel/json/parquet 文件（目录保留）
-        cleaned_session_dir = self._clean_session_files(session_id[:12])
+        cleaned_session_dir = self._clean_session_files(session_id)
         if not cleaned_session_dir:
             errors.append("session_dir_files_delete_failed")
 
