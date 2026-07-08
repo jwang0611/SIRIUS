@@ -38,10 +38,26 @@ def test_key_is_stable_for_same_id():
     assert _key(sid) == _key(sid)
 
 
-def test_full_id_is_preserved_when_already_safe():
+def test_readable_prefix_is_preserved_for_safe_id():
     sid = "sess_1751900000000_abcdef123"
-    # A well-formed client ID is filesystem-safe as-is; no truncation.
-    assert _key(sid) == sid
+    key = _key(sid)
+    # A well-formed client ID stays human-readable as a prefix (no truncation
+    # of the meaningful part), plus a hash suffix that guarantees injectivity.
+    assert key.startswith(sid + "_")
+    assert key != sid
+
+
+def test_sanitized_forms_do_not_collide():
+    """Distinct raw IDs whose *sanitised* forms are identical must still map
+    to different keys — the collision the reviewer flagged. The hash suffix is
+    derived from the raw id, so equal prefixes still yield different keys."""
+    assert _key("abc") != _key("a/bc")  # both strip to "abc"
+    assert _key("ab") != _key("a..b")  # "a..b" -> "ab" after ".." removal
+    assert _key("ab") != _key("a/b")  # "a/b" -> "ab"
+    # And the human-readable prefix is shared, proving it was the suffix that
+    # broke the tie rather than the prefix.
+    assert _key("abc").startswith("abc_")
+    assert _key("a/bc").startswith("abc_")
 
 
 @pytest.mark.parametrize(

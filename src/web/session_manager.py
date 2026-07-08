@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import re
 import shutil
 import threading
 import time
@@ -12,6 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock, Timer
 from typing import Any
+
+from src.infrastructure.session_key import safe_session_key
 
 
 @dataclass
@@ -86,26 +86,18 @@ class SessionManager:
     def session_dir_key(session_id: str) -> str:
         """返回 session 的磁盘目录名（文件系统安全、无碰撞）。
 
-        该 key 是完整 ``session_id`` 的纯函数（**不截断**），因此不同
-        session 永远落在不同目录；同时剥离路径分隔符与 ``..`` 穿越序列，
-        使得攻击者构造的 ``X-Session-ID`` 无法逃逸出 sessions 根目录。
+        委托给 :func:`safe_session_key`。该 key 是完整 ``session_id`` 的纯
+        函数（**不截断**）且始终附带原始 id 的哈希后缀，因此不同 session
+        永远落在不同目录，即便清洗后的可读前缀相同（如 ``"a/b"`` 与
+        ``"ab"``）；同时剥离路径分隔符与 ``..`` 穿越序列，使得攻击者构造的
+        ``X-Session-ID`` 无法逃逸出 sessions 根目录。
 
         历史实现使用 ``session_id[:12]``，而前端 ID 形如
         ``sess_<13位毫秒时间戳>_<随机>``，截断后仅保留 ``sess_`` + 7 位
         时间戳，导致同一 ~16.7 分钟窗口内的所有用户共用一个目录（KB /
         corrections / project 数据互相串档并可能被彼此清理误删）。
         """
-        if not session_id or not isinstance(session_id, str):
-            raise ValueError("session_id must be a non-empty string")
-        cleaned = re.sub(r"[^A-Za-z0-9_.-]", "", session_id.strip())
-        cleaned = cleaned.replace("..", "").lstrip(".")
-        if not cleaned:
-            # 清理后无任何安全字符（如全为标点）→ 用稳定哈希兜底，仍保证隔离
-            return "sid_" + hashlib.sha1(session_id.encode("utf-8")).hexdigest()[:16]
-        if len(cleaned) > 64:
-            # 限制路径长度，但用哈希后缀避免重新引入碰撞
-            cleaned = cleaned[:48] + "_" + hashlib.sha1(session_id.encode("utf-8")).hexdigest()[:12]
-        return cleaned
+        return safe_session_key(session_id)
 
     def get_session_kb_dir(self, session_id: str) -> Path:
         """获取 session 专属的 KB 输出目录，如果不存在则创建"""
