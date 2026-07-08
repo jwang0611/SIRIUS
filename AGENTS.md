@@ -4,7 +4,7 @@ This file provides guidance to Codex when working with this repository.
 
 ## What This Is
 
-`iSDTaiM` is an intelligent SDTM mapping system for clinical data standards work. It turns CRF / EDC-derived ALS metadata into SDTM mapping recommendations, supports project-specific knowledge bases, and can generate filled SDTM Spec workbooks from reviewed ALS2SDTM files.
+`SIRIUS` is an intelligent SDTM mapping system for clinical data standards work. It turns CRF / EDC-derived ALS metadata into SDTM mapping recommendations, supports project-specific knowledge bases, and can generate filled SDTM Spec workbooks from reviewed ALS2SDTM files.
 
 The main product surfaces are:
 
