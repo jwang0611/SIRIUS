@@ -141,6 +141,9 @@ RATE_LIMIT_AI_JOB=10/minute
 # macOS / Linux
 ./start.sh
 
+# macOS / Linux 关闭服务
+./stop.sh
+
 # Windows
 run_web.bat
 
@@ -154,6 +157,12 @@ python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 ```bash
 HOST=127.0.0.1 PORT=8080 RELOAD=0 OPEN_BROWSER=0 ./start.sh
+```
+
+关闭指定端口的服务时使用同样的 `PORT`：
+
+```bash
+PORT=8080 ./stop.sh
 ```
 
 ## 🌐 Web 界面使用

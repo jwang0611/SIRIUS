@@ -12,6 +12,8 @@ CREATE_VENV="${CREATE_VENV:-1}"
 INSTALL_DEPS="${INSTALL_DEPS:-1}"
 VENV_DIR="${VENV_DIR:-venv}"
 MIN_PYTHON="3.11"
+RUN_DIR="${RUN_DIR:-$ROOT/.run}"
+PID_FILE="${PID_FILE:-$RUN_DIR/isdtaim-${PORT}.pid}"
 
 export PYTHONPATH="$ROOT"
 export PYTHONIOENCODING="utf-8"
@@ -105,10 +107,25 @@ PY
   "$py" -m pip install -r requirements.txt
 }
 
+is_pid_running() {
+  local pid="$1"
+  [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" >/dev/null 2>&1
+}
+
 PYTHON_BIN="$(select_python)"
 ensure_dependencies "$PYTHON_BIN"
 
 URL="http://127.0.0.1:${PORT}"
+mkdir -p "$RUN_DIR"
+
+if [[ -f "$PID_FILE" ]]; then
+  existing_pid="$(<"$PID_FILE")"
+  if is_pid_running "$existing_pid"; then
+    fail "Service already appears to be running on port $PORT with PID $existing_pid. Run './stop.sh' first."
+  fi
+  log "Removing stale PID file: $PID_FILE"
+  rm -f "$PID_FILE"
+fi
 
 if [[ "$OPEN_BROWSER" == "1" && -z "${CI:-}" ]]; then
   if command -v open >/dev/null 2>&1; then
@@ -123,5 +140,24 @@ if [[ "$RELOAD" == "1" ]]; then
   cmd+=(--reload)
 fi
 
+cleanup() {
+  rm -f "$PID_FILE"
+}
+
+stop_server() {
+  if [[ -n "${SERVER_PID:-}" ]] && is_pid_running "$SERVER_PID"; then
+    log "Stopping Web UI process $SERVER_PID"
+    kill "$SERVER_PID" >/dev/null 2>&1 || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+}
+
+trap 'stop_server; cleanup; exit 0' INT TERM
+trap cleanup EXIT
+
 log "Starting Web UI at $URL (host=$HOST, reload=$RELOAD)"
-exec "${cmd[@]}"
+"${cmd[@]}" &
+SERVER_PID=$!
+printf '%s\n' "$SERVER_PID" > "$PID_FILE"
+log "PID file: $PID_FILE"
+wait "$SERVER_PID"
