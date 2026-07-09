@@ -35,6 +35,7 @@ data/processed/*
 
 # Logs
 *.log
+.run/
 
 # Test fixtures (auto-generated)
 tests/fixtures/
