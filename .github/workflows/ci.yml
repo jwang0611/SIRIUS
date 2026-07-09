@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # requirements.txt pins an internal-network PyPI mirror (line 1) that CI
+      # runners can't reach; strip it and install from public PyPI instead.
+      - name: Install dependencies (public PyPI)
+        run: |
+          grep -v '^-i ' requirements.txt > requirements-ci.txt
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://pypi.org/simple -r requirements-ci.txt
+
+      - name: Lint (ruff check)
+        run: python -m ruff check .
+
+      - name: Format check (ruff format)
+        run: python -m ruff format --check .
+
+      - name: Type check (mypy)
+        run: python -m mypy src
+
+      - name: Prompt validation
+        run: python scripts/prompt_ci/validate_prompts.py
+
+      # tests/smoke_test.py is a standalone CLI script (python tests/smoke_test.py),
+      # not a pytest suite, but its filename matches pyproject.toml's `*_test.py`
+      # collection pattern; its test_* functions take non-fixture positional args
+      # (data_dir, work_dir, ctx) and error out under plain pytest collection.
+      - name: Tests
+        run: python -m pytest -q --ignore=tests/smoke_test.py
