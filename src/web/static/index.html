@@ -13,9 +13,7 @@
 <div class="appframe">
   <!-- Top chrome -->
   <div class="chrome">
-    <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
     <button type="button" class="chrome-toggle" id="sidebar-toggle" title="折叠侧栏">☰</button>
-    <div class="addr">app.sirius.clinical / sdtm-recommendation-inference</div>
     <div class="chrome-tools">
       <a href="static/guide.html" target="_blank" class="help-link" title="用户手册">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
@@ -431,25 +429,73 @@
           </div>
           <a href="static/guide.html" target="_blank" class="btn btn-primary btn-sm" data-i18n="guide.open">打开完整手册</a>
         </div>
-        <div class="card">
-          <div class="module-grid">
-            <div class="module">
-              <div class="tag">QUICK START</div>
-              <h4 data-i18n="guide.qs.title">快速开始</h4>
-              <p data-i18n="guide.qs.desc">5 分钟完成第一个 SDTM 映射任务。从上传到 Spec 输出的完整流程。</p>
+
+        <div class="accordion" id="guide-accordion">
+          <div class="accordion-item">
+            <button class="accordion-trigger" type="button" aria-expanded="false">
+              <div class="accordion-hd"><span class="accordion-tag">QUICK START</span><span class="accordion-title" data-i18n="guide.qs.title">快速开始</span></div>
+              <svg class="accordion-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="accordion-body">
+              <p>使用 SIRIUS 的典型工作流程分为三大步骤：</p>
+              <div class="guide-steps">
+                <div class="guide-step"><span class="guide-step-num">01</span><div><strong>上传 &amp; 预处理</strong><p>上传 eCRF 数据定义 Excel（ALS 原始文件），系统自动提取变量信息并生成结构化数据。如有历史项目的 ALS2SDTM 映射文件，也可一并上传作为知识库参考。</p></div></div>
+                <div class="guide-step"><span class="guide-step-num">02</span><div><strong>AI 智能推荐</strong><p>选择处理好的文件，选择语言和 AI 模型，点击"生成推荐"。系统自动为每个 CRF 变量推荐 SDTM 映射。完成后请<strong>及时下载</strong> Excel 结果进行人工审核。</p></div></div>
+                <div class="guide-step"><span class="guide-step-num">03</span><div><strong>生成 Spec 文档</strong><p>上传经过 QC 确认的 ALS2SDTM 映射文件，选择 SDTM 模板，点击"生成 Spec"。系统自动填充各 Domain 表单，生成完整的 SDTM 规范文档。</p></div></div>
+              </div>
+              <div class="guide-note">
+                <strong>上传注意事项：</strong>支持 .xls / .xlsx / .xlsm 格式。目前支持百奥知 4.1 和太美 EDC 系统导出的原始文件，上传前请选择对应的 EDC 系统。
+              </div>
             </div>
-            <div class="module">
-              <div class="tag">WORKFLOW</div>
-              <h4 data-i18n="guide.wf.title">工作流程详解</h4>
-              <p data-i18n="guide.wf.desc">3 步流水线每个环节的详细操作说明与参数配置。</p>
+          </div>
+
+          <div class="accordion-item">
+            <button class="accordion-trigger" type="button" aria-expanded="false">
+              <div class="accordion-hd"><span class="accordion-tag">WORKFLOW</span><span class="accordion-title" data-i18n="guide.wf.title">工作流程详解</span></div>
+              <svg class="accordion-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="accordion-body">
+              <h5>4 级级联推荐策略</h5>
+              <table class="guide-table">
+                <thead><tr><th>级别</th><th>匹配方式</th><th>说明</th></tr></thead>
+                <tbody>
+                  <tr><td><strong>Level 1</strong></td><td>KB 精确匹配</td><td>CRF 表名 + 变量描述完全一致，直接采用历史映射，无需 AI</td></tr>
+                  <tr><td><strong>Level 2</strong></td><td>KB 高置信度</td><td>语义相似度 ≥ 0.85，知识库匹配到高置信度结果</td></tr>
+                  <tr><td><strong>Level 3</strong></td><td>RAG 增强匹配</td><td>RAG 检索得分 ≥ 0.70，从知识库检索相关片段辅助</td></tr>
+                  <tr><td><strong>Level 4</strong></td><td>LLM 完整推理</td><td>以上均不满足时，调用 AI 模型综合推理</td></tr>
+                </tbody>
+              </table>
+              <h5>后处理与校验</h5>
+              <ul>
+                <li><strong>域合法性：</strong>无效域自动替换并降低置信度</li>
+                <li><strong>变量名长度：</strong>&gt;8 字符时自动修正或截断</li>
+                <li><strong>批量一致性：</strong>12 项跨记录检查（同表域一致性、SUPP 完整性、低置信度比例等）</li>
+                <li><strong>去重保留：</strong>每个变量保留置信度最高的结果</li>
+              </ul>
+              <div class="guide-note">
+                <strong>提升准确率：</strong>上传与当前项目相似的历史映射文件作为项目知识库，可让更多变量在 Level 1-3 直接命中，减少 LLM 调用。
+              </div>
             </div>
-            <div class="module">
-              <div class="tag">FAQ</div>
-              <h4 data-i18n="guide.faq.title">常见问题</h4>
-              <p data-i18n="guide.faq.desc">文件格式要求、EDC 适配、映射质量提升等常见问题解答。</p>
+          </div>
+
+          <div class="accordion-item">
+            <button class="accordion-trigger" type="button" aria-expanded="false">
+              <div class="accordion-hd"><span class="accordion-tag">FAQ</span><span class="accordion-title" data-i18n="guide.faq.title">常见问题</span></div>
+              <svg class="accordion-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="accordion-body">
+              <div class="faq-list">
+                <div class="faq-entry"><strong>Q: 支持哪些 EDC 系统？</strong><p>目前支持百奥知 4.1 和太美 EDC 两种格式，系统根据页面选择自动适配解析逻辑。</p></div>
+                <div class="faq-entry"><strong>Q: ALS2SDTM 示例文件有什么用？</strong><p>作为项目专属知识库，让 AI 优先参考历史映射经验。上传同适应症的历史文件效果最佳。</p></div>
+                <div class="faq-entry"><strong>Q: 推荐结果需要人工审核吗？</strong><p>是的。AI 推荐仅作为辅助，所有结果都需要人工 QC 确认后才能用于正式 Spec 生成。</p></div>
+                <div class="faq-entry"><strong>Q: Spec 模板支持哪些版本？</strong><p>支持 SDTM IG 3.2 和 IG 3.4 两个版本的模板。系统通过模板文件自动识别版本。</p></div>
+                <div class="faq-entry"><strong>Q: 文件会保留多久？</strong><p>每位用户的上传文件相互独立，关闭浏览器后自动清理。如需立即清理，可点击下方"清理会话文件"。</p></div>
+                <div class="faq-entry"><strong>Q: 高亮颜色代表什么？</strong><p>黄色 = 系统自动填充内容；红色 = SUPP Label 超长或多来源引用，需重点关注；蓝色 = 模板中无对应行的新插入变量。</p></div>
+              </div>
             </div>
           </div>
         </div>
+
         <div class="footer-note">
           <span>SIRIUS Documentation</span>
           <button class="btn btn-ghost btn-sm" type="button" id="cleanup-session" title="清理本次会话上传的所有文件">

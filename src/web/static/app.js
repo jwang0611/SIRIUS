@@ -186,6 +186,14 @@ function initNav() {
   if (toggle) toggle.addEventListener('click', () => document.getElementById('appShell').classList.toggle('sidebar-off'));
   document.querySelectorAll('#langToggle button').forEach((b) => b.addEventListener('click', () => setLang(b.dataset.l)));
   document.querySelectorAll('#themeToggle button').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.t)));
+  document.querySelectorAll('.accordion-trigger').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.accordion-item');
+      const isOpen = item.classList.contains('open');
+      item.classList.toggle('open', !isOpen);
+      btn.setAttribute('aria-expanded', !isOpen);
+    });
+  });
 }
 
 // Restore persisted preferences and wire navigation as early as possible.
