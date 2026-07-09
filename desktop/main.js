@@ -148,7 +148,15 @@ function resolveBackendBinary(sourceRoot) {
     return process.env.SIRIUS_BACKEND_BIN;
   }
   const exe = process.platform === "win32" ? "sirius-backend.exe" : "sirius-backend";
-  return firstExisting([path.join(sourceRoot, exe), path.join(sourceRoot, "backend", exe)]);
+  return firstExisting([
+    // PyInstaller onedir output (sirius-backend.spec), bundled via extraResources
+    // as backend/bin/sirius-backend/ — the shipped layout.
+    path.join(sourceRoot, "bin", "sirius-backend", exe),
+    path.join(sourceRoot, "backend", "bin", "sirius-backend", exe),
+    // Flat/onefile layout, kept as a fallback for manual placements.
+    path.join(sourceRoot, exe),
+    path.join(sourceRoot, "backend", exe),
+  ]);
 }
 
 // Resolve the backend command + args for the current mode. Prefers a

@@ -21,6 +21,7 @@ data/processed/*
 !**/example*.json
 !**/template*.json
 !desktop/package.json
+!desktop/package-lock.json
 !data/knowledge_base/structured/*.json
 !data/knowledge_base/structured/*.parquet
 # Keep knowledge_base key subdirectories tracked
@@ -84,3 +85,10 @@ CLAUDE.md
 
 # audit logs
 data/audit_logs/
+
+# Desktop packaging build output
+node_modules/
+desktop/node_modules/
+desktop/dist/
+/build/
+/dist/

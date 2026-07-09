@@ -56,6 +56,8 @@ Remember the backend still needs its own configuration (API keys, etc.) — copy
 
 ## Build installers
 
+Build the backend binary first (see *Production backend* below), then:
+
 ```bash
 # Windows installer (.exe / NSIS)   → dist/
 npm run dist:win
@@ -73,49 +75,56 @@ npm run dist
   choose the install directory.
 - **macOS** → DMG for both `arm64` and `x64`.
 - The backend source (`app.py`, `src/`, `scripts/`, `data/`, `requirements.txt`)
-  is copied into the package under `resources/backend/` via `extraResources`.
+  and the frozen backend binary (`dist/sirius-backend/`, see below) are copied
+  into the package under `resources/backend/` via `extraResources`.
 - At runtime, packaged apps use a writable workspace under Electron's
   `app.getPath("userData")` (`.../backend/`) for uploads, processed files,
   generated specs, caches, sessions, and other mutable `data/*` paths. Bundled
   `data/` files are copied there only when missing, while `scripts/` are
   refreshed on each launch.
 
-App icons can be generated from `build/icon.svg` — see `build/README.md`.
-
-> ⚠️ **The default build bundles backend _source_, not a runnable backend.** It
-> does not include a Python interpreter or the installed dependencies, so an app
-> launched from Finder / the Start Menu will only start if a compatible Python
-> (with `requirements.txt` installed) is discoverable, or a self-contained
-> backend binary is present (see below). For a distributable that "just works"
-> on a clean machine, bundle a frozen backend as described in
-> *Production backend*.
+App icons live in `build/` — see *App icons* below.
 
 > Note: cross-building macOS installers is only fully supported **on macOS**
 > (code-signing/notarization included). Build the `.dmg` on a Mac and the
-> Windows installer on Windows or Linux.
+> Windows installer on Windows or Linux. The CI workflow (below) handles this
+> by running each OS/arch on its matching GitHub-hosted runner.
 
 ## Production backend (recommended)
 
 Shipping a Python interpreter to end users is fragile. For a self-contained
-app, freeze the backend with [PyInstaller](https://pyinstaller.org/) and point
-the shell at it:
+app, freeze the backend with [PyInstaller](https://pyinstaller.org/) using the
+committed spec file, from the repo root:
 
 ```bash
-# from the repo root, in your configured Python env
-pyinstaller --onefile --name sirius-backend \
-  --add-data "scripts:scripts" \
-  --collect-all src \
-  --add-data "src/web/static:src/web/static" \
-  app.py
+pip install pyinstaller
+pyinstaller sirius-backend.spec --noconfirm
 ```
 
-Then ship the binary one of two ways:
+`requirements.txt` line 1 pins an internal PyPI mirror
+(`pkg-manager.qilu-pharma.com`) that's only reachable on the corporate
+network. Building from a machine without that access (including CI), install
+from public PyPI instead:
 
-- **Bundle it (recommended).** Add it to `extraResources` so it lands at
-  `resources/backend/sirius-backend` (or `sirius-backend.exe` on Windows).
-  `main.js` auto-detects that conventional name at startup — no env var and no
-  code changes needed.
-- **Point at it explicitly.** Set `SIRIUS_BACKEND_BIN` to the binary's path.
+```bash
+grep -v '^-i ' requirements.txt > requirements-build.txt
+pip install --index-url https://pypi.org/simple -r requirements-build.txt pyinstaller
+```
+
+This produces a `dist/sirius-backend/` folder (onedir mode, not `--onefile`
+— the shell respawns the backend on every launch, and onedir avoids paying a
+temp-dir self-extraction cost each time). `desktop/package.json`'s
+`extraResources` already copies that folder into the packaged app at
+`resources/backend/bin/sirius-backend/`, and `main.js` auto-detects it there.
+Because of this, **`dist/sirius-backend/` must exist before running
+`npm run dist:win` / `dist:mac`** — build the backend first.
+
+Two ways to ship the binary:
+
+- **Bundle it (default, recommended).** Build with the spec file above before
+  running `electron-builder`; `extraResources` picks it up automatically.
+- **Point at it explicitly.** Set `SIRIUS_BACKEND_BIN` to the binary's path
+  (useful for testing a binary built elsewhere).
 
 The shell always prefers a backend binary over the Python fallback, so a
 bundled binary makes the app self-contained on a clean machine. The backend
@@ -123,11 +132,59 @@ entrypoint also dispatches `sirius-backend scripts/<tool>.py ...`, so existing
 upload/preprocess flows keep working when the frozen executable is used as
 `sys.executable`.
 
+`data/knowledge_base/**` is intentionally not baked into the binary — it's
+copied from `resources/backend/data` into the writable per-user runtime
+directory the first time the app launches (see `prepareBackendRuntime` in
+`main.js`), same as the Python-fallback path.
+
+## App icons
+
+`build/icon.svg` is the master mark. `build/icon.ico`, `icon.icns`, and
+`icon.png` are generated from it and committed — `electron-builder` picks
+them up automatically by filename convention, no config needed. Regenerate
+after editing the SVG:
+
+```bash
+npm run icons
+```
+
+The generator (`build/generate-icons.js`) uses `sharp` + `png2icons`, both
+pure JS, so it runs the same on any build machine without macOS-only tools
+(`iconutil`) or system packages (`rsvg-convert`, `imagemagick`).
+
+## CI: automated Windows + macOS builds
+
+`.github/workflows/desktop-build.yml` builds installers for all three targets
+on every push of a `v*.*.*` tag (or on demand via `workflow_dispatch`):
+
+| Runner | Produces |
+|---|---|
+| `windows-latest` | NSIS installer (`.exe`, x64) |
+| `macos-13` (Intel) | `.dmg` (x64) |
+| `macos-14` (Apple Silicon) | `.dmg` (arm64) |
+
+Each job builds the PyInstaller backend for that OS/arch, smoke-tests it
+(spawns the binary against a temp data-seeded working directory and checks
+`GET /` and `GET /api/template-files`), then runs `electron-builder`. A
+PyInstaller binary is single-arch, so macOS is split into two jobs — one Intel
+runner, one Apple Silicon runner — each producing its own DMG with the
+matching backend, rather than one combined universal build. Artifacts upload
+via `actions/upload-artifact`; tag-triggered runs also attach them to a
+GitHub Release.
+
+**Installers are unsigned** (no Apple Developer ID / Windows code-signing
+certificate configured), so Gatekeeper/SmartScreen will warn on first run.
+`electron-builder` already supports signing via `CSC_LINK`/`CSC_KEY_PASSWORD`
+secrets if certificates become available later — no workflow changes needed
+beyond adding the secrets.
+
 ## Files
 
-| File            | Role                                                             |
-|-----------------|------------------------------------------------------------------|
-| `main.js`       | Electron main process — spawns/monitors backend, opens window.   |
-| `preload.js`    | Locked-down preload (contextIsolation on; minimal surface).      |
-| `package.json`  | npm scripts + `electron-builder` (win/mac) configuration.        |
-| `build/`        | Packaging resources (app icons).                                 |
+| File                                      | Role                                                        |
+|--------------------------------------------|-------------------------------------------------------------|
+| `main.js`                                   | Electron main process — spawns/monitors backend, opens window. |
+| `preload.js`                                | Locked-down preload (contextIsolation on; minimal surface). |
+| `package.json`                              | npm scripts + `electron-builder` (win/mac) configuration.   |
+| `build/`                                    | Packaging resources: app icons + generator script.          |
+| `../sirius-backend.spec`                    | PyInstaller spec for the frozen backend binary.              |
+| `../.github/workflows/desktop-build.yml`    | CI: builds + smoke-tests + packages all three targets.      |
