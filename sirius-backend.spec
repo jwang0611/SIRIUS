@@ -23,6 +23,12 @@ datas = [
     ("src/prompts/templates", "src/prompts/templates"),
     ("src/prompts/rules", "src/prompts/rules"),
     ("src/prompts/examples", "src/prompts/examples"),
+    # SpecMapper._select_config_path() / ConfigLoader resolve config.yaml /
+    # config_ig34.yaml via Path(__file__).parent — same __file__-relative
+    # pattern as src/prompts above, so it needs the same explicit bundling.
+    # Missing this silently degrades Spec generation (lost IG 3.4 Source
+    # label overrides, fixed/external coding variables, codelist hints).
+    ("src/spec_mapper/config", "src/spec_mapper/config"),
     ("scripts", "scripts"),
 ]
 
