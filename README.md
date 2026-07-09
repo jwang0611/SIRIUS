@@ -138,6 +138,9 @@ RATE_LIMIT_AI_JOB=10/minute
 ### 3. 启动
 
 ```bash
+# macOS / Linux
+./start.sh
+
 # Windows
 run_web.bat
 
@@ -146,6 +149,12 @@ python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 通过访问 http://localhost:8000
+
+`start.sh` 会自动探测 `venv` / `.venv`，检查 Python 版本（需 3.11+），在缺少虚拟环境时创建 `venv`，并按 `requirements.txt` 安装缺失依赖。可通过环境变量覆盖启动参数：
+
+```bash
+HOST=127.0.0.1 PORT=8080 RELOAD=0 OPEN_BROWSER=0 ./start.sh
+```
 
 ## 🌐 Web 界面使用
 
