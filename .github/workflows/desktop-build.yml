@@ -15,10 +15,13 @@ jobs:
           - os: windows-latest
             label: windows-x64
             electron_builder_args: --win
-          - os: macos-13 # Intel runner
+          # Intel runner. macos-13 retired 2025-12-04; macos-15-intel is
+          # GitHub's current x64 macOS image (the last x86_64 image Actions
+          # plans to offer, supported into ~2027).
+          - os: macos-15-intel
             label: mac-x64
             electron_builder_args: --mac --x64
-          - os: macos-14 # Apple Silicon runner
+          - os: macos-15 # Apple Silicon runner
             label: mac-arm64
             electron_builder_args: --mac --arm64
     runs-on: ${{ matrix.os }}

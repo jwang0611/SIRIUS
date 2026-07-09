@@ -160,8 +160,8 @@ on every push of a `v*.*.*` tag (or on demand via `workflow_dispatch`):
 | Runner | Produces |
 |---|---|
 | `windows-latest` | NSIS installer (`.exe`, x64) |
-| `macos-13` (Intel) | `.dmg` (x64) |
-| `macos-14` (Apple Silicon) | `.dmg` (arm64) |
+| `macos-15-intel` (Intel) | `.dmg` (x64) |
+| `macos-15` (Apple Silicon) | `.dmg` (arm64) |
 
 Each job builds the PyInstaller backend for that OS/arch, smoke-tests it
 (spawns the binary against a temp data-seeded working directory and checks
