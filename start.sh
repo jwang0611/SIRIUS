@@ -63,8 +63,22 @@ venv_python() {
 }
 
 select_python() {
-  local dir py
-  for dir in "$VENV_DIR" ".venv" "venv"; do
+  local candidate dir existing found py
+  local venv_search_dirs=("$VENV_DIR")
+  for candidate in ".venv" "venv"; do
+    found=0
+    for existing in "${venv_search_dirs[@]}"; do
+      if [[ "$existing" == "$candidate" ]]; then
+        found=1
+        break
+      fi
+    done
+    if [[ "$found" == "0" ]]; then
+      venv_search_dirs+=("$candidate")
+    fi
+  done
+
+  for dir in "${venv_search_dirs[@]}"; do
     py="$(venv_python "$dir" || true)"
     if [[ -n "$py" ]]; then
       if python_version_ok "$py"; then
@@ -79,8 +93,15 @@ select_python() {
   local base_python
   base_python="$(find_python)"
   if [[ "$CREATE_VENV" == "1" ]]; then
-    log "Creating virtual environment: $VENV_DIR"
-    "$base_python" -m venv "$VENV_DIR"
+    local venv_args=()
+    py="$(venv_python "$VENV_DIR" || true)"
+    if [[ -n "$py" ]] && ! python_version_ok "$py"; then
+      log "Recreating incompatible virtual environment: $VENV_DIR"
+      venv_args+=(--clear)
+    else
+      log "Creating virtual environment: $VENV_DIR"
+    fi
+    "$base_python" -m venv "${venv_args[@]}" "$VENV_DIR"
     printf '%s\n' "$VENV_DIR/bin/python"
     return
   fi
@@ -152,7 +173,15 @@ stop_server() {
   fi
 }
 
-trap 'stop_server; cleanup; exit 0' INT TERM
+handle_signal() {
+  local exit_code="$1"
+  stop_server
+  cleanup
+  exit "$exit_code"
+}
+
+trap 'handle_signal 130' INT
+trap 'handle_signal 143' TERM
 trap cleanup EXIT
 
 log "Starting Web UI at $URL (host=$HOST, reload=$RELOAD)"
