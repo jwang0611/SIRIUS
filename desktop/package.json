@@ -11,11 +11,14 @@
     "start": "electron .",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac"
+    "dist:mac": "electron-builder --mac",
+    "icons": "node build/generate-icons.js"
   },
   "devDependencies": {
     "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "png2icons": "^2.0.1",
+    "sharp": "^0.35.3"
   },
   "build": {
     "appId": "ai.sirius.desktop",
@@ -48,13 +51,19 @@
       {
         "from": "../requirements.txt",
         "to": "backend/requirements.txt"
+      },
+      {
+        "from": "../dist/sirius-backend",
+        "to": "backend/bin/sirius-backend"
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -70,13 +79,18 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "category": "public.app-category.medical"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Science"
     }
   }

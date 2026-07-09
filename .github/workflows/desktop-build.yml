@@ -1,0 +1,132 @@
+name: Desktop build
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+            electron_builder_args: --win
+          # Intel runner. macos-13 retired 2025-12-04; macos-15-intel is
+          # GitHub's current x64 macOS image (the last x86_64 image Actions
+          # plans to offer, supported into ~2027).
+          - os: macos-15-intel
+            label: mac-x64
+            electron_builder_args: --mac --x64
+          - os: macos-15 # Apple Silicon runner
+            label: mac-arm64
+            electron_builder_args: --mac --arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # requirements.txt pins an internal-network PyPI mirror (line 1) that CI
+      # runners can't reach; strip it and install from public PyPI instead.
+      - name: Install backend build dependencies (public PyPI)
+        shell: bash
+        run: |
+          grep -v '^-i ' requirements.txt > requirements-build.txt
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://pypi.org/simple -r requirements-build.txt pyinstaller
+
+      - name: Build backend binary (PyInstaller)
+        shell: bash
+        run: pyinstaller sirius-backend.spec --noconfirm
+
+      - name: Smoke test backend binary (HTTP server)
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_dir="$(pwd)"
+          runtime_dir="$(mktemp -d)"
+          cp -r data "$runtime_dir/data"
+          bin="$repo_dir/dist/sirius-backend/sirius-backend"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            bin="$repo_dir/dist/sirius-backend/sirius-backend.exe"
+          fi
+          cd "$runtime_dir"
+          "$bin" --host 127.0.0.1 --port 8791 > "$runtime_dir/backend.log" 2>&1 &
+          cd "$repo_dir"
+          ok=""
+          for _ in $(seq 1 30); do
+            if curl -sf -o /dev/null http://127.0.0.1:8791/; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "backend did not respond in time"; cat "$runtime_dir/backend.log" || true; exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8791/api/template-files)
+          [ "$code" = "200" ] || { echo "unexpected /api/template-files status: $code"; cat "$runtime_dir/backend.log" || true; exit 1; }
+
+      # Covers two things the HTTP check above can't reach: (1) the frozen
+      # binary's `sirius-backend scripts/<tool>.py ...` dispatch used for
+      # upload/preprocess flows (app.py:_run_script), and (2) SpecMapper /
+      # ConfigLoader loading config.yaml / config_ig34.yaml, which are
+      # __file__-relative to src/spec_mapper (same pattern as src/prompts)
+      # and must be bundled explicitly in the .spec's `datas`, not picked up
+      # via cwd. Runs the real ALS-to-Spec pipeline against committed example
+      # assets so a missing/broken bundle fails CI instead of shipping.
+      - name: Smoke test backend binary (script dispatch + Spec Mapper config)
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_dir="$(pwd)"
+          runtime_dir="$(mktemp -d)"
+          cp -r data "$runtime_dir/data"
+          cp -r scripts "$runtime_dir/scripts"
+          bin="$repo_dir/dist/sirius-backend/sirius-backend"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            bin="$repo_dir/dist/sirius-backend/sirius-backend.exe"
+          fi
+          cd "$runtime_dir"
+          "$bin" scripts/generate_full_spec.py \
+            --als-file data/examples/als2sdtm_example_for_spec.xlsx \
+            --template-file data/knowledge_base/template_spec/SDTM_template_IG3.2.xlsx \
+            --output "$runtime_dir/smoke_spec.xlsx"
+          test -s "$runtime_dir/smoke_spec.xlsx" || { echo "Spec Mapper smoke test produced no output"; exit 1; }
+          cd "$repo_dir"
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build installer
+        working-directory: desktop
+        shell: bash
+        run: npx electron-builder ${{ matrix.electron_builder_args }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sirius-desktop-${{ matrix.label }}
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
