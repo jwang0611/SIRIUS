@@ -243,11 +243,15 @@ function initNav() {
   document.querySelectorAll('#langToggle button').forEach((b) => b.addEventListener('click', () => setLang(b.dataset.l)));
   document.querySelectorAll('#themeToggle button').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.t)));
   document.querySelectorAll('.accordion-trigger').forEach((btn) => {
+    const item = btn.closest('.accordion-item');
+    const body = item ? item.querySelector('.accordion-body') : null;
     btn.addEventListener('click', () => {
-      const item = btn.closest('.accordion-item');
       const isOpen = item.classList.contains('open');
       item.classList.toggle('open', !isOpen);
-      btn.setAttribute('aria-expanded', !isOpen);
+      btn.setAttribute('aria-expanded', String(!isOpen));
+      // Keep collapsed content out of the accessibility tree; the CSS-only
+      // max-height:0 collapse leaves the body visible to screen readers.
+      if (body) body.setAttribute('aria-hidden', String(isOpen));
     });
   });
 }
