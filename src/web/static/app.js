@@ -245,9 +245,11 @@ function initNav() {
   document.querySelectorAll('.accordion-trigger').forEach((btn) => {
     btn.addEventListener('click', () => {
       const item = btn.closest('.accordion-item');
+      const body = item.querySelector('.accordion-body');
       const isOpen = item.classList.contains('open');
       item.classList.toggle('open', !isOpen);
-      btn.setAttribute('aria-expanded', !isOpen);
+      btn.setAttribute('aria-expanded', String(!isOpen));
+      if (body) body.setAttribute('aria-hidden', String(isOpen));
     });
   });
 }

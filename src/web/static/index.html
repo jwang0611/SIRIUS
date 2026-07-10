@@ -432,11 +432,11 @@
 
         <div class="accordion" id="guide-accordion">
           <div class="accordion-item">
-            <button class="accordion-trigger" type="button" aria-expanded="false">
+            <button class="accordion-trigger" type="button" aria-expanded="false" aria-controls="guide-body-qs">
               <div class="accordion-hd"><span class="accordion-tag">QUICK START</span><span class="accordion-title" data-i18n="guide.qs.title">快速开始</span></div>
               <svg class="accordion-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
-            <div class="accordion-body">
+            <div class="accordion-body" id="guide-body-qs" role="region" aria-hidden="true">
               <p data-i18n="guide.qs.intro">使用 SIRIUS 的典型工作流程分为三大步骤：</p>
               <div class="guide-steps">
                 <div class="guide-step"><span class="guide-step-num">01</span><div><strong data-i18n="guide.qs.step1.title">上传 &amp; 预处理</strong><p data-i18n="guide.qs.step1.desc">上传 eCRF 数据定义 Excel（ALS 原始文件），系统自动提取变量信息并生成结构化数据。如有历史项目的 ALS2SDTM 映射文件，也可一并上传作为知识库参考。</p></div></div>
@@ -450,11 +450,11 @@
           </div>
 
           <div class="accordion-item">
-            <button class="accordion-trigger" type="button" aria-expanded="false">
+            <button class="accordion-trigger" type="button" aria-expanded="false" aria-controls="guide-body-wf">
               <div class="accordion-hd"><span class="accordion-tag">WORKFLOW</span><span class="accordion-title" data-i18n="guide.wf.title">工作流程详解</span></div>
               <svg class="accordion-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
-            <div class="accordion-body">
+            <div class="accordion-body" id="guide-body-wf" role="region" aria-hidden="true">
               <h5 data-i18n="guide.wf.h1">4 级级联推荐策略</h5>
               <table class="guide-table">
                 <thead><tr><th data-i18n="guide.wf.th.level">级别</th><th data-i18n="guide.wf.th.match">匹配方式</th><th data-i18n="guide.wf.th.desc">说明</th></tr></thead>
@@ -479,11 +479,11 @@
           </div>
 
           <div class="accordion-item">
-            <button class="accordion-trigger" type="button" aria-expanded="false">
+            <button class="accordion-trigger" type="button" aria-expanded="false" aria-controls="guide-body-faq">
               <div class="accordion-hd"><span class="accordion-tag">FAQ</span><span class="accordion-title" data-i18n="guide.faq.title">常见问题</span></div>
               <svg class="accordion-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
-            <div class="accordion-body">
+            <div class="accordion-body" id="guide-body-faq" role="region" aria-hidden="true">
               <div class="faq-list">
                 <div class="faq-entry"><strong data-i18n="guide.faq.q1">Q: 支持哪些 EDC 系统？</strong><p data-i18n="guide.faq.a1">目前支持百奥知 4.1 和太美 EDC 两种格式，系统根据页面选择自动适配解析逻辑。</p></div>
                 <div class="faq-entry"><strong data-i18n="guide.faq.q2">Q: ALS2SDTM 示例文件有什么用？</strong><p data-i18n="guide.faq.a2">作为项目专属知识库，让 AI 优先参考历史映射经验。上传同适应症的历史文件效果最佳。</p></div>
