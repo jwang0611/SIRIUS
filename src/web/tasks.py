@@ -163,6 +163,8 @@ def _run_recommendations_job(
     model_name_override: str | None = None,
     resume: bool = False,
     session_id: str | None = None,
+    base_url_override: str | None = None,
+    api_key_override: str | None = None,
 ) -> None:
     # Determine model name early for resume path lookup
     load_dotenv()
@@ -229,11 +231,11 @@ def _run_recommendations_job(
             output_base = _prepare_output_base(json_path, use_timestamp=True)
             job_manager.update_job(job_id, total=total_mappings, message="正在初始化处理...")
 
-        api_key = os.getenv("OPENROUTER_API_KEY")
+        api_key = api_key_override or os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is not configured")
+            raise RuntimeError("未配置 API Key：请在左下角「模型设置」中填写，或在服务器配置 OPENROUTER_API_KEY")
 
-        base_url = os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+        base_url = base_url_override or os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
 
         client = OpenRouterClient(api_key=api_key, base_url=base_url)
         client.set_model(model_name)
@@ -380,10 +382,22 @@ def start_recommendations_job(
     model_name_override: str | None = None,
     resume: bool = False,
     session_id: str | None = None,
+    base_url_override: str | None = None,
+    api_key_override: str | None = None,
 ) -> None:
     thread = threading.Thread(
         target=_run_recommendations_job,
-        args=(job_id, json_file, language, enable_kb, model_name_override, resume, session_id),
+        kwargs={
+            "job_id": job_id,
+            "json_file": json_file,
+            "language": language,
+            "enable_kb": enable_kb,
+            "model_name_override": model_name_override,
+            "resume": resume,
+            "session_id": session_id,
+            "base_url_override": base_url_override,
+            "api_key_override": api_key_override,
+        },
         daemon=True,
     )
     thread.start()

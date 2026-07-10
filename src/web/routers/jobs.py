@@ -3,10 +3,11 @@
 import os
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.web.job_manager import job_manager
 from src.web.security import (
@@ -28,6 +29,34 @@ class RecommendationRequest(BaseModel):
     enable_kb: bool = Field(True, description="是否启用知识库")
     model_name: str = Field("google/gemini-2.5-flash", description="LLM 模型名称")
     resume: bool = Field(False, description="是否从上次进度恢复")
+    base_url: str | None = Field(
+        None, max_length=500, description="OpenAI 兼容 API Base URL（可选，默认使用服务器环境变量）"
+    )
+    api_token: str | None = Field(
+        None, max_length=500, description="API Key（可选，仅本次任务使用，不落盘不回显）"
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("base_url 必须以 http:// 或 https:// 开头")
+        parts = urlsplit(v)
+        # 拒绝带 userinfo 的 URL，避免凭据混入 URL 被日志打印
+        if parts.username or parts.password:
+            raise ValueError("base_url 不能包含用户名/密码")
+        return v
+
+    @field_validator("api_token")
+    @classmethod
+    def _normalize_api_token(cls, v: str | None) -> str | None:
+        v = (v or "").strip()
+        return v or None
 
 
 @router.post("/recommendations")
@@ -58,6 +87,8 @@ def create_recommendation_job(
         model_name_override=body.model_name,
         resume=body.resume,
         session_id=x_session_id,
+        base_url_override=body.base_url,
+        api_key_override=body.api_token,
     )
     return {"job_id": job_id, "resume": body.resume}
 

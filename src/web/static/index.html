@@ -59,6 +59,9 @@
       <button class="navitem" type="button" data-screen="guide">
         <span class="ic">📖</span><div><div class="t" data-i18n="nav.guide">使用指南</div><div class="d" data-i18n="nav.guide.desc">系统帮助文档</div></div>
       </button>
+      <button class="navitem settings-item" type="button" id="settings-btn">
+        <span class="ic">⚙️</span><div><div class="t" data-i18n="nav.settings">模型设置</div><div class="d" data-i18n="nav.settings.desc">LLM Provider / API 配置</div></div>
+      </button>
       <div class="foot">SIRIUS v1.0 · Polaris Product Family</div>
     </aside>
 
@@ -232,13 +235,8 @@
             </div>
             <div class="form-col">
               <label class="form-lbl">LLM Model</label>
-              <select class="form-ctl" id="model-select">
-                <option value="google/gemini-3-flash-preview">Gemini 3 Flash Preview</option>
-                <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
-                <option value="openai/gpt-5-mini">GPT-5 mini</option>
-                <option value="qwen/qwen3.5-flash-02-23">Qwen 3.5 Flash</option>
-                <option value="qwen/qwen3-32b">Qwen 3 32B</option>
-              </select>
+              <input class="form-ctl" id="model-select" list="model-suggest" placeholder="google/gemini-2.5-flash" autocomplete="off">
+              <datalist id="model-suggest"></datalist>
             </div>
           </div>
           <div class="action-bar">
@@ -529,9 +527,42 @@
   </div>
 </dialog>
 
+<!-- LLM 模型设置对话框 -->
+<dialog id="settings-dialog" class="sheet-dialog settings-dialog">
+  <h3 data-i18n="dialog.settings.title">大模型设置</h3>
+  <div class="form-col settings-field">
+    <label class="form-lbl" data-i18n="settings.provider">Provider</label>
+    <select class="form-ctl" id="settings-provider">
+      <option value="openrouter">OpenRouter</option>
+      <option value="openai">OpenAI</option>
+      <option value="deepseek">DeepSeek</option>
+      <option value="custom" data-i18n="settings.provider.custom">自定义</option>
+    </select>
+  </div>
+  <div class="form-col settings-field">
+    <label class="form-lbl" data-i18n="settings.baseurl">Base URL</label>
+    <input class="form-ctl" id="settings-base-url" type="url" placeholder="https://openrouter.ai/api/v1" autocomplete="off">
+  </div>
+  <div class="form-col settings-field">
+    <label class="form-lbl" data-i18n="settings.model">Model ID</label>
+    <input class="form-ctl" id="settings-model" list="settings-model-list" placeholder="google/gemini-2.5-flash" autocomplete="off">
+    <datalist id="settings-model-list"></datalist>
+  </div>
+  <div class="form-col settings-field">
+    <label class="form-lbl" data-i18n="settings.token">API Token</label>
+    <input class="form-ctl" id="settings-token" type="password" placeholder="sk-..." autocomplete="off">
+  </div>
+  <div class="settings-hint" data-i18n="settings.token.hint">配置仅保存在当前浏览器（localStorage），不会存储在服务器。留空的项将使用服务器端环境变量。</div>
+  <div class="dialog-actions">
+    <button type="button" id="settings-reset" class="btn btn-ghost" data-i18n="settings.btn.reset">恢复默认</button>
+    <button type="button" id="settings-cancel" class="btn btn-ghost" data-i18n="dialog.cancel">取消</button>
+    <button type="button" id="settings-save" class="btn btn-accent" data-i18n="settings.btn.save">保存</button>
+  </div>
+</dialog>
+
 <!-- Toast 提示容器 -->
 <div id="toast-container" class="toast-container"></div>
 
-<script src="static/app.js?v=sirius1"></script>
+<script src="static/app.js?v=sirius2"></script>
 </body>
 </html>
