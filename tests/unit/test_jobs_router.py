@@ -86,9 +86,7 @@ class TestRecommendationLLMOverrides:
         assert "sk-secret" not in response.text
         mock_start.assert_not_called()
 
-    def test_base_url_with_userinfo_returns_422(
-        self, client: TestClient, patch_job_start: Any, processed_json: str
-    ):
+    def test_base_url_with_userinfo_returns_422(self, client: TestClient, patch_job_start: Any, processed_json: str):
         mock_start, _ = patch_job_start
         response = client.post(
             "/api/recommendations",
@@ -97,9 +95,7 @@ class TestRecommendationLLMOverrides:
         assert response.status_code == 422
         mock_start.assert_not_called()
 
-    def test_blank_overrides_normalized_to_none(
-        self, client: TestClient, patch_job_start: Any, processed_json: str
-    ):
+    def test_blank_overrides_normalized_to_none(self, client: TestClient, patch_job_start: Any, processed_json: str):
         mock_start, _ = patch_job_start
         response = client.post(
             "/api/recommendations",
@@ -161,9 +157,7 @@ class TestRecommendationLLMOverrides:
         assert response.status_code == 422
         mock_start.assert_not_called()
 
-    def test_same_host_http_downgrade_returns_422(
-        self, client: TestClient, patch_job_start: Any, processed_json: str
-    ):
+    def test_same_host_http_downgrade_returns_422(self, client: TestClient, patch_job_start: Any, processed_json: str):
         # 同 host 的 http 降级（服务器默认 https）不得被当作默认 endpoint 使用服务器密钥
         mock_start, _ = patch_job_start
         response = client.post(

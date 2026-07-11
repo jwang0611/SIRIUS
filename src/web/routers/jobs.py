@@ -33,9 +33,7 @@ class RecommendationRequest(BaseModel):
     base_url: str | None = Field(
         None, max_length=500, description="OpenAI 兼容 API Base URL（可选，默认使用服务器环境变量）"
     )
-    api_token: str | None = Field(
-        None, max_length=500, description="API Key（可选，仅本次任务使用，不落盘不回显）"
-    )
+    api_token: str | None = Field(None, max_length=500, description="API Key（可选，仅本次任务使用，不落盘不回显）")
 
     @field_validator("base_url")
     @classmethod

@@ -425,7 +425,7 @@ def validate_llm_base_url(url: str) -> str:
     云元数据地址一律拒绝。校验通过返回规范化后的 URL，否则抛 ValueError（→ 422）。
     """
     url = url.strip()
-    if not (url.startswith("http://") or url.startswith("https://")):
+    if not url.startswith(("http://", "https://")):
         raise ValueError("base_url 必须以 http:// 或 https:// 开头")
     parts = urlsplit(url)
     # 拒绝带 userinfo 的 URL，避免凭据混入 URL 被日志打印
@@ -441,8 +441,7 @@ def validate_llm_base_url(url: str) -> str:
         raise ValueError("内置 Provider 必须使用 https，不允许明文 HTTP")
     if host not in allowed_llm_hosts():
         raise ValueError(
-            "base_url 主机不在允许列表中；请使用内置 Provider，"
-            "或联系管理员将该主机加入 SIRIUS_LLM_ALLOWED_HOSTS"
+            "base_url 主机不在允许列表中；请使用内置 Provider，或联系管理员将该主机加入 SIRIUS_LLM_ALLOWED_HOSTS"
         )
     return url
 
