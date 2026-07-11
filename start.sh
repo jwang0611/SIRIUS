@@ -10,6 +10,8 @@ RELOAD="${RELOAD:-1}"
 OPEN_BROWSER="${OPEN_BROWSER:-1}"
 CREATE_VENV="${CREATE_VENV:-1}"
 INSTALL_DEPS="${INSTALL_DEPS:-1}"
+# Set to an empty value to disable fallback when the configured package index is unavailable.
+PIP_FALLBACK_INDEX_URL="${PIP_FALLBACK_INDEX_URL-https://pypi.org/simple}"
 VENV_DIR="${VENV_DIR:-venv}"
 MIN_PYTHON="3.11"
 RUN_DIR="${RUN_DIR:-$ROOT/.run}"
@@ -125,7 +127,17 @@ PY
   [[ "$INSTALL_DEPS" == "1" ]] || fail "Dependencies are missing. Run '$py -m pip install -r requirements.txt' or set INSTALL_DEPS=1."
 
   log "Installing dependencies from requirements.txt"
-  "$py" -m pip install -r requirements.txt
+  if "$py" -m pip install -r requirements.txt; then
+    return
+  fi
+
+  [[ -n "$PIP_FALLBACK_INDEX_URL" ]] || fail "Dependency installation failed using the configured package index."
+
+  log "Configured package index is unavailable; retrying with $PIP_FALLBACK_INDEX_URL"
+  # requirements.txt pins the corporate index. Remove that directive so the explicit fallback takes effect.
+  "$py" -m pip install \
+    --index-url "$PIP_FALLBACK_INDEX_URL" \
+    -r <(sed '/^[[:space:]]*-i[[:space:]]/d' requirements.txt)
 }
 
 is_pid_running() {
