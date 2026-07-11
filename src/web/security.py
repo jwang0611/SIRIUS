@@ -360,15 +360,36 @@ _BUILTIN_LLM_HOSTS = {"openrouter.ai", "api.openai.com", "api.deepseek.com"}
 _METADATA_HOSTS = {"169.254.169.254", "fd00:ec2::254", "[fd00:ec2::254]"}
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
 def _host_of(url: str) -> str:
     """提取 URL 的 host（小写、去端口）。"""
     return (urlsplit(url).hostname or "").lower()
 
 
+def _origin_of(url: str) -> tuple[str, str, int | None]:
+    """提取 URL 的规范化 origin：(scheme, host, effective_port)。"""
+    parts = urlsplit(url)
+    scheme = (parts.scheme or "").lower()
+    host = (parts.hostname or "").lower()
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if port is None:
+        port = _DEFAULT_PORTS.get(scheme)
+    return (scheme, host, port)
+
+
+def server_default_llm_base_url() -> str:
+    """服务器自身配置的 LLM endpoint（env 回退密钥只应发往此 endpoint）。"""
+    return os.getenv("OPENROUTER_BASE_URL") or DEFAULT_OPENROUTER_BASE_URL
+
+
 def server_default_llm_host() -> str:
-    """服务器自身配置的 LLM endpoint host（env 回退密钥只应发往此 host）。"""
-    base = os.getenv("OPENROUTER_BASE_URL") or DEFAULT_OPENROUTER_BASE_URL
-    return _host_of(base)
+    """服务器默认 endpoint 的 host（用于 allowlist）。"""
+    return _host_of(server_default_llm_base_url())
 
 
 def allowed_llm_hosts() -> set[str]:
@@ -415,6 +436,9 @@ def validate_llm_base_url(url: str) -> str:
         raise ValueError("base_url 缺少主机名")
     if _is_metadata_host(host):
         raise ValueError("base_url 指向被禁止的元数据地址")
+    # 内置公共 Provider 必须走 https，禁止明文 HTTP 降级（会经明文传输凭据）
+    if host in _BUILTIN_LLM_HOSTS and (parts.scheme or "").lower() != "https":
+        raise ValueError("内置 Provider 必须使用 https，不允许明文 HTTP")
     if host not in allowed_llm_hosts():
         raise ValueError(
             "base_url 主机不在允许列表中；请使用内置 Provider，"
@@ -427,9 +451,11 @@ def is_server_default_llm_endpoint(url: str | None) -> bool:
     """
     判断该 endpoint 是否为服务器自身配置的默认 endpoint。
 
-    仅当 endpoint 缺省或 host 等于服务器默认 host 时才可安全使用 env 回退密钥；
-    其余（含 allowlist 内的第三方 provider）必须由请求自带 token，避免服务器密钥外泄。
+    仅当 endpoint 缺省、或其规范化 origin（scheme + host + effective port）与
+    服务器默认 endpoint 完全一致时，才可安全使用 env 回退密钥。仅比较 host 不足以
+    防止同主机的 http 降级（会把服务器密钥经明文传输），因此必须整体比较 origin。
+    其余（含 allowlist 内的第三方 provider、降级/改端口的同 host）都必须由请求自带 token。
     """
     if not url:
         return True
-    return _host_of(url) == server_default_llm_host()
+    return _origin_of(url) == _origin_of(server_default_llm_base_url())

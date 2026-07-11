@@ -66,6 +66,12 @@ class TestAllowedHosts:
         assert server_default_llm_host() == "ai-api.qilu-pharma.com"
         assert validate_llm_base_url("https://ai-api.qilu-pharma.com/v1")
 
+    def test_builtin_provider_http_downgrade_rejected(self):
+        # 内置公共 Provider 禁止明文 HTTP（防止服务器密钥经明文传输）
+        for url in ("http://openrouter.ai/api/v1", "http://api.openai.com/v1", "http://api.deepseek.com/v1"):
+            with pytest.raises(ValueError, match="https"):
+                validate_llm_base_url(url)
+
 
 class TestSchemeAndUserinfo:
     @pytest.mark.parametrize("url", ["ftp://openrouter.ai/v1", "openrouter.ai/v1", "file:///etc/passwd"])
@@ -91,3 +97,12 @@ class TestServerDefaultEndpoint:
 
     def test_non_default_host_is_not_default(self):
         assert is_server_default_llm_endpoint("https://api.deepseek.com/v1") is False
+
+    def test_http_downgrade_same_host_is_not_default(self):
+        # 服务器默认 https，同 host 的 http 覆盖不得被视为默认（否则密钥经明文外泄）
+        assert is_server_default_llm_endpoint("http://openrouter.ai/api/v1") is False
+
+    def test_port_mismatch_same_host_is_not_default(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_BASE_URL", "https://ai-api.qilu-pharma.com/v1")
+        assert is_server_default_llm_endpoint("https://ai-api.qilu-pharma.com:8443/v1") is False
+        assert is_server_default_llm_endpoint("https://ai-api.qilu-pharma.com/v1") is True

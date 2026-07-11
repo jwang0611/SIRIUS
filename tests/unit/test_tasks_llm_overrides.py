@@ -97,6 +97,28 @@ def test_custom_endpoint_without_token_does_not_leak_env_key(task_mocks, mapping
     assert "server-secret-key" not in message
 
 
+def test_same_host_http_downgrade_does_not_leak_env_key(task_mocks, mappings_file, monkeypatch):
+    """P1 回归：同 host 的 http 降级 + 无 token → 失败，服务器密钥绝不经明文 HTTP 外送。"""
+    from src.web.tasks import _run_recommendations_job
+
+    mock_client_cls, _, mock_jm = task_mocks
+    monkeypatch.setenv("OPENROUTER_API_KEY", "server-secret-key")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")  # 默认走 https
+    mock_jm.get_job.return_value = MagicMock(state="running")
+
+    _run_recommendations_job(
+        job_id="jobdowngrade",
+        json_file=mappings_file,
+        base_url_override="http://openrouter.ai/api/v1",  # 同 host、明文降级
+        api_key_override=None,
+    )
+
+    mock_client_cls.assert_not_called()
+    failed_calls = [c for c in mock_jm.update_job.call_args_list if c.kwargs.get("state") == "failed"]
+    assert failed_calls
+    assert "server-secret-key" not in failed_calls[-1].kwargs.get("message", "")
+
+
 def test_override_equals_server_default_uses_env_key(task_mocks, mappings_file, monkeypatch):
     """base_url 覆盖恰为服务器默认 host 时，空 token 仍可使用 env 密钥（合理保留）。"""
     from src.web.tasks import _run_recommendations_job
