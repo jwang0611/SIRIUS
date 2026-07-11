@@ -168,6 +168,9 @@ python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 HOST=127.0.0.1 PORT=8080 RELOAD=0 OPEN_BROWSER=0 ./start.sh
 ```
 
+首次安装会先使用 `requirements.txt` 配置的软件源；该源不可用时，`start.sh` 默认回退到官方 PyPI。
+如需禁止回退，请使用 `PIP_FALLBACK_INDEX_URL= ./start.sh`。
+
 关闭指定端口的服务时使用同样的 `PORT`：
 
 ```bash
