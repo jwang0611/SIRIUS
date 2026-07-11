@@ -72,6 +72,49 @@ def test_env_fallback_when_no_overrides(task_mocks, mappings_file, monkeypatch):
     mock_client_cls.assert_called_once_with(api_key="env-key", base_url="https://env.example.com/v1")
 
 
+def test_custom_endpoint_without_token_does_not_leak_env_key(task_mocks, mappings_file, monkeypatch):
+    """P0 回归：非默认 endpoint + 无请求 token → 失败，绝不用服务器 env 密钥构造客户端。"""
+    from src.web.tasks import _run_recommendations_job
+
+    mock_client_cls, _, mock_jm = task_mocks
+    monkeypatch.setenv("OPENROUTER_API_KEY", "server-secret-key")
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)  # 默认 host = openrouter.ai
+    mock_jm.get_job.return_value = MagicMock(state="running")
+
+    _run_recommendations_job(
+        job_id="jobp0",
+        json_file=mappings_file,
+        base_url_override="https://api.deepseek.com/v1",  # 非默认 host
+        api_key_override=None,  # 省略 token
+    )
+
+    # 客户端未被构造 → 服务器密钥从未发往攻击者 endpoint
+    mock_client_cls.assert_not_called()
+    failed_calls = [c for c in mock_jm.update_job.call_args_list if c.kwargs.get("state") == "failed"]
+    assert failed_calls
+    message = failed_calls[-1].kwargs.get("message", "")
+    assert "API Token" in message
+    assert "server-secret-key" not in message
+
+
+def test_override_equals_server_default_uses_env_key(task_mocks, mappings_file, monkeypatch):
+    """base_url 覆盖恰为服务器默认 host 时，空 token 仍可使用 env 密钥（合理保留）。"""
+    from src.web.tasks import _run_recommendations_job
+
+    mock_client_cls, _, _ = task_mocks
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+    _run_recommendations_job(
+        job_id="jobdef",
+        json_file=mappings_file,
+        base_url_override="https://openrouter.ai/api/v1",
+        api_key_override=None,
+    )
+
+    mock_client_cls.assert_called_once_with(api_key="env-key", base_url="https://openrouter.ai/api/v1")
+
+
 def test_missing_api_key_fails_without_leaking_secrets(task_mocks, mappings_file, monkeypatch):
     """无覆盖值且无环境变量时任务失败，且失败消息不含密钥。"""
     from src.web.tasks import _run_recommendations_job

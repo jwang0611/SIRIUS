@@ -189,7 +189,14 @@ PORT=8080 ./stop.sh
 2. 选择语言（中文/英文）和 AI 模型
 3. 点击"生成推荐"
 
-**模型设置（左下角 ⚙️）**：侧边栏左下角的「模型设置」支持自主配置 LLM Provider。内置 OpenRouter / OpenAI / DeepSeek 预设（也可选"自定义"填写任意 OpenAI 兼容端点），可分别设置 Base URL、Model ID 和 API Token。配置仅保存在当前浏览器（localStorage），随任务请求发送、服务器不持久化；留空的项回退到服务器端环境变量（`OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL`）。注意：RAG 向量化仍使用服务器端环境变量。
+**模型设置（左下角 ⚙️）**：侧边栏左下角的「模型设置」支持自主配置 LLM Provider。内置 OpenRouter / OpenAI / DeepSeek 预设（也可选"自定义"），可分别设置 Base URL、Model ID 和 API Token。配置仅保存在当前浏览器（localStorage），随任务请求发送、服务器不持久化。
+
+安全约束：
+
+- **密钥不外泄**：服务器回退密钥（`OPENROUTER_API_KEY`）只会发往服务器自身配置的默认 endpoint。选择非默认 Provider 或自定义 Base URL 时，必须在设置中填写自己的 API Token，否则请求被拒绝（422）。
+- **自定义 endpoint 白名单**：自定义 Base URL 的主机须在允许列表内——内置 provider 主机 + 服务器 `OPENROUTER_BASE_URL` 主机，管理员可通过环境变量 `SIRIUS_LLM_ALLOWED_HOSTS`（逗号分隔）为内网 / 本地模型网关追加可信主机；云元数据地址（`169.254.x`）一律拒绝。
+
+注意：RAG 向量化仍使用服务器端环境变量。
 
 **处理流程（4 级级联预测）**：
 ```

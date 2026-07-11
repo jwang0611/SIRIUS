@@ -29,6 +29,11 @@ def processed_json(tmp_path, monkeypatch):
 
 class TestRecommendationLLMOverrides:
     @pytest.fixture(autouse=True)
+    def clean_llm_env(self, monkeypatch):
+        monkeypatch.delenv("SIRIUS_LLM_ALLOWED_HOSTS", raising=False)
+        monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+
+    @pytest.fixture(autouse=True)
     def patch_job_start(self):
         with (
             patch("src.web.routers.jobs.start_recommendations_job") as mock_start,
@@ -104,3 +109,54 @@ class TestRecommendationLLMOverrides:
         kwargs = mock_start.call_args.kwargs
         assert kwargs["base_url_override"] is None
         assert kwargs["api_key_override"] is None
+
+    # ---- P1: SSRF — host allowlist ----
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "https://evil.example.com/v1",  # 非白名单
+            "http://127.0.0.1:11434/v1",  # loopback
+            "http://10.0.0.5/v1",  # 私网
+            "http://169.254.169.254/latest/meta-data/",  # 云元数据
+        ],
+    )
+    def test_non_allowlisted_host_returns_422(
+        self, client: TestClient, patch_job_start: Any, processed_json: str, bad_url: str
+    ):
+        mock_start, _ = patch_job_start
+        response = client.post(
+            "/api/recommendations",
+            json={"json_file": processed_json, "base_url": bad_url, "api_token": "sk-secret"},
+        )
+        assert response.status_code == 422
+        assert "sk-secret" not in response.text
+        mock_start.assert_not_called()
+
+    def test_admin_allowlisted_host_with_token_ok(
+        self, client: TestClient, patch_job_start: Any, processed_json: str, monkeypatch
+    ):
+        monkeypatch.setenv("SIRIUS_LLM_ALLOWED_HOSTS", "llm-gw.internal")
+        mock_start, _ = patch_job_start
+        response = client.post(
+            "/api/recommendations",
+            json={
+                "json_file": processed_json,
+                "base_url": "https://llm-gw.internal/v1",
+                "api_token": "sk-gw",
+            },
+        )
+        assert response.status_code == 200
+        assert mock_start.call_args.kwargs["base_url_override"] == "https://llm-gw.internal/v1"
+
+    # ---- P0: custom endpoint requires request token ----
+    def test_custom_endpoint_without_token_returns_422(
+        self, client: TestClient, patch_job_start: Any, processed_json: str
+    ):
+        mock_start, _ = patch_job_start
+        response = client.post(
+            "/api/recommendations",
+            # deepseek 在白名单内，但非服务器默认 endpoint，缺 token 必须拒绝
+            json={"json_file": processed_json, "base_url": "https://api.deepseek.com/v1"},
+        )
+        assert response.status_code == 422
+        mock_start.assert_not_called()

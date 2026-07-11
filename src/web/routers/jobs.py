@@ -3,19 +3,20 @@
 import os
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.web.job_manager import job_manager
 from src.web.security import (
     RATE_LIMIT_AI_JOB,
     RATE_LIMIT_GENERAL,
     RATE_LIMIT_READ,
+    is_server_default_llm_endpoint,
     limiter,
     sanitize_filename,
+    validate_llm_base_url,
 )
 from src.web.session_manager import session_manager
 from src.web.tasks import start_recommendations_job
@@ -44,19 +45,21 @@ class RecommendationRequest(BaseModel):
         v = v.strip()
         if not v:
             return None
-        if not (v.startswith("http://") or v.startswith("https://")):
-            raise ValueError("base_url 必须以 http:// 或 https:// 开头")
-        parts = urlsplit(v)
-        # 拒绝带 userinfo 的 URL，避免凭据混入 URL 被日志打印
-        if parts.username or parts.password:
-            raise ValueError("base_url 不能包含用户名/密码")
-        return v
+        # scheme / userinfo / host allowlist 校验（防 SSRF），失败抛 ValueError → 422
+        return validate_llm_base_url(v)
 
     @field_validator("api_token")
     @classmethod
     def _normalize_api_token(cls, v: str | None) -> str | None:
         v = (v or "").strip()
         return v or None
+
+    @model_validator(mode="after")
+    def _require_token_for_custom_endpoint(self) -> "RecommendationRequest":
+        # 非默认 endpoint 必须自带 token；否则会回退到服务器密钥并外泄到该 endpoint
+        if self.base_url and not is_server_default_llm_endpoint(self.base_url) and not self.api_token:
+            raise ValueError("使用非默认 Base URL 时必须提供 API Token（不会使用服务器密钥）")
+        return self
 
 
 @router.post("/recommendations")

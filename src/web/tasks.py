@@ -18,6 +18,7 @@ from src.clients.openrouter_client import OpenRouterClient  # noqa: E402
 from src.models.sdtm_models import GenerationConfig, RateLimitConfig  # noqa: E402
 from src.processors.sdtm_processor import SDTMProcessor  # noqa: E402
 from src.web.job_manager import job_manager  # noqa: E402
+from src.web.security import is_server_default_llm_endpoint  # noqa: E402
 from src.web.session_manager import session_manager  # noqa: E402
 
 
@@ -231,11 +232,19 @@ def _run_recommendations_job(
             output_base = _prepare_output_base(json_path, use_timestamp=True)
             job_manager.update_job(job_id, total=total_mappings, message="正在初始化处理...")
 
-        api_key = api_key_override or os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("未配置 API Key：请在左下角「模型设置」中填写，或在服务器配置 OPENROUTER_API_KEY")
-
-        base_url = base_url_override or os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+        # 密钥与 endpoint 绑定（防服务器回退密钥外泄）：
+        # env 回退密钥只发往服务器自身配置的默认 endpoint；任何非默认 endpoint 必须自带 token。
+        default_base = os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+        if base_url_override and not is_server_default_llm_endpoint(base_url_override):
+            if not api_key_override:
+                raise RuntimeError("使用非默认 Base URL 时必须提供 API Token（不会使用服务器密钥）")
+            api_key = api_key_override
+            base_url = base_url_override
+        else:
+            api_key = api_key_override or os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                raise RuntimeError("未配置 API Key：请在左下角「模型设置」中填写，或在服务器配置 OPENROUTER_API_KEY")
+            base_url = base_url_override or default_base
 
         client = OpenRouterClient(api_key=api_key, base_url=base_url)
         client.set_model(model_name)

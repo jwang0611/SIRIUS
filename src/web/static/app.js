@@ -109,7 +109,7 @@ const I18N = {
     'dialog.settings.title': '大模型设置',
     'settings.provider': 'Provider', 'settings.provider.custom': '自定义',
     'settings.baseurl': 'Base URL', 'settings.model': 'Model ID', 'settings.token': 'API Token',
-    'settings.token.hint': '配置仅保存在当前浏览器（localStorage），不会存储在服务器。留空的项将使用服务器端环境变量。',
+    'settings.token.hint': '配置仅保存在当前浏览器（localStorage），不会存储在服务器。默认 Provider 留空时使用服务器端密钥；选择其他 Provider 须填写自己的 API Token。自定义 Base URL 仅限服务器允许的主机（可由管理员配置）。',
     'settings.btn.save': '保存', 'settings.btn.reset': '恢复默认'
   },
   en: {
@@ -217,7 +217,7 @@ const I18N = {
     'dialog.settings.title': 'LLM Settings',
     'settings.provider': 'Provider', 'settings.provider.custom': 'Custom',
     'settings.baseurl': 'Base URL', 'settings.model': 'Model ID', 'settings.token': 'API Token',
-    'settings.token.hint': 'Settings are stored in this browser only (localStorage) and never on the server. Empty fields fall back to server-side environment variables.',
+    'settings.token.hint': 'Settings are stored in this browser only (localStorage), never on the server. The default provider may use the server-side key when the token is blank; other providers require your own API token. Custom Base URLs are limited to server-allowed hosts (configurable by an admin).',
     'settings.btn.save': 'Save', 'settings.btn.reset': 'Reset'
   }
 };
