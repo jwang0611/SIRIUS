@@ -93,3 +93,5 @@ desktop/node_modules/
 desktop/dist/
 /build/
 /dist/
+
+.DS_Store
