@@ -9,6 +9,21 @@
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
+# 说明: Web UI 左下角「模型设置」可按任务覆盖 Base URL / Model / API Token
+# （覆盖值随请求发送，服务器不持久化）；上述环境变量始终作为回退。
+# 安全约束：
+#   - 服务器回退密钥(OPENROUTER_API_KEY)只会发往服务器自身配置的默认 endpoint；
+#     选择非默认 Provider / 自定义 Base URL 时必须由请求自带 API Token。
+#   - 自定义 Base URL 的主机受白名单限制（内置 openrouter.ai / api.openai.com /
+#     api.deepseek.com + 本文件的 OPENROUTER_BASE_URL 主机），可用下方
+#     SIRIUS_LLM_ALLOWED_HOSTS 追加；云元数据地址(169.254.x)一律拒绝。
+# RAG 向量化仍只读取环境变量，未配置 OPENROUTER_API_KEY 时启用 KB/RAG 的任务可能失败。
+
+# 允许的自定义 LLM endpoint 主机（逗号分隔，可选）
+# 供管理员为内网 / 本地模型网关（如 Ollama、LM Studio）追加可信主机，例如:
+# SIRIUS_LLM_ALLOWED_HOSTS=llm-gw.internal,192.168.1.50
+SIRIUS_LLM_ALLOWED_HOSTS=
+
 
 # ================================
 # 系统配置

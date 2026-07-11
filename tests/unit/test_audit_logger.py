@@ -177,11 +177,7 @@ class TestHostileSessionId:
         assert entry["session_id"] == "a/b/../c"
 
     def test_distinct_hostile_ids_do_not_share_a_log_file(self, tmp_path):
-        AuditLogger(session_id="a/b", log_dir=str(tmp_path)).log_mapping(
-            variable_data={}, result={"domain": "AE"}
-        )
-        AuditLogger(session_id="ab", log_dir=str(tmp_path)).log_mapping(
-            variable_data={}, result={"domain": "VS"}
-        )
+        AuditLogger(session_id="a/b", log_dir=str(tmp_path)).log_mapping(variable_data={}, result={"domain": "AE"})
+        AuditLogger(session_id="ab", log_dir=str(tmp_path)).log_mapping(variable_data={}, result={"domain": "VS"})
         # "a/b" and "ab" sanitise to the same prefix but must not collide.
         assert len(list(tmp_path.glob("audit_*.jsonl"))) == 2

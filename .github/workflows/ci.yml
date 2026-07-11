@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint & Test (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          # requirements.txt pins an internal package index (see its first `-i` line)
+          # that is not reachable from GitHub-hosted runners. The packages themselves
+          # are all standard public packages, so install them from public PyPI.
+          grep -vE '^[[:space:]]*-i[[:space:]]' requirements.txt > requirements-ci.txt || true
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Pytest
+        # smoke_test.py is a manual integration harness (needs data fixtures /
+        # live services); it is excluded from the automated gate.
+        run: pytest tests/ --ignore=tests/smoke_test.py

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import shutil
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import unicodedata
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, UploadFile
 from slowapi import Limiter
@@ -345,3 +347,114 @@ def run_command(command: list[str], timeout: int | None = None) -> str:
         raise RuntimeError(f"{stderr} | cmd: {' '.join(command)}")
 
     return stdout
+
+
+# ==================== LLM Endpoint 安全配置 ====================
+
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# 内置 provider 预设对应的可信 host（与前端 LLM_PROVIDERS 保持一致）
+_BUILTIN_LLM_HOSTS = {"openrouter.ai", "api.openai.com", "api.deepseek.com"}
+
+# 云元数据地址：即便被管理员加入 allowlist 也永不放行（最高危 SSRF 目标）
+_METADATA_HOSTS = {"169.254.169.254", "fd00:ec2::254", "[fd00:ec2::254]"}
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _host_of(url: str) -> str:
+    """提取 URL 的 host（小写、去端口）。"""
+    return (urlsplit(url).hostname or "").lower()
+
+
+def _origin_of(url: str) -> tuple[str, str, int | None]:
+    """提取 URL 的规范化 origin：(scheme, host, effective_port)。"""
+    parts = urlsplit(url)
+    scheme = (parts.scheme or "").lower()
+    host = (parts.hostname or "").lower()
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if port is None:
+        port = _DEFAULT_PORTS.get(scheme)
+    return (scheme, host, port)
+
+
+def server_default_llm_base_url() -> str:
+    """服务器自身配置的 LLM endpoint（env 回退密钥只应发往此 endpoint）。"""
+    return os.getenv("OPENROUTER_BASE_URL") or DEFAULT_OPENROUTER_BASE_URL
+
+
+def server_default_llm_host() -> str:
+    """服务器默认 endpoint 的 host（用于 allowlist）。"""
+    return _host_of(server_default_llm_base_url())
+
+
+def allowed_llm_hosts() -> set[str]:
+    """允许的 LLM endpoint host 集合：内置 provider ∪ 服务器默认 host ∪ 管理员配置。"""
+    hosts = set(_BUILTIN_LLM_HOSTS)
+    default_host = server_default_llm_host()
+    if default_host:
+        hosts.add(default_host)
+    for raw in os.getenv("SIRIUS_LLM_ALLOWED_HOSTS", "").split(","):
+        host = raw.strip().lower()
+        if host:
+            hosts.add(host)
+    return hosts
+
+
+def _is_metadata_host(host: str) -> bool:
+    """判断 host 是否为云元数据地址（不受 allowlist 影响，一律拒绝）。"""
+    if host in _METADATA_HOSTS:
+        return True
+    try:
+        ip = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    # link-local (169.254.0.0/16 / fe80::/10) 覆盖 AWS/GCP/Azure 元数据地址
+    return ip.is_link_local
+
+
+def validate_llm_base_url(url: str) -> str:
+    """
+    校验用户提供的 LLM Base URL 是否安全可用（防 SSRF）。
+
+    仅接受 scheme 为 http(s)、无 userinfo、host 在 allowlist 内的 URL；
+    云元数据地址一律拒绝。校验通过返回规范化后的 URL，否则抛 ValueError（→ 422）。
+    """
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("base_url 必须以 http:// 或 https:// 开头")
+    parts = urlsplit(url)
+    # 拒绝带 userinfo 的 URL，避免凭据混入 URL 被日志打印
+    if parts.username or parts.password:
+        raise ValueError("base_url 不能包含用户名/密码")
+    host = (parts.hostname or "").lower()
+    if not host:
+        raise ValueError("base_url 缺少主机名")
+    if _is_metadata_host(host):
+        raise ValueError("base_url 指向被禁止的元数据地址")
+    # 内置公共 Provider 必须走 https，禁止明文 HTTP 降级（会经明文传输凭据）
+    if host in _BUILTIN_LLM_HOSTS and (parts.scheme or "").lower() != "https":
+        raise ValueError("内置 Provider 必须使用 https，不允许明文 HTTP")
+    if host not in allowed_llm_hosts():
+        raise ValueError(
+            "base_url 主机不在允许列表中；请使用内置 Provider，或联系管理员将该主机加入 SIRIUS_LLM_ALLOWED_HOSTS"
+        )
+    return url
+
+
+def is_server_default_llm_endpoint(url: str | None) -> bool:
+    """
+    判断该 endpoint 是否为服务器自身配置的默认 endpoint。
+
+    仅当 endpoint 缺省、或其规范化 origin（scheme + host + effective port）与
+    服务器默认 endpoint 完全一致时，才可安全使用 env 回退密钥。仅比较 host 不足以
+    防止同主机的 http 降级（会把服务器密钥经明文传输），因此必须整体比较 origin。
+    其余（含 allowlist 内的第三方 provider、降级/改端口的同 host）都必须由请求自带 token。
+    """
+    if not url:
+        return True
+    return _origin_of(url) == _origin_of(server_default_llm_base_url())

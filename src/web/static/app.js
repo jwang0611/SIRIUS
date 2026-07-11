@@ -12,6 +12,7 @@ const I18N = {
     'nav.specgen': '生成 Spec', 'nav.specgen.desc': 'SDTM 规范文档输出',
     'nav.library': '知识库', 'nav.library.desc': '标准 / 模板 / 历史映射',
     'nav.guide': '使用指南', 'nav.guide.desc': '系统帮助文档',
+    'nav.settings': '模型设置', 'nav.settings.desc': 'LLM Provider / API 配置',
 
     'dash.title': 'SDTM 智能推理工作台',
     'dash.lead': 'SIRIUS — SDTM 智能推荐与推理统一系统。基于 RAG 级联策略，从 CRF 变量到 SDTM 规范的端到端智能映射。',
@@ -103,7 +104,13 @@ const I18N = {
     'footer.cleanup': '清理会话文件',
     'dialog.sheet.title': '请选择要转换的 Sheet', 'dialog.sheet.confirm': '确认转换',
     'dialog.als.title': '请选择 ALS 文件中的 Sheet', 'dialog.als.confirm': '确认选择',
-    'dialog.cancel': '取消'
+    'dialog.cancel': '取消',
+
+    'dialog.settings.title': '大模型设置',
+    'settings.provider': 'Provider', 'settings.provider.custom': '自定义',
+    'settings.baseurl': 'Base URL', 'settings.model': 'Model ID', 'settings.token': 'API Token',
+    'settings.token.hint': '配置仅保存在当前浏览器（localStorage），不会存储在服务器。默认 Provider 留空时使用服务器端密钥；选择其他 Provider 须填写自己的 API Token。自定义 Base URL 仅限服务器允许的主机（可由管理员配置）。',
+    'settings.btn.save': '保存', 'settings.btn.reset': '恢复默认'
   },
   en: {
     'sidebar.system': 'Inference Unified System',
@@ -113,6 +120,7 @@ const I18N = {
     'nav.specgen': 'Gen Spec', 'nav.specgen.desc': 'SDTM spec document output',
     'nav.library': 'Knowledge Base', 'nav.library.desc': 'Standards / Templates / History',
     'nav.guide': 'User Guide', 'nav.guide.desc': 'System documentation',
+    'nav.settings': 'Model Settings', 'nav.settings.desc': 'LLM provider / API config',
 
     'dash.title': 'SDTM Inference Workbench',
     'dash.lead': 'SIRIUS — SDTM Intelligent Recommendation & Inference Unified System. End-to-end intelligent mapping from CRF variables to SDTM specifications via RAG cascade.',
@@ -204,7 +212,13 @@ const I18N = {
     'footer.cleanup': 'Clean session files',
     'dialog.sheet.title': 'Select the Sheet to convert', 'dialog.sheet.confirm': 'Confirm',
     'dialog.als.title': 'Select the Sheet in the ALS file', 'dialog.als.confirm': 'Confirm',
-    'dialog.cancel': 'Cancel'
+    'dialog.cancel': 'Cancel',
+
+    'dialog.settings.title': 'LLM Settings',
+    'settings.provider': 'Provider', 'settings.provider.custom': 'Custom',
+    'settings.baseurl': 'Base URL', 'settings.model': 'Model ID', 'settings.token': 'API Token',
+    'settings.token.hint': 'Settings are stored in this browser only (localStorage), never on the server. The default provider may use the server-side key when the token is blank; other providers require your own API token. Custom Base URLs are limited to server-allowed hosts (configurable by an admin).',
+    'settings.btn.save': 'Save', 'settings.btn.reset': 'Reset'
   }
 };
 
@@ -224,6 +238,135 @@ function setTheme(t) {
   document.documentElement.setAttribute('data-theme', t === 'default' ? '' : t);
   document.querySelectorAll('#themeToggle button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
   try { localStorage.setItem('sirius-theme', t); } catch (e) {}
+}
+
+// ==================== LLM Provider Settings ====================
+const LLM_STORAGE_KEY = 'sirius-llm-config';
+const LLM_PROVIDERS = {
+  openrouter: {
+    label: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    models: ['google/gemini-3-flash-preview', 'google/gemini-2.5-flash', 'openai/gpt-5-mini', 'qwen/qwen3.5-flash-02-23', 'qwen/qwen3-32b']
+  },
+  openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-5-mini', 'gpt-5', 'gpt-4.1-mini'] },
+  deepseek: { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-chat', 'deepseek-reasoner'] },
+  custom: { label: 'Custom', baseUrl: '', models: [] }
+};
+const LLM_DEFAULT_CONFIG = { provider: 'openrouter', baseUrl: '', model: '', token: '' };
+
+function loadLLMConfig() {
+  try {
+    const raw = localStorage.getItem(LLM_STORAGE_KEY);
+    if (raw) {
+      const cfg = JSON.parse(raw);
+      if (cfg && typeof cfg === 'object') return { ...LLM_DEFAULT_CONFIG, ...cfg };
+    }
+  } catch (e) {}
+  return { ...LLM_DEFAULT_CONFIG };
+}
+
+function saveLLMConfig(cfg) {
+  try { localStorage.setItem(LLM_STORAGE_KEY, JSON.stringify(cfg)); } catch (e) {}
+}
+
+function fillModelDatalist(listEl, providerKey) {
+  if (!listEl) return;
+  const preset = LLM_PROVIDERS[providerKey] || LLM_PROVIDERS.custom;
+  listEl.innerHTML = '';
+  preset.models.forEach((m) => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    listEl.appendChild(opt);
+  });
+}
+
+// 组装任务请求中的 LLM 相关字段；空值不发送，服务端回退到环境变量
+function buildLLMPayload() {
+  const cfg = loadLLMConfig();
+  const modelInput = document.getElementById('model-select');
+  const payload = { model_name: ((modelInput && modelInput.value) || '').trim() || cfg.model || 'google/gemini-2.5-flash' };
+  const baseUrl = (cfg.baseUrl || '').trim();
+  const token = (cfg.token || '').trim();
+  if (baseUrl) payload.base_url = baseUrl;
+  if (token) payload.api_token = token;
+  return payload;
+}
+
+function initLLMSettings() {
+  const dlg = document.getElementById('settings-dialog');
+  const btn = document.getElementById('settings-btn');
+  const providerSel = document.getElementById('settings-provider');
+  const baseUrlInput = document.getElementById('settings-base-url');
+  const modelInput = document.getElementById('settings-model');
+  const tokenInput = document.getElementById('settings-token');
+  const dialogList = document.getElementById('settings-model-list');
+  const screenList = document.getElementById('model-suggest');
+  const screenModel = document.getElementById('model-select');
+  if (!dlg || !btn) return;
+
+  const applyToScreen = (cfg) => {
+    if (screenModel) screenModel.value = cfg.model || '';
+    fillModelDatalist(screenList, cfg.provider);
+  };
+
+  const fillForm = (cfg) => {
+    if (providerSel) providerSel.value = cfg.provider in LLM_PROVIDERS ? cfg.provider : 'custom';
+    if (baseUrlInput) baseUrlInput.value = cfg.baseUrl || '';
+    if (modelInput) modelInput.value = cfg.model || '';
+    if (tokenInput) tokenInput.value = cfg.token || '';
+    fillModelDatalist(dialogList, providerSel ? providerSel.value : 'custom');
+  };
+
+  btn.addEventListener('click', () => { fillForm(loadLLMConfig()); dlg.showModal(); });
+
+  providerSel?.addEventListener('change', () => {
+    const key = providerSel.value;
+    if (key !== 'custom' && LLM_PROVIDERS[key] && baseUrlInput) baseUrlInput.value = LLM_PROVIDERS[key].baseUrl;
+    fillModelDatalist(dialogList, key);
+  });
+
+  document.getElementById('settings-cancel')?.addEventListener('click', () => dlg.close());
+
+  document.getElementById('settings-reset')?.addEventListener('click', () => {
+    try { localStorage.removeItem(LLM_STORAGE_KEY); } catch (e) {}
+    const cfg = { ...LLM_DEFAULT_CONFIG };
+    fillForm(cfg);
+    applyToScreen(cfg);
+    showToast({ type: 'info', title: '已恢复默认', message: '模型配置已重置，将使用服务器端默认设置' });
+  });
+
+  document.getElementById('settings-save')?.addEventListener('click', () => {
+    const baseUrl = (baseUrlInput?.value || '').trim();
+    if (baseUrl && !/^https?:\/\//.test(baseUrl)) {
+      showToast({ type: 'warning', title: 'Base URL 无效', message: 'Base URL 必须以 http:// 或 https:// 开头' });
+      return;
+    }
+    const cfg = {
+      provider: providerSel?.value || 'openrouter',
+      baseUrl,
+      model: (modelInput?.value || '').trim(),
+      token: (tokenInput?.value || '').trim()
+    };
+    saveLLMConfig(cfg);
+    applyToScreen(cfg);
+    dlg.close();
+    showToast({ type: 'success', title: '设置已保存', message: '模型配置仅保存在当前浏览器中' });
+  });
+
+  // 推荐页 Model 输入框与设置对话框通过 localStorage 保持同步
+  screenModel?.addEventListener('change', () => {
+    const cfg = loadLLMConfig();
+    cfg.model = (screenModel.value || '').trim();
+    saveLLMConfig(cfg);
+  });
+
+  applyToScreen(loadLLMConfig());
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initLLMSettings);
+} else {
+  initLLMSettings();
 }
 
 // ==================== Screen navigation ====================
@@ -847,8 +990,8 @@ runJobBtn?.addEventListener("click", async () => {
   const payload = {
     json_file: selectedFile,
     language: languageSelect?.value || "cn",
-    model_name: modelSelect?.value || "google/gemini-2.5-flash",
     resume: false,
+    ...buildLLMPayload(),
   };
 
   const response = await fetchWithSession("api/recommendations", {
@@ -914,8 +1057,8 @@ resumeJobBtn?.addEventListener("click", async () => {
   const payload = {
     json_file: selectedFile,
     language: languageSelect?.value || "cn",
-    model_name: modelSelect?.value || "google/gemini-2.5-flash",
     resume: true,
+    ...buildLLMPayload(),
   };
 
   try {

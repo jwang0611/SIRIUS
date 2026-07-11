@@ -306,3 +306,13 @@ a{color:inherit}
   .screen-head{flex-direction:column;align-items:flex-start}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ─── LLM Provider Settings (左下角模型设置) ─── */
+.sidebar .settings-item{margin-top:auto}
+.sidebar .settings-item ~ .foot{margin-top:0}
+.settings-dialog{max-width:460px}
+.settings-dialog .settings-field{margin-bottom:10px}
+.settings-dialog .form-lbl{display:block;margin-bottom:4px}
+.settings-dialog .form-ctl{width:100%}
+.settings-dialog select{margin-bottom:0}
+.settings-hint{font-size:11px;color:var(--muted);margin:4px 0 12px;line-height:1.5}

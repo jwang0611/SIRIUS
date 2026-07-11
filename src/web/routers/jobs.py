@@ -6,15 +6,17 @@ from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.web.job_manager import job_manager
 from src.web.security import (
     RATE_LIMIT_AI_JOB,
     RATE_LIMIT_GENERAL,
     RATE_LIMIT_READ,
+    is_server_default_llm_endpoint,
     limiter,
     sanitize_filename,
+    validate_llm_base_url,
 )
 from src.web.session_manager import session_manager
 from src.web.tasks import start_recommendations_job
@@ -28,6 +30,34 @@ class RecommendationRequest(BaseModel):
     enable_kb: bool = Field(True, description="是否启用知识库")
     model_name: str = Field("google/gemini-2.5-flash", description="LLM 模型名称")
     resume: bool = Field(False, description="是否从上次进度恢复")
+    base_url: str | None = Field(
+        None, max_length=500, description="OpenAI 兼容 API Base URL（可选，默认使用服务器环境变量）"
+    )
+    api_token: str | None = Field(None, max_length=500, description="API Key（可选，仅本次任务使用，不落盘不回显）")
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        # scheme / userinfo / host allowlist 校验（防 SSRF），失败抛 ValueError → 422
+        return validate_llm_base_url(v)
+
+    @field_validator("api_token")
+    @classmethod
+    def _normalize_api_token(cls, v: str | None) -> str | None:
+        v = (v or "").strip()
+        return v or None
+
+    @model_validator(mode="after")
+    def _require_token_for_custom_endpoint(self) -> "RecommendationRequest":
+        # 非默认 endpoint 必须自带 token；否则会回退到服务器密钥并外泄到该 endpoint
+        if self.base_url and not is_server_default_llm_endpoint(self.base_url) and not self.api_token:
+            raise ValueError("使用非默认 Base URL 时必须提供 API Token（不会使用服务器密钥）")
+        return self
 
 
 @router.post("/recommendations")
@@ -58,6 +88,8 @@ def create_recommendation_job(
         model_name_override=body.model_name,
         resume=body.resume,
         session_id=x_session_id,
+        base_url_override=body.base_url,
+        api_key_override=body.api_token,
     )
     return {"job_id": job_id, "resume": body.resume}
 
