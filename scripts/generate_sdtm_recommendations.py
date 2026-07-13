@@ -19,6 +19,7 @@ if project_root not in sys.path:
 from dotenv import load_dotenv  # noqa: E402
 
 from src.clients.openrouter_client import OpenRouterClient  # noqa: E402
+from src.config.settings import get_settings  # noqa: E402
 from src.processors.sdtm_processor import SDTMProcessor  # noqa: E402
 
 
@@ -42,6 +43,7 @@ def load_json_mappings(json_file: str) -> dict[str, Any]:
 
 def main():
     """Main entry point."""
+    settings = get_settings()
     try:
         default_rag_top_k = int(os.getenv("RAG_TOP_K", "3"))
     except (TypeError, ValueError):
@@ -74,7 +76,7 @@ def main():
     parser.add_argument(
         "--provider",
         choices=["google", "openai", "deepseek", "openrouter"],
-        default=os.getenv("DEFAULT_AI_PROVIDER", "openrouter"),
+        default=settings.ai.default_provider,
         help="AI provider to use (default: from DEFAULT_AI_PROVIDER env or openrouter)",
     )
     parser.add_argument(
@@ -212,18 +214,18 @@ def main():
         # Initialize the appropriate client and set provider-specific default models
         if args.provider == "openrouter":
             # For OpenRouter, use the provided base URL, env variable, or default
-            base_url = args.base_url or os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+            base_url = args.base_url or settings.ai.openrouter_base_url
             client = OpenRouterClient(api_key=args.api_key, base_url=base_url)
-            # Use specified model or provider-specific default for OpenRouter
-            model_name = args.model if args.model else "google/gemini-2.5-flash"
+            model_name = args.model or settings.ai.default_model
             print(f"Using OpenRouter model: {model_name} at {base_url}")
 
             # Ensure the model name is correctly set
             if hasattr(client, "set_model"):
                 client.set_model(model_name)
 
-        # Initialize the client
-        if not client.initialize():
+        # Dry-run only renders local prompts and must not require credentials.
+        # Listing models and real generation still require an initialized client.
+        if not args.dry_run and not client.initialize():
             print("Failed to initialize AI client")
             sys.exit(1)
 

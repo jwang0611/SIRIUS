@@ -3,10 +3,11 @@ OpenRouter client implementation.
 """
 
 import json
-import os
 from typing import Any, cast
 
 from openai import OpenAI
+
+from src.config.settings import get_settings
 
 from .base_client import BaseAIClient
 
@@ -23,9 +24,10 @@ class OpenRouterClient(BaseAIClient):
             base_url: Optional base URL (defaults to OpenRouter API)
         """
         super().__init__(api_key)
-        self.base_url = base_url or "https://openrouter.ai/api/v1"
+        settings = get_settings().ai
+        self.base_url = base_url or settings.openrouter_base_url
         self.client: OpenAI | None = None
-        self.model_name = "google/gemini-2.5-flash"  # Default model
+        self.model_name = settings.default_model
 
     def initialize(self) -> bool:
         """
@@ -35,14 +37,21 @@ class OpenRouterClient(BaseAIClient):
             bool: True if initialization was successful
         """
         try:
-            # Try to get API key from environment if not provided
+            settings = get_settings().ai
+            # Try to get API key from typed settings if not provided.
             if not self.api_key:
-                self.api_key = os.getenv("OPENROUTER_API_KEY")
+                self.api_key = settings.openrouter_api_key
                 if not self.api_key:
                     raise ValueError("No API key provided and OPENROUTER_API_KEY environment variable not set")
 
-            # Initialize the OpenAI client with OpenRouter configuration
-            self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            # The OpenAI SDK retries 429/5xx/timeouts. Configure it explicitly
+            # so retry behavior is auditable and consistent across versions.
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                max_retries=settings.max_retries,
+                timeout=settings.timeout_seconds,
+            )
             return True
 
         except Exception as e:

@@ -16,6 +16,8 @@ def test_defaults_when_env_clean(clean_env):
     s = Settings.from_env()
     assert s.ai.default_provider == "openrouter"
     assert s.ai.default_model == "google/gemini-3-flash-preview"
+    assert s.ai.max_retries == 2
+    assert s.ai.timeout_seconds == pytest.approx(60)
     assert s.cascade.enabled is True
     assert s.cascade.kb_min_confidence == pytest.approx(0.8)
     assert s.cascade.kb_high_conf == pytest.approx(0.85)
@@ -24,6 +26,8 @@ def test_defaults_when_env_clean(clean_env):
     assert s.runtime.enable_parallel is True
     assert s.runtime.max_workers == 5
     assert s.runtime.log_level == "INFO"
+    assert s.runtime.log_ai is False
+    assert s.runtime.save_ai_interactions is False
     assert s.security.audit_log_enabled is True
     assert s.security.data_masking_enabled is True
 
@@ -36,6 +40,10 @@ def test_env_vars_override_defaults(clean_env, monkeypatch):
     monkeypatch.setenv("AUDIT_LOG_ENABLED", "false")
     monkeypatch.setenv("DATA_MASKING_ENABLED", "0")
     monkeypatch.setenv("LOG_LEVEL", "debug")
+    monkeypatch.setenv("LLM_MAX_RETRIES", "4")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "90")
+    monkeypatch.setenv("SDTM_LOG_AI", "true")
+    monkeypatch.setenv("SAVE_AI_INTERACTIONS", "true")
 
     s = Settings.from_env()
     assert s.ai.default_model == "anthropic/claude-3-opus"
@@ -44,6 +52,10 @@ def test_env_vars_override_defaults(clean_env, monkeypatch):
     assert s.security.audit_log_enabled is False
     assert s.security.data_masking_enabled is False
     assert s.runtime.log_level == "DEBUG"
+    assert s.ai.max_retries == 4
+    assert s.ai.timeout_seconds == pytest.approx(90)
+    assert s.runtime.log_ai is True
+    assert s.runtime.save_ai_interactions is True
 
 
 def test_cascade_rejects_incoherent_thresholds(clean_env, monkeypatch):

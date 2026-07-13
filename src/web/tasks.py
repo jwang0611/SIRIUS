@@ -15,6 +15,7 @@ if str(project_root) not in sys.path:
 from dotenv import load_dotenv  # noqa: E402
 
 from src.clients.openrouter_client import OpenRouterClient  # noqa: E402
+from src.config.settings import get_settings  # noqa: E402
 from src.models.sdtm_models import GenerationConfig, RateLimitConfig  # noqa: E402
 from src.processors.sdtm_processor import SDTMProcessor  # noqa: E402
 from src.web.job_manager import job_manager  # noqa: E402
@@ -156,6 +157,27 @@ def _count_existing_progress(output_file: str, model_name: str) -> tuple[int, in
     return (0, 0)
 
 
+def _summarize_recommendation_quality(recommendations: list[dict]) -> tuple[int, int]:
+    """Count failed variables and unique error-level consistency findings."""
+    failed_variables: set[tuple[str, str]] = set()
+    consistency_errors: set[str] = set()
+
+    for table_rec in recommendations:
+        table_name = str(table_rec.get("table_name", ""))
+        for rec in table_rec.get("domain_recommendations", []) or []:
+            source = str(rec.get("source", "")).upper()
+            sdtm_variable = str(rec.get("sdtm_variable", ""))
+            if source == "FALLBACK" or sdtm_variable.upper().endswith("_PENDING"):
+                variable_name = str(rec.get("variable_name") or sdtm_variable or "unknown")
+                failed_variables.add((table_name, variable_name))
+
+        for issue in table_rec.get("consistency_issues", []) or []:
+            if str(issue.get("severity", "")).lower() == "error":
+                consistency_errors.add(json.dumps(issue, ensure_ascii=False, sort_keys=True, default=str))
+
+    return len(failed_variables), len(consistency_errors)
+
+
 def _run_recommendations_job(
     job_id: str,
     json_file: str,
@@ -169,9 +191,7 @@ def _run_recommendations_job(
 ) -> None:
     # Determine model name early for resume path lookup
     load_dotenv()
-    model_name: str = (
-        model_name_override or os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash") or "google/gemini-2.5-flash"
-    )
+    model_name = model_name_override or get_settings().ai.default_model
 
     # Initial job status
     initial_processed = 0
@@ -234,7 +254,10 @@ def _run_recommendations_job(
 
         # 密钥与 endpoint 绑定（防服务器回退密钥外泄）：
         # env 回退密钥只发往服务器自身配置的默认 endpoint；任何非默认 endpoint 必须自带 token。
-        default_base = os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+        # Endpoint overrides remain request/runtime-scoped; unlike the model
+        # default, operators may supply this after process import via dotenv.
+        default_base = os.getenv("OPENROUTER_BASE_URL") or get_settings().ai.openrouter_base_url
+        api_key: str | None
         if base_url_override and not is_server_default_llm_endpoint(base_url_override):
             if not api_key_override:
                 raise RuntimeError("使用非默认 Base URL 时必须提供 API Token（不会使用服务器密钥）")
@@ -351,6 +374,17 @@ def _run_recommendations_job(
         excel_path = Path(output_with_model + ".xlsx")
         json_output = Path(output_with_model + ".json")
 
+        # Measure the serialized artifact when available because
+        # save_recommendations may add coverage fallbacks for missing variables.
+        quality_recommendations = recommendations
+        if json_output.exists():
+            try:
+                serialized = json.loads(json_output.read_text(encoding="utf-8"))
+                if isinstance(serialized, list):
+                    quality_recommendations = serialized
+            except (OSError, json.JSONDecodeError):
+                pass
+
         # 记录输出文件归属于当前 session
         if session_id:
             if excel_path.exists():
@@ -364,18 +398,28 @@ def _run_recommendations_job(
 
         final_status = job_manager.get_job(job_id)
         final_total = final_status.total if final_status and final_status.total else len(mappings)
+        failed_variables, consistency_errors = _summarize_recommendation_quality(quality_recommendations)
+        completed_state = "completed_with_errors" if failed_variables or consistency_errors else "completed"
+        if completed_state == "completed_with_errors":
+            result_message = (
+                f"⚠️ 处理完成但需要人工复核：{failed_variables} 个变量使用失败占位，"
+                f"{consistency_errors} 个一致性错误 | Duration: {elapsed:.1f}s"
+            )
+        else:
+            result_message = f"✅ 已完成全部 {final_total} 个变量的处理 | Duration: {elapsed:.1f}s"
         job_manager.update_job(
             job_id,
-            state="completed",
+            state=completed_state,
             processed=final_total,
             total=final_total,
             output_excel=str(excel_path),
             output_json=str(json_output),
             current_table=None,
             current_variable=None,
+            failed_variables=failed_variables,
+            consistency_errors=consistency_errors,
+            message=result_message,
         )
-        # store elapsed in message for UI
-        job_manager.update_job(job_id, message=f" | Duration: {elapsed:.1f}s")
     except Exception as exc:
         # Don't overwrite cancelled state
         current = job_manager.get_job(job_id)
@@ -426,7 +470,7 @@ def _run_spec_mapper_job(
     session_id: str | None = None,
 ) -> None:
     """运行 spec_mapper 任务的后台线程."""
-    job_manager.update_job(job_id, state="running", message="正在初始化 Spec Mapper...", processed=0, total=100)
+    job_manager.update_job(job_id, state="running", message="正在初始化 Spec Mapper...", processed=0, total=5)
 
     try:
         # 构建文件路径
@@ -447,13 +491,10 @@ def _run_spec_mapper_job(
         if not template_path.exists():
             raise FileNotFoundError(f"模板文件不存在: {template_file}")
 
-        job_manager.update_job(job_id, message="正在读取 ALS 文件...", processed=5, total=100)
-
         # 导入必要的模块
         import logging
 
         from src.spec_mapper import SpecMapper
-        from src.spec_mapper.core.excel_reader import ExcelReader
 
         # 设置日志文件处理器
         log_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
@@ -476,58 +517,19 @@ def _run_spec_mapper_job(
             logging.info(f"Output Path: {output_path}")
             logging.info(f"Log Path: {log_path}")
 
-            # 先读取 ALS 记录以获取总数
-            reader = ExcelReader(als_path)
-            als_records = reader.read_als_records(als_sheet)
-            total_als_records = len(als_records)
-
-            job_manager.update_job(
-                job_id, message=f"读取到 {total_als_records} 条 ALS 记录", processed=10, total=total_als_records
-            )
-
             # 初始化 SpecMapper
             mapper = SpecMapper(als_file=als_path, template_file=template_path, als_sheet=als_sheet, log_level="INFO")
 
-            job_manager.update_job(job_id, message="正在处理映射关系...", processed=0, total=total_als_records)
+            def report_progress(message: str, processed: int, total: int) -> None:
+                job_manager.update_job(job_id, message=message, processed=processed, total=total)
 
-            # 创建一个包装器来跟踪进度
-            # 由于 SpecMapper 的 process 方法不支持进度回调，
-            # 我们需要在处理过程中定期检查并更新进度
-            import threading
-            import time
-
-            stop_progress_thread = threading.Event()
-            current_progress = [0]
-
-            def update_progress_periodically():
-                while not stop_progress_thread.is_set():
-                    if job_manager.is_cancelled(job_id):
-                        break
-                    if current_progress[0] < total_als_records * 0.9:
-                        current_progress[0] = min(
-                            current_progress[0] + total_als_records * 0.05, total_als_records * 0.9
-                        )
-                        job_manager.update_job(
-                            job_id,
-                            message=f"正在处理 ALS2SDTM 记录... ({int(current_progress[0])}/{total_als_records})",
-                            processed=int(current_progress[0]),
-                            total=total_als_records,
-                        )
-                    time.sleep(0.5)
-
-            # 启动进度更新线程
-            progress_thread = threading.Thread(target=update_progress_periodically, daemon=True)
-            progress_thread.start()
-
-            try:
-                # 执行处理
-                stats = mapper.process(
-                    output_file=output_path, highlight=highlight, dry_run=False, create_test_sheets=create_test_sheets
-                )
-            finally:
-                # 停止进度更新线程
-                stop_progress_thread.set()
-                progress_thread.join(timeout=1.0)
+            stats = mapper.process(
+                output_file=output_path,
+                highlight=highlight,
+                dry_run=False,
+                create_test_sheets=create_test_sheets,
+                progress_callback=report_progress,
+            )
 
             if job_manager.is_cancelled(job_id):
                 job_manager.update_job(
@@ -538,12 +540,7 @@ def _run_spec_mapper_job(
                 return
 
             updates_count = stats.get("updates", 0)
-            job_manager.update_job(
-                job_id,
-                message=f"正在保存结果... (生成了 {updates_count} 个更新)",
-                processed=total_als_records - 1,
-                total=total_als_records,
-            )
+            total_als_records = stats.get("als_records", 0)
 
             # 记录输出文件归属于当前 session
             if session_id and output_path.exists():
@@ -558,8 +555,8 @@ def _run_spec_mapper_job(
                 job_id,
                 state="completed",
                 message=f"✓ 完成！处理了 {total_als_records} 条记录，生成了 {updates_count} 个更新",
-                processed=total_als_records,
-                total=total_als_records,
+                processed=5,
+                total=5,
                 output_excel=str(output_path),
                 output_log=str(log_path),
             )

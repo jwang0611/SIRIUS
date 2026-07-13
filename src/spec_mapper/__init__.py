@@ -23,6 +23,7 @@ __author__ = "SIRIUS Team"
 import logging
 import os
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -200,6 +201,7 @@ class SpecMapper:
         clear_existing: bool = True,
         dry_run: bool = False,
         create_test_sheets: bool | None = None,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         """
         Process ALS to SDTM Spec mapping and generate output file.
@@ -210,6 +212,8 @@ class SpecMapper:
             clear_existing: Clear existing transformation definitions (default: True)
             dry_run: Preview mode without saving file (default: False)
             create_test_sheets: Create TEST sheets for conditional mappings (default: from config or True)
+            progress_callback: Optional callback receiving a real stage message,
+                completed stage count, and total stage count.
 
         Returns:
             Dictionary with processing statistics:
@@ -226,6 +230,11 @@ class SpecMapper:
             Exception: If processing fails
         """
         output_path = Path(output_file)
+        total_stages = 5
+
+        def report_progress(message: str, completed: int) -> None:
+            if progress_callback:
+                progress_callback(message, completed, total_stages)
 
         # Use environment variable for highlight default if not specified
         if highlight is None:
@@ -233,18 +242,21 @@ class SpecMapper:
 
         try:
             # Step 1: Read ALS file
+            report_progress("正在读取 ALS 文件...", 0)
             self.logger.info(f"Reading ALS file: {self.als_file}")
             als_reader = ExcelReader(self.als_file, self.config)
             als_records = als_reader.read_als_records(self.als_sheet)
             self.logger.info(f"✓ Read {len(als_records)} ALS records")
 
             # Step 2: Read template file
+            report_progress("正在读取 SDTM Spec 模板...", 1)
             self.logger.info(f"Reading template file: {self.template_file}")
             template_reader = ExcelReader(self.template_file, self.config)
             template_records = template_reader.read_template_records()
             self.logger.info(f"✓ Read {len(template_records)} template records")
 
             # Step 3: Perform mapping
+            report_progress("正在生成映射计划...", 2)
             self.logger.info("Performing mapping...")
 
             # Determine create_test_sheets value (param > config > default True)
@@ -278,6 +290,7 @@ class SpecMapper:
             if dry_run:
                 self.logger.info("DRY RUN: No changes will be saved")
                 stats["output_file"] = str(output_path) + " (dry run)"
+                report_progress("Dry run 完成", total_stages)
                 return stats
 
             # Collect ALS domains (used to limit all write operations)
@@ -291,6 +304,7 @@ class SpecMapper:
             self.logger.info(f"ALS domains: {', '.join(sorted(als_domains))}")
 
             # Step 4: Write output
+            report_progress("正在写入工作簿...", 3)
             self.logger.info(f"Writing output to: {output_path}")
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -491,11 +505,13 @@ class SpecMapper:
                 self.logger.info(f"✓ Set active sheet to '{default_sheet}'")
 
             # Save and close
+            report_progress("正在保存工作簿...", 4)
             writer.save()
             writer.close()
 
             self.logger.info(f"✓ Successfully saved to {output_path}")
             stats["output_file"] = str(output_path)
+            report_progress("工作簿生成完成", total_stages)
 
             return stats
 

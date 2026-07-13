@@ -18,7 +18,7 @@ _UNSET: Any = _Unset.TOKEN
 @dataclass
 class JobStatus:
     job_id: str
-    state: str = "pending"  # pending | running | completed | failed | cancelled
+    state: str = "pending"  # pending | running | completed | completed_with_errors | failed | cancelled
     message: str = ""
     processed: int = 0
     total: int = 0
@@ -29,6 +29,8 @@ class JobStatus:
     output_log: str | None = None  # Path to log file
     cancelled: bool = False  # Flag to signal task should stop
     json_file: str | None = None  # Store input file for resume
+    failed_variables: int = 0
+    consistency_errors: int = 0
 
     def to_dict(self) -> dict[str, str | int | float | bool | None]:
         data = asdict(self)

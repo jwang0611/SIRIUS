@@ -61,12 +61,14 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "DATA_MASKING_",
         "RATE_LIMIT_",
         "OPENROUTER_",
+        "LLM_",
         "DEFAULT_",
         "TOP_K_",
         "SPEC_",
         "ALS_",
         "OUTPUT_",
         "BATCH_",
+        "SAVE_AI_",
     )
     for key in list(os.environ.keys()):
         if key.startswith(prefixes):

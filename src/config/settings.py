@@ -48,6 +48,8 @@ class AIProviderSettings(BaseModel):
 
     openrouter_api_key: str = Field(default="")
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
+    max_retries: int = Field(default=2, ge=0, le=10)
+    timeout_seconds: float = Field(default=60.0, gt=0, le=600)
 
     @field_validator("default_language")
     @classmethod
@@ -84,8 +86,10 @@ class RuntimeSettings(BaseModel):
     max_workers: int = Field(default=5, ge=1, le=32)
     batch_size: int = Field(default=10, ge=1, le=1000)
     rate_limit_rpm: int = Field(default=120, ge=1, le=10_000)
-    log_ai: bool = True
-    save_ai_interactions: bool = True
+    # Full prompts/responses may contain clinical context. Keep persistence
+    # opt-in even when masking is enabled.
+    log_ai: bool = False
+    save_ai_interactions: bool = False
     log_level: str = "INFO"
 
     @field_validator("log_level")
@@ -181,6 +185,8 @@ class Settings(BaseSettings):
             openrouter_api_key=g("OPENROUTER_API_KEY", "") or "",
             openrouter_base_url=g("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
             or "https://openrouter.ai/api/v1",
+            max_retries=int(g("LLM_MAX_RETRIES", "2") or 2),
+            timeout_seconds=float(g("LLM_TIMEOUT_SECONDS", "60") or 60),
         )
 
         cascade = CascadeSettings(
@@ -209,8 +215,8 @@ class Settings(BaseSettings):
             max_workers=int(g("SDTM_MAX_WORKERS", "5") or 5),
             batch_size=int(g("BATCH_SIZE", "10") or 10),
             rate_limit_rpm=int(g("RATE_LIMIT_RPM", "120") or 120),
-            log_ai=_to_bool(g("SDTM_LOG_AI", "true"), True),
-            save_ai_interactions=_to_bool(g("SAVE_AI_INTERACTIONS", "true"), True),
+            log_ai=_to_bool(g("SDTM_LOG_AI", "false"), False),
+            save_ai_interactions=_to_bool(g("SAVE_AI_INTERACTIONS", "false"), False),
             log_level=g("LOG_LEVEL", "INFO") or "INFO",
         )
 

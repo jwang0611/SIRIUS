@@ -28,7 +28,7 @@ class RecommendationRequest(BaseModel):
     json_file: str = Field(..., description="位于 data/processed 下的 JSON 文件名或绝对路径")
     language: str = Field("en", description="Prompt 语言 (en/cn)")
     enable_kb: bool = Field(True, description="是否启用知识库")
-    model_name: str = Field("google/gemini-2.5-flash", description="LLM 模型名称")
+    model_name: str | None = Field(None, description="LLM 模型名称；为空时使用服务器 DEFAULT_MODEL")
     resume: bool = Field(False, description="是否从上次进度恢复")
     base_url: str | None = Field(
         None, max_length=500, description="OpenAI 兼容 API Base URL（可选，默认使用服务器环境变量）"
@@ -107,7 +107,7 @@ def get_job_status(request: Request, job_id: str):
 @limiter.limit(RATE_LIMIT_READ)
 def download_result(request: Request, job_id: str, format: str = Query("excel", pattern="^(excel|json)$")):
     job = job_manager.get_job(job_id)
-    if not job or job.state != "completed":
+    if not job or job.state not in {"completed", "completed_with_errors"}:
         raise HTTPException(status_code=404, detail="任务未完成或不存在")
 
     target = job.output_excel if format == "excel" else job.output_json

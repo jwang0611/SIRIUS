@@ -51,6 +51,7 @@ class TestRecommendationLLMOverrides:
         mock_start.assert_called_once()
         assert mock_start.call_args.kwargs["base_url_override"] is None
         assert mock_start.call_args.kwargs["api_key_override"] is None
+        assert mock_start.call_args.kwargs["model_name_override"] is None
 
     def test_overrides_forwarded_verbatim(self, client: TestClient, patch_job_start: Any, processed_json: str):
         mock_start, _ = patch_job_start
@@ -166,3 +167,26 @@ class TestRecommendationLLMOverrides:
         )
         assert response.status_code == 422
         mock_start.assert_not_called()
+
+
+def test_completed_with_errors_result_remains_downloadable(tmp_path):
+    from src.web.job_manager import JobStatus
+
+    output = tmp_path / "review-required.xlsx"
+    output.write_bytes(b"xlsx")
+    job = JobStatus(
+        job_id="job-review",
+        state="completed_with_errors",
+        output_excel=str(output),
+        failed_variables=2,
+        consistency_errors=1,
+    )
+
+    from app import app
+
+    with patch("src.web.routers.jobs.job_manager") as manager:
+        manager.get_job.return_value = job
+        response = TestClient(app).get("/api/jobs/job-review/download?format=excel")
+
+    assert response.status_code == 200
+    assert response.content == b"xlsx"

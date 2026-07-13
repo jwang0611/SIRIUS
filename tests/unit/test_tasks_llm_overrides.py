@@ -154,3 +154,42 @@ def test_missing_api_key_fails_without_leaking_secrets(task_mocks, mappings_file
     message = failed_calls[-1].kwargs.get("message", "")
     assert "API Key" in message or "OPENROUTER_API_KEY" in message
     assert "env-key" not in message and "user-key" not in message
+
+
+def test_fallback_and_critic_errors_complete_with_visible_error_state(task_mocks, mappings_file, monkeypatch):
+    """PENDING placeholders must not make a task look fully successful."""
+    from src.web.tasks import _run_recommendations_job
+
+    _, mock_processor_cls, mock_jm = task_mocks
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    mock_processor_cls.return_value.process_mappings.return_value = [
+        {
+            "table_name": "AE",
+            "domain_recommendations": [
+                {
+                    "variable_name": "BROKEN",
+                    "domain": "AE",
+                    "sdtm_variable": "AE_BROKEN_PENDING",
+                    "source": "FALLBACK",
+                }
+            ],
+            "consistency_issues": [
+                {"severity": "error", "check": "variable_name_validity", "description": "invalid"}
+            ],
+        }
+    ]
+    mock_jm.get_job.return_value = MagicMock(state="running", total=1)
+
+    _run_recommendations_job(
+        job_id="job-review",
+        json_file=mappings_file,
+        model_name_override="test/model",
+    )
+
+    completed = [
+        call for call in mock_jm.update_job.call_args_list if call.kwargs.get("state") == "completed_with_errors"
+    ]
+    assert completed
+    assert completed[-1].kwargs["failed_variables"] == 1
+    assert completed[-1].kwargs["consistency_errors"] == 1
+    assert "人工复核" in completed[-1].kwargs["message"]

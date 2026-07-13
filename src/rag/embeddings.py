@@ -30,7 +30,10 @@ from typing import Any
 import numpy as np
 import requests
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
+from src.config.settings import get_settings
 from src.rag.chunker import Chunk, Chunker
 
 load_dotenv()
@@ -42,8 +45,14 @@ class OpenRouterEmbeddingClient:
     """
 
     def __init__(
-        self, api_key: str | None = None, base_url: str | None = None, model: str = "Qwen3-Embed", timeout: int = 60
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str = "Qwen3-Embed",
+        timeout: float | None = None,
+        max_retries: int | None = None,
     ):
+        settings = get_settings().ai
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not self.api_key:
             raise ValueError("❌ 未找到 API Key，请设置 OPENROUTER_API_KEY 环境变量。")
@@ -55,8 +64,24 @@ class OpenRouterEmbeddingClient:
         )
         self.base_url = bu
         self.model = model
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else settings.timeout_seconds
         self.endpoint = f"{bu.rstrip('/')}/embeddings"
+        retry_count = settings.max_retries if max_retries is None else max_retries
+        retry = Retry(
+            total=retry_count,
+            connect=retry_count,
+            read=retry_count,
+            status=retry_count,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"POST"}),
+            respect_retry_after_header=True,
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session = requests.Session()
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """
@@ -68,7 +93,7 @@ class OpenRouterEmbeddingClient:
         }
         payload = {"model": self.model, "input": texts}
 
-        resp = requests.post(self.endpoint, headers=headers, json=payload, timeout=self.timeout)
+        resp = self.session.post(self.endpoint, headers=headers, json=payload, timeout=self.timeout)
         resp.raise_for_status()
         data = resp.json()
 
