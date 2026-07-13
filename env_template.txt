@@ -24,6 +24,9 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 # SIRIUS_LLM_ALLOWED_HOSTS=llm-gw.internal,192.168.1.50
 SIRIUS_LLM_ALLOWED_HOSTS=
 
+# 允许跨域访问 Web API 的 Origin（逗号分隔）。同源本地 UI 无需额外配置。
+SIRIUS_CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:8000
+
 
 # ================================
 # 系统配置
@@ -34,6 +37,10 @@ DEFAULT_AI_PROVIDER=openrouter
 
 # 默认模型
 DEFAULT_MODEL=google/gemini-3-flash-preview
+
+# LLM / Embedding 外部调用：首次调用 + 最多 2 次重试（429/5xx/超时）
+LLM_MAX_RETRIES=2
+LLM_TIMEOUT_SECONDS=60
 
 # 提示词语言 (cn/en)
 DEFAULT_LANGUAGE=en
@@ -117,7 +124,7 @@ RATE_LIMIT_READ=120/minute
 # GxP 合规 / 安全配置
 # ================================
 
-# 审计日志开关 (GxP-compliant audit trail)
+# 审计辅助日志开关（当前不等同于 Part 11 / GxP 合规系统）
 AUDIT_LOG_ENABLED=true
 
 # PHI/PII 数据脱敏开关 (LLM 调用前自动脱敏)
@@ -132,10 +139,11 @@ LOG_LEVEL=INFO
 
 # 是否保存完整AI交互日志 (prompt + response)
 # 日志保存在 data/output/logs/ai_interactions_YYYYMMDD.log
-SDTM_LOG_AI=true
+# 临床上下文可能包含敏感信息，因此默认关闭；仅在受控环境显式开启。
+SDTM_LOG_AI=false
 
 # 是否保存KB匹配事件日志 (知识库查询细节)
-SAVE_AI_INTERACTIONS=true
+SAVE_AI_INTERACTIONS=false
 
 # ================================
 # 路径配置

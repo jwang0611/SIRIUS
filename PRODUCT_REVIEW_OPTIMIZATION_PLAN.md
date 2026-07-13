@@ -6,6 +6,36 @@
 
 ---
 
+## 0. Codex 复核结论与执行切片（2026-07-13）
+
+本方案的优先级判断总体成立，尤其是“先度量与止血，再建设 QC 闭环”的顺序。复核同时确认：该 PR 原始提交仅增加评审文档，没有实现代码；A–D 横跨数月，不能作为一个原子变更一次落地。实施因此按可独立验收、且不改变 4 级级联语义的切片推进。
+
+复核中对三处表述作如下校准：
+
+1. OpenRouter 文本生成使用的 OpenAI Python SDK 本身带隐式重试，并非严格意义上的“零重试”；真实缺口是重试参数未显式配置、Embedding 的 `requests.post` 确为单次调用。本轮将两条路径统一为可配置的 429/5xx/超时重试。
+2. `GET /session-stats` 只返回聚合计数，不暴露绝对路径；绝对路径泄露位于 `GET /session/{id}?detail=true`。本轮在 API 边界只返回文件名。
+3. 类型化 settings 已定义 `google/gemini-3-flash-preview`，漂移来自生产调用绕过 settings。本轮让客户端、后台任务和 API 缺省值统一回到 settings，而不是再新增一份常量。
+
+### 本 PR 的实施批次
+
+| 项目 | 本轮动作 | 验收 |
+|---|---|---|
+| A2 外部调用重试 | 文本生成显式配置 SDK retry/timeout；Embedding 对 429、5xx、连接/读取失败做指数退避 | 单测覆盖 429 后成功与连续失败 |
+| A3 静默失败止血 | 统计 `FALLBACK/*_PENDING` 与 MappingCritic error；任务返回 `completed_with_errors`，前端醒目提示但仍允许下载复核 | API/任务/UI 测试覆盖 |
+| A4 Spec 假进度移除 | 删除定时递增线程，`SpecMapper.process` 按读取 ALS、读取模板、映射、写入、保存回调真实阶段 | 回调顺序测试覆盖 |
+| A6 文档与默认值 | 默认模型回归 typed settings；README 降级多用户/GxP 声明并指向本方案 | 设置与 API 测试覆盖 |
+| B7/速赢安全项 | Toast 改安全 DOM 构造；限流不信任 Session header；隐藏服务器绝对路径；本地绑定、CORS 与 reload 默认收紧；增加健康/版本端点 | Web 安全与端点测试覆盖 |
+| 敏感日志默认值 | 完整 prompt/response 与 KB 交互落盘改为显式 opt-in | settings 测试覆盖 |
+
+### 后续里程碑与前置条件
+
+- A1 必须由维护者提供至少两个与 KB/关键词表不相交的真实、已去标识化研究作为 held-out 数据；不得用仓库现有 KB 再造“测试集”。
+- A5 的“实际写入数”需要 ExcelWriter 各写操作返回结构化结果，本轮只先让任务失败/告警可见；建议与真实模板端到端测试一起实施。
+- A7 lockfile 会改变安装与发布流程，应独立 PR 决定 uv 或 pip-tools，并验证内部源可重现性。
+- Phase B–D 保持原路线顺序：QC 工作台 → 产品形态/身份与审计 → 模板抽象与价值延伸。进入下一阶段前，以本节验收项和 A1 无泄漏评测为闸门。
+
+---
+
 ## 1. 执行摘要
 
 SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"，而是"给临床编程与标准评审人员一个可评审、可审计的智能助手，每一条 AI 建议外面都包着确定性校验"**。工程底子是好的：4 级级联架构真实存在且有测试、Spec Mapper 对工作簿格式的保真处理很用心、约 590 个单测 + 特征化/快照测试、CI 已建立、SSRF/路径遍历等安全细节做得比多数内部工具认真。
@@ -103,7 +133,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 
 ### 发现五：可靠性 —— 零重试 + 静默失败
 
-- **全仓库无任何重试/退避逻辑**（grep `retry|backoff|tenacity` 为空）。OpenRouter 与 embeddings 都是单次调用、失败即抛（`openrouter_client.py:52`；`src/rag/embeddings.py:61`）。
+- **重试行为不一致且不可审计**：OpenRouter 文本生成依赖 OpenAI SDK 的隐式默认重试，代码中没有显式参数；embeddings 是单次 `requests.post`、失败即抛（`src/rag/embeddings.py:61`）。
 - 单变量 LLM 失败被降级为 `score=0.0`、`sdtm_variable="{DOMAIN}_{VAR}_PENDING"` 的占位记录（`sdtm_processor.py:1018-1034`）。一次 429 限流风暴可让大批变量静默变成垃圾占位符，而任务显示"完成"。
 - 混合模式下整表失败仅日志后跳过（`sdtm_processor.py:1424-1427`）；批次永远"成功"，唯一信号是 MappingCritic 的建议性告警——它从不阻断、不重跑、不改变任务状态（`:2182-2195`）。
 - Spec Mapper 同样是静默失败模型：写入阶段 11 处 `try/except Exception` 只 warning 继续（`src/spec_mapper/__init__.py:332-467`），可能丢 SUPP 行/CODELIST/整域仍返回"成功"stats——且 stats 报告的是**计划数**不是**实际写入数**。
@@ -216,7 +246,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 1. 统一默认模型定义（`openrouter_client.py:28`、`tasks.py:173` → settings 单点）。
 2. `showToast`/结果区 `innerHTML` → 安全插值（XSS 止血，半天）。
 3. 限流 key 不再信任客户端 `X-Session-ID`，回退 IP（`security.py:31-34`）。
-4. `GET /session-stats`、`GET /session/{id}?detail=true` 移除绝对路径泄露并加最小防护（`session.py:60-72`）。
+4. `GET /session/{id}?detail=true` 移除绝对路径泄露并加最小防护；`GET /session-stats` 仅保留聚合计数（`session.py:60-72`）。
 5. 5xx 错误响应停止透传 `str(exc)`/完整命令行（`upload.py:111`；`security.py:337-347`）。
 6. 加 `/healthz` + `/version` 端点（desktop 外壳与 CI 探活都在等它）。
 7. GitHub CI 补 mypy（先 non-blocking 再转 blocking）与 coverage 报告。

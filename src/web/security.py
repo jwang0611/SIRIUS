@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import shutil
@@ -16,6 +17,8 @@ from fastapi import HTTPException, Request, UploadFile
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+logger = logging.getLogger(__name__)
+
 # ==================== 通用常量 ====================
 
 PYTHON_BIN = os.getenv("PYTHON_BIN", sys.executable or "python")
@@ -24,13 +27,7 @@ PYTHON_BIN = os.getenv("PYTHON_BIN", sys.executable or "python")
 
 
 def _get_client_identifier(request: Request) -> str:
-    """
-    获取客户端标识符，用于速率限制。
-    优先使用 Session ID，其次使用 IP 地址。
-    """
-    session_id = request.headers.get("X-Session-ID")
-    if session_id:
-        return f"session:{session_id}"
+    """Use the network peer for rate limiting, not a caller-controlled header."""
     return get_remote_address(request)
 
 
@@ -334,17 +331,23 @@ def run_command(command: list[str], timeout: int | None = None) -> str:
             timeout=effective_timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"脚本执行超时 ({effective_timeout}s) | cmd: {' '.join(command)}") from exc
+        logger.warning("Processing command timed out after %ss (executable=%s)", effective_timeout, Path(command[0]).name)
+        raise RuntimeError(f"处理脚本执行超时（{effective_timeout}s）") from exc
 
     stderr = (completed.stderr or "").strip()
     stdout = (completed.stdout or "").strip()
 
     if completed.returncode != 0:
-        msg = stderr or stdout or "脚本执行失败"
-        raise RuntimeError(f"{msg} | cmd: {' '.join(command)}")
+        logger.warning(
+            "Processing command failed (executable=%s, exit_code=%s)",
+            Path(command[0]).name,
+            completed.returncode,
+        )
+        raise RuntimeError("处理脚本执行失败，请查看服务端日志")
 
     if stderr and "[ERROR]" in stderr:
-        raise RuntimeError(f"{stderr} | cmd: {' '.join(command)}")
+        logger.warning("Processing command reported an error (executable=%s)", Path(command[0]).name)
+        raise RuntimeError("处理脚本报告错误，请查看服务端日志")
 
     return stdout
 

@@ -284,7 +284,9 @@ function fillModelDatalist(listEl, providerKey) {
 function buildLLMPayload() {
   const cfg = loadLLMConfig();
   const modelInput = document.getElementById('model-select');
-  const payload = { model_name: ((modelInput && modelInput.value) || '').trim() || cfg.model || 'google/gemini-2.5-flash' };
+  const payload = {};
+  const model = ((modelInput && modelInput.value) || '').trim() || cfg.model;
+  if (model) payload.model_name = model;
   const baseUrl = (cfg.baseUrl || '').trim();
   const token = (cfg.token || '').trim();
   if (baseUrl) payload.base_url = baseUrl;
@@ -544,14 +546,29 @@ function showToast({ type = "info", title = "", message = "", duration = 4000 })
 
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon">${icons[type]}</span>
-    <div class="toast-content">
-      ${title ? `<div class="toast-title">${title}</div>` : ""}
-      <div class="toast-message">${message}</div>
-    </div>
-    <button class="toast-close" onclick="this.parentElement.remove()">×</button>
-  `;
+  const icon = document.createElement("span");
+  icon.className = "toast-icon";
+  icon.textContent = icons[type] || icons.info;
+
+  const content = document.createElement("div");
+  content.className = "toast-content";
+  if (title) {
+    const titleEl = document.createElement("div");
+    titleEl.className = "toast-title";
+    titleEl.textContent = String(title);
+    content.appendChild(titleEl);
+  }
+  const messageEl = document.createElement("div");
+  messageEl.className = "toast-message";
+  messageEl.textContent = String(message);
+  content.appendChild(messageEl);
+
+  const close = document.createElement("button");
+  close.className = "toast-close";
+  close.type = "button";
+  close.textContent = "×";
+  close.addEventListener("click", () => toast.remove());
+  toast.append(icon, content, close);
 
   toastContainer.appendChild(toast);
 
@@ -924,6 +941,7 @@ async function pollJob(jobId) {
       pending: "⏳ 等待中",
       running: "🔄 处理中",
       completed: "✅ 已完成",
+      completed_with_errors: "⚠️ 已完成，需复核",
       failed: "❌ 失败",
       cancelled: "⏸️ 已暂停"
     };
@@ -940,16 +958,21 @@ async function pollJob(jobId) {
 
     if (progressText) progressText.textContent = displayMessage;
 
-    if (data.message && data.message.includes("用时")) {
-      const match = data.message.match(/用时\s([\d\.]+s)/);
+    if (data.message) {
+      const match = data.message.match(/(?:用时\s*|Duration:\s*)([\d.]+s)/i);
       if (match && elapsedText) elapsedText.textContent = `耗时：${match[1]}`;
     }
 
-    if (data.state === "completed") {
+    if (data.state === "completed" || data.state === "completed_with_errors") {
       if (downloadArea) {
+        const needsReview = data.state === "completed_with_errors";
+        const summary = needsReview
+          ? `<p>失败占位变量：${Number(data.failed_variables) || 0}；一致性错误：${Number(data.consistency_errors) || 0}</p>`
+          : "";
         downloadArea.innerHTML = `
           <div class="success-message">
-            <h3>✅ 推荐生成成功！</h3>
+            <h3>${needsReview ? "⚠️ 推荐已生成，请先人工复核" : "✅ 推荐生成成功！"}</h3>
+            ${summary}
             <div class="download-buttons">
               <a href="api/jobs/${jobId}/download?format=excel" target="_blank" class="download-btn">📥 下载 Excel</a>
               <a href="api/jobs/${jobId}/download?format=json" target="_blank" class="download-btn">📥 下载 JSON</a>

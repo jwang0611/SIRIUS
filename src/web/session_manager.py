@@ -271,8 +271,10 @@ class SessionManager:
                 "jobs_count": len(session.job_ids),
             }
             if include_files:
-                info["files"] = list(session.uploaded_files)
-                info["kb_files"] = list(session.kb_files)
+                # API consumers only need display names. Absolute server paths
+                # remain internal for cleanup and must not cross the boundary.
+                info["files"] = [Path(path).name for path in session.uploaded_files]
+                info["kb_files"] = [Path(path).name for path in session.kb_files]
                 info["jobs"] = list(session.job_ids)
             return info
 
