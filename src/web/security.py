@@ -331,7 +331,9 @@ def run_command(command: list[str], timeout: int | None = None) -> str:
             timeout=effective_timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        logger.warning("Processing command timed out after %ss (executable=%s)", effective_timeout, Path(command[0]).name)
+        logger.warning(
+            "Processing command timed out after %ss (executable=%s)", effective_timeout, Path(command[0]).name
+        )
         raise RuntimeError(f"处理脚本执行超时（{effective_timeout}s）") from exc
 
     stderr = (completed.stderr or "").strip()

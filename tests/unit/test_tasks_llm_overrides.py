@@ -173,9 +173,7 @@ def test_fallback_and_critic_errors_complete_with_visible_error_state(task_mocks
                     "source": "FALLBACK",
                 }
             ],
-            "consistency_issues": [
-                {"severity": "error", "check": "variable_name_validity", "description": "invalid"}
-            ],
+            "consistency_issues": [{"severity": "error", "check": "variable_name_validity", "description": "invalid"}],
         }
     ]
     mock_jm.get_job.return_value = MagicMock(state="running", total=1)
