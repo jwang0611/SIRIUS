@@ -16,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 # Force UTF-8 encoding on Windows before importing anything else
 import src.web.sitecustomize  # noqa: F401
 from src import __version__
+from src.config.settings import get_settings
 from src.web.job_manager import job_manager
 from src.web.routers import corrections, files, jobs, session, spec_mapper, upload
 from src.web.security import (
@@ -37,11 +38,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS
-cors_origins = [
-    origin.strip()
-    for origin in os.getenv("SIRIUS_CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000").split(",")
-    if origin.strip()
-]
+cors_origins = get_settings().security.cors_origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,

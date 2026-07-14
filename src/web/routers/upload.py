@@ -12,6 +12,7 @@ from src.web.security import (
     PYTHON_BIN,
     RATE_LIMIT_UPLOAD,
     UPLOAD_CONFIG,
+    InvalidWorkbookError,
     limiter,
     run_command,
     sanitize_filename,
@@ -110,6 +111,9 @@ async def upload_file(
                 sheets = non_empty if non_empty else list(xl.sheet_names)
             except Exception:
                 sheets = None
+    except InvalidWorkbookError as exc:
+        logger.info("Upload rejected because workbook structure is invalid (category=%s)", category)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Upload processing failed for category=%s", category)
         raise HTTPException(status_code=500, detail="文件处理失败，请查看服务端日志") from exc

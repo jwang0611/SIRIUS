@@ -16,6 +16,7 @@ from src.web.security import (
     RATE_LIMIT_AI_JOB,
     RATE_LIMIT_GENERAL,
     RATE_LIMIT_READ,
+    InvalidWorkbookError,
     limiter,
     run_command,
     safe_path,
@@ -152,6 +153,8 @@ def convert_als2sdtm(
 
     try:
         result = run_command(command)
+    except InvalidWorkbookError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"转换失败: {exc}") from exc
 
@@ -205,6 +208,8 @@ def list_sheets(
     try:
         sheets_json = run_command(list_cmd)
         sheets = json.loads(sheets_json) if sheets_json else []
+    except InvalidWorkbookError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"列出 sheet 失败: {exc}") from exc
 

@@ -17,7 +17,7 @@ def test_defaults_when_env_clean(clean_env):
     assert s.ai.default_provider == "openrouter"
     assert s.ai.default_model == "google/gemini-3-flash-preview"
     assert s.ai.max_retries == 2
-    assert s.ai.timeout_seconds == pytest.approx(60)
+    assert s.ai.timeout_seconds == pytest.approx(120)
     assert s.cascade.enabled is True
     assert s.cascade.kb_min_confidence == pytest.approx(0.8)
     assert s.cascade.kb_high_conf == pytest.approx(0.85)
@@ -30,6 +30,7 @@ def test_defaults_when_env_clean(clean_env):
     assert s.runtime.save_ai_interactions is False
     assert s.security.audit_log_enabled is True
     assert s.security.data_masking_enabled is True
+    assert s.security.cors_origins == ["http://127.0.0.1:8000", "http://localhost:8000"]
 
 
 def test_env_vars_override_defaults(clean_env, monkeypatch):
@@ -44,6 +45,7 @@ def test_env_vars_override_defaults(clean_env, monkeypatch):
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "90")
     monkeypatch.setenv("SDTM_LOG_AI", "true")
     monkeypatch.setenv("SAVE_AI_INTERACTIONS", "true")
+    monkeypatch.setenv("SIRIUS_CORS_ORIGINS", "https://ui.example, https://review.example")
 
     s = Settings.from_env()
     assert s.ai.default_model == "anthropic/claude-3-opus"
@@ -56,6 +58,15 @@ def test_env_vars_override_defaults(clean_env, monkeypatch):
     assert s.ai.timeout_seconds == pytest.approx(90)
     assert s.runtime.log_ai is True
     assert s.runtime.save_ai_interactions is True
+    assert s.security.cors_origins == ["https://ui.example", "https://review.example"]
+
+
+def test_default_model_keeps_legacy_openrouter_model_alias(clean_env, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_MODEL", "legacy/model")
+    assert Settings.from_env().ai.default_model == "legacy/model"
+
+    monkeypatch.setenv("DEFAULT_MODEL", "preferred/model")
+    assert Settings.from_env().ai.default_model == "preferred/model"
 
 
 def test_cascade_rejects_incoherent_thresholds(clean_env, monkeypatch):

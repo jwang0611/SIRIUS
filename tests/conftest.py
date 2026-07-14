@@ -69,6 +69,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "OUTPUT_",
         "BATCH_",
         "SAVE_AI_",
+        "SIRIUS_",
     )
     for key in list(os.environ.keys()):
         if key.startswith(prefixes):

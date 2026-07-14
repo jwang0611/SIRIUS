@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from src import __version__
-from src.web.security import _get_client_identifier, run_command
+from src.web.security import InvalidWorkbookError, _get_client_identifier, run_command
 from src.web.session_manager import SessionManager
 
 
@@ -65,6 +65,40 @@ def test_run_command_error_does_not_echo_command_or_stderr():
     message = str(exc_info.value)
     assert "secret" not in message
     assert "clinical raw content" not in message
+
+
+def test_run_command_logs_bounded_redacted_diagnostics(caplog):
+    completed = subprocess.CompletedProcess(
+        args=["tool"],
+        returncode=1,
+        stdout="partial output",
+        stderr="SSN 123-45-6789 token=server-secret " + "x" * 3000,
+    )
+    with patch("src.web.security.subprocess.run", return_value=completed):
+        with caplog.at_level("WARNING", logger="src.web.security"):
+            with pytest.raises(RuntimeError):
+                run_command(["tool"])
+
+    assert "partial output" in caplog.text
+    assert "[REDACTED]" in caplog.text
+    assert "server-secret" not in caplog.text
+    assert "123-45-6789" not in caplog.text
+    assert "[truncated]" in caplog.text
+
+
+def test_run_command_classifies_invalid_workbook_for_safe_4xx_mapping():
+    completed = subprocess.CompletedProcess(
+        args=["tool"],
+        returncode=1,
+        stdout="",
+        stderr="Sheet 'eCRF' missing required columns: ItemName",
+    )
+    with patch("src.web.security.subprocess.run", return_value=completed):
+        with pytest.raises(InvalidWorkbookError) as exc_info:
+            run_command(["tool"])
+
+    assert str(exc_info.value) == "工作簿格式不符合要求，请检查必需的工作表和列"
+    assert "ItemName" not in str(exc_info.value)
 
 
 def test_toast_uses_text_content_instead_of_html_interpolation(repo_root: Path):
