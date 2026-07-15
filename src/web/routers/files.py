@@ -1,5 +1,6 @@
 """File management routes (processed files, ALS CRUD, template files)."""
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from src.web.security import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _serialize_file(path: Path) -> dict:
@@ -79,4 +81,5 @@ def delete_als_file(request: Request, file_id: str):
         als_file.unlink()
         return {"status": "success", "message": f"文件 {als_file.name} 已删除"}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"删除失败: {exc}") from exc
+        logger.exception("Failed to delete ALS output file")
+        raise HTTPException(status_code=500, detail="删除失败，请查看服务端日志") from exc

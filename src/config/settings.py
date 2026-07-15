@@ -22,10 +22,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BOOL_TRUE = {"1", "true", "yes", "on", "y", "t"}
+_DEFAULT_CORS_ORIGINS = ["http://127.0.0.1:8000", "http://localhost:8000"]
 
 
 def _to_bool(value: Any, default: bool = False) -> bool:
@@ -48,6 +50,8 @@ class AIProviderSettings(BaseModel):
 
     openrouter_api_key: str = Field(default="")
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
+    max_retries: int = Field(default=2, ge=0, le=10)
+    timeout_seconds: float = Field(default=120.0, gt=0, le=600)
 
     @field_validator("default_language")
     @classmethod
@@ -84,8 +88,10 @@ class RuntimeSettings(BaseModel):
     max_workers: int = Field(default=5, ge=1, le=32)
     batch_size: int = Field(default=10, ge=1, le=1000)
     rate_limit_rpm: int = Field(default=120, ge=1, le=10_000)
-    log_ai: bool = True
-    save_ai_interactions: bool = True
+    # Full prompts/responses may contain clinical context. Keep persistence
+    # opt-in even when masking is enabled.
+    log_ai: bool = False
+    save_ai_interactions: bool = False
     log_level: str = "INFO"
 
     @field_validator("log_level")
@@ -102,6 +108,7 @@ class SecuritySettings(BaseModel):
 
     audit_log_enabled: bool = True
     data_masking_enabled: bool = True
+    cors_origins: list[str] = Field(default_factory=lambda: list(_DEFAULT_CORS_ORIGINS))
 
 
 class WebRateLimitSettings(BaseModel):
@@ -166,6 +173,11 @@ class Settings(BaseSettings):
     def from_env(cls, **overrides: Any) -> Settings:
         import os
 
+        # The nested settings models are hydrated from flat historical names
+        # below, so BaseSettings' env_file handling cannot populate them.
+        # Load the working directory's .env before reading os.environ and keep
+        # exported environment variables at the higher precedence.
+        load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
         env = os.environ
 
         def g(key: str, default: str | None = None) -> str | None:
@@ -174,13 +186,21 @@ class Settings(BaseSettings):
                 return default
             return val
 
+        default_model = (
+            g("DEFAULT_MODEL")
+            or g("OPENROUTER_MODEL")  # Backward-compatible alias used by the legacy web path.
+            or "google/gemini-3-flash-preview"
+        )
+
         ai = AIProviderSettings(
             default_provider=g("DEFAULT_AI_PROVIDER", "openrouter") or "openrouter",
-            default_model=g("DEFAULT_MODEL", "google/gemini-3-flash-preview") or "google/gemini-3-flash-preview",
+            default_model=default_model,
             default_language=g("DEFAULT_LANGUAGE", "en") or "en",
             openrouter_api_key=g("OPENROUTER_API_KEY", "") or "",
             openrouter_base_url=g("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
             or "https://openrouter.ai/api/v1",
+            max_retries=int(g("LLM_MAX_RETRIES", "2") or 2),
+            timeout_seconds=float(g("LLM_TIMEOUT_SECONDS", "120") or 120),
         )
 
         cascade = CascadeSettings(
@@ -209,14 +229,19 @@ class Settings(BaseSettings):
             max_workers=int(g("SDTM_MAX_WORKERS", "5") or 5),
             batch_size=int(g("BATCH_SIZE", "10") or 10),
             rate_limit_rpm=int(g("RATE_LIMIT_RPM", "120") or 120),
-            log_ai=_to_bool(g("SDTM_LOG_AI", "true"), True),
-            save_ai_interactions=_to_bool(g("SAVE_AI_INTERACTIONS", "true"), True),
+            log_ai=_to_bool(g("SDTM_LOG_AI", "false"), False),
+            save_ai_interactions=_to_bool(g("SAVE_AI_INTERACTIONS", "false"), False),
             log_level=g("LOG_LEVEL", "INFO") or "INFO",
         )
 
         security = SecuritySettings(
             audit_log_enabled=_to_bool(g("AUDIT_LOG_ENABLED", "true"), True),
             data_masking_enabled=_to_bool(g("DATA_MASKING_ENABLED", "true"), True),
+            cors_origins=[
+                origin.strip()
+                for origin in (g("SIRIUS_CORS_ORIGINS", ",".join(_DEFAULT_CORS_ORIGINS)) or "").split(",")
+                if origin.strip()
+            ],
         )
 
         web_rate_limits = WebRateLimitSettings(

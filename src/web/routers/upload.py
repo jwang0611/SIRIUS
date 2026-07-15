@@ -1,5 +1,6 @@
 """File upload routes."""
 
+import logging
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,6 +12,7 @@ from src.web.security import (
     PYTHON_BIN,
     RATE_LIMIT_UPLOAD,
     UPLOAD_CONFIG,
+    InvalidWorkbookError,
     limiter,
     run_command,
     sanitize_filename,
@@ -20,6 +22,7 @@ from src.web.security import (
 from src.web.session_manager import session_manager
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/upload/{category}")
@@ -108,8 +111,12 @@ async def upload_file(
                 sheets = non_empty if non_empty else list(xl.sheet_names)
             except Exception:
                 sheets = None
+    except InvalidWorkbookError as exc:
+        logger.info("Upload rejected because workbook structure is invalid (category=%s)", category)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Upload processing failed for category=%s", category)
+        raise HTTPException(status_code=500, detail="文件处理失败，请查看服务端日志") from exc
 
     if x_session_id and derived_files:
         for derived_path in derived_files:

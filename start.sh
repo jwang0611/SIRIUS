@@ -4,9 +4,9 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-HOST="${HOST:-0.0.0.0}"
+HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
-RELOAD="${RELOAD:-1}"
+RELOAD="${RELOAD:-0}"
 OPEN_BROWSER="${OPEN_BROWSER:-1}"
 CREATE_VENV="${CREATE_VENV:-1}"
 INSTALL_DEPS="${INSTALL_DEPS:-1}"

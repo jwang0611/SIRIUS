@@ -15,6 +15,8 @@ from slowapi.errors import RateLimitExceeded
 
 # Force UTF-8 encoding on Windows before importing anything else
 import src.web.sitecustomize  # noqa: F401
+from src import __version__
+from src.config.settings import get_settings
 from src.web.job_manager import job_manager
 from src.web.routers import corrections, files, jobs, session, spec_mapper, upload
 from src.web.security import (
@@ -29,16 +31,17 @@ from src.web.session_manager import session_manager, start_cleanup_scheduler
 # Wire up cross-module references
 session_manager.set_job_manager(job_manager)
 
-app = FastAPI(title="SIRIUS 控制台", version="1.0.0")
+app = FastAPI(title="SIRIUS 控制台", version=__version__)
 
 # Rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS
+cors_origins = get_settings().security.cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -79,6 +82,16 @@ def index():
     if not index_file.exists():
         return JSONResponse({"message": "前端尚未部署"}, status_code=503)
     return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/version", include_in_schema=False)
+def version():
+    return {"name": "SIRIUS", "version": __version__}
 
 
 def _resolve_script_path(script_arg: str) -> Path:

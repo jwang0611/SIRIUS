@@ -16,13 +16,13 @@ SIRIUS 当前提供 **Web 端**前端，未来将扩展为三套前端形态，�
 - **确定性规则引擎**：变量名超长智能修正（查找最相似的标准变量而非简单截断）、域合法性校验
 - **批量一致性校验**：MappingCritic 对全批次结果做跨记录一致性检查（同表域一致性、TESTCD 关联、变量名合法性）
 - **持续学习循环**：用户修正通过 API 反馈到 Session KB，下次映射自动引用修正结果
-- **GxP 审计日志**：结构化 JSONL 审计追踪，记录每次映射操作的输入/输出/级联层级/时间
+- **审计辅助日志**：结构化 JSONL 记录每次映射操作的输入/输出/级联层级/时间；当前不宣称满足 Part 11 或完整 GxP 系统要求
 - **数据脱敏**：LLM 调用前对常见 PHI/PII 模式（SSN、受试者 ID、DOB、邮箱、电话等）做尽力（best-effort）脱敏；当前正则以英文格式为主，本地化标识符（如身份证号）覆盖为后续项
 - **Domain 智能推断**：基于 annotation_table 关键词自动推断 SDTM Domain
 - **知识库匹配**：支持默认 KB 和用户上传的项目特定 KB
 - **向量检索**：基于语义相似度的知识片段检索
-- **响应式前端**：Web 端三步式操作流程，支持多用户并发；界面支持中英文切换与暖色 / 亮色 / 暗色三主题（Windows / macOS 桌面软件将由后续 PR 交付）
-- **Session 隔离**：每个用户的上传文件和 KB 独立存储
+- **桌面优先前端**：Web 端三步式操作流程，界面支持中英文切换与暖色 / 亮色 / 暗色三主题；当前部署形态按单用户本地工具支持
+- **Session KB 隔离**：项目 KB 与修正按 Session 分目录存储；全局产物目录尚不支持可信的多用户服务端隔离
 - **Spec 生成**：自动生成 SDTM 说明文档
 
 ## 🏗️ 项目结构
@@ -36,8 +36,8 @@ sirius/
 │   │   └── domain_semantic_map.py   # Domain 语义映射 & 变量集
 │   ├── knowledge_base/               # 知识库管理
 │   │   └── llm_query_interface.py   # KB 直接匹配
-│   ├── infrastructure/                # 合规基础设施层
-│   │   ├── audit_logger.py          # GxP 结构化审计日志（JSONL）
+│   ├── infrastructure/                # 审计与数据保护基础设施层
+│   │   ├── audit_logger.py          # 结构化审计辅助日志（JSONL）
 │   │   └── data_masker.py           # PHI/PII 数据脱敏
 │   ├── processors/                   # 数据处理器
 │   │   ├── sdtm_processor.py        # SDTM 处理核心（编排层 + 4 级级联）
@@ -333,7 +333,9 @@ Session KB 会同时用于：
 
 辅助路径（程序化）：`POST /api/corrections` 端点仍可供 CI/脚本化场景批量提交单变量修正，记录存入 session 级 parquet，source="correction"，confidence=1.0。目前无 WebUI 包装（v0.2.1 已移除在线编辑界面）。
 
-## 🛡️ 合规基础设施
+## 🛡️ 审计与数据保护基础设施
+
+> 当前实现提供面向审计就绪方向的技术基础，但缺少唯一用户身份、防篡改审计链、电子签名与验证包，不应据此宣称系统已满足 21 CFR Part 11 或完整 GxP 合规要求。
 
 ### 审计日志
 
@@ -452,13 +454,13 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 
 本项目参考 SATA（BeOne Medicines）和 ClinAgent（Jaime Yan）两篇论文的架构理念，按 4 个阶段逐步增强。
 
-> 📋 **完整开发规格**: 查看 [`docs/OPTIMIZATION_SPEC.md`](./docs/OPTIMIZATION_SPEC.md) — 包含每个任务的详细需求、设计方案、验收标准、文件变更清单和工时预估。
+> 📋 **产品评审与执行路线**: 查看 [`PRODUCT_REVIEW_OPTIMIZATION_PLAN.md`](./PRODUCT_REVIEW_OPTIMIZATION_PLAN.md)。
 
 ### Phase 1: 快速收益 -- 已完成
 
 - [x] **级联预测策略正式化** — 4 级级联退出，减少 40-60% LLM 调用
 - [x] **确定性规则引擎加强** — 智能变量名修正（查找最相似标准变量而非截断）
-- [x] **GxP 审计日志** — 结构化 JSONL 审计追踪 + PHI/PII 数据脱敏
+- [x] **审计就绪基础** — 结构化 JSONL 审计辅助日志 + 英文格式 PHI/PII 尽力脱敏；身份、防篡改与本地化覆盖仍在后续路线图中
 - [x] **MappingCritic 一致性校验** — 批量映射结果跨记录一致性检查
 - [x] **持续学习循环** — 用户修正 API → Session KB → 自动回注
 

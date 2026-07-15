@@ -38,6 +38,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.clients.openrouter_client import OpenRouterClient  # noqa: E402
+from src.config.settings import get_settings  # noqa: E402
 from src.models.sdtm_models import GenerationConfig, RateLimitConfig  # noqa: E402
 from src.processors.sdtm_processor import SDTMProcessor  # noqa: E402
 from src.spec_mapper import SpecMapper  # noqa: E402
@@ -51,7 +52,7 @@ def generate_als_from_crf(
     json_file: str,
     output_file: str | None = None,
     provider: str = "openrouter",
-    model: str = "google/gemini-2.5-flash",
+    model: str | None = None,
     enable_kb: bool = True,
     language: str = "en",
 ) -> str:
@@ -75,6 +76,8 @@ def generate_als_from_crf(
 
     # Load environment variables
     load_dotenv()
+    settings = get_settings()
+    model = model or settings.ai.default_model
 
     # Resolve input file (relative to project root)
     json_path = Path(json_file)
@@ -106,7 +109,7 @@ def generate_als_from_crf(
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY not set in environment")
 
-        base_url = os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+        base_url = settings.ai.openrouter_base_url
         client = OpenRouterClient(api_key=api_key, base_url=base_url)
         client.set_model(model)
     else:
@@ -304,7 +307,9 @@ Examples:
         help="AI provider (default: openrouter)",
     )
     parser.add_argument(
-        "--model", default="google/gemini-2.5-flash", help="AI model name (default: google/gemini-2.5-flash)"
+        "--model",
+        default=get_settings().ai.default_model,
+        help="AI model name (default: from DEFAULT_MODEL)",
     )
     parser.add_argument(
         "--enable-kb", action="store_true", default=True, help="Enable RAG knowledge base (default: True)"

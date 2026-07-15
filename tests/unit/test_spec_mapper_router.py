@@ -129,3 +129,24 @@ class TestSpecMapperRun:
         # Ensure ingest was called before job start by call order
         assert mock_ingest.call_count == 1
         assert mock_job.call_count == 1
+
+
+def test_convert_invalid_workbook_returns_safe_422(client: TestClient, tmp_path, monkeypatch):
+    documents_dir = tmp_path / "data" / "knowledge_base" / "documents"
+    documents_dir.mkdir(parents=True)
+    (documents_dir / "invalid.xlsx").write_bytes(b"not-an-excel-workbook")
+    monkeypatch.chdir(tmp_path)
+
+    from src.web.security import InvalidWorkbookError
+
+    with patch(
+        "src.web.routers.spec_mapper.run_command",
+        side_effect=InvalidWorkbookError("工作簿格式不符合要求，请检查必需的工作表和列"),
+    ):
+        response = client.post(
+            "/api/convert-als2sdtm",
+            json={"file_path": "invalid.xlsx", "sheet_name": "eCRF"},
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "工作簿格式不符合要求，请检查必需的工作表和列"}

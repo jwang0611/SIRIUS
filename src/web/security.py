@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import shutil
@@ -16,6 +17,10 @@ from fastapi import HTTPException, Request, UploadFile
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from src.infrastructure.data_masker import DataMasker
+
+logger = logging.getLogger(__name__)
+
 # ==================== 通用常量 ====================
 
 PYTHON_BIN = os.getenv("PYTHON_BIN", sys.executable or "python")
@@ -24,13 +29,7 @@ PYTHON_BIN = os.getenv("PYTHON_BIN", sys.executable or "python")
 
 
 def _get_client_identifier(request: Request) -> str:
-    """
-    获取客户端标识符，用于速率限制。
-    优先使用 Session ID，其次使用 IP 地址。
-    """
-    session_id = request.headers.get("X-Session-ID")
-    if session_id:
-        return f"session:{session_id}"
+    """Use the network peer for rate limiting, not a caller-controlled header."""
     return get_remote_address(request)
 
 
@@ -319,6 +318,49 @@ def save_upload(file: UploadFile, destination: Path) -> Path:
 
 
 COMMAND_TIMEOUT_SECONDS = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "300"))
+COMMAND_LOG_OUTPUT_LIMIT = 2000
+_COMMAND_OUTPUT_MASKER = DataMasker()
+_COMMAND_SECRET_PATTERNS = (
+    re.compile(r"(?i)\b(api[_-]?key|token|authorization)\b\s*[:=]\s*\S+"),
+    re.compile(r"(?i)\bbearer\s+\S+"),
+)
+_INVALID_WORKBOOK_MARKERS = (
+    "worksheet named",
+    "missing required columns",
+    "not found in sheet",
+    "no sheets found",
+    "excel file format cannot be determined",
+    "file is not a zip file",
+    "not a valid excel file",
+    "unsupported format",
+    "未找到 ecrf 相关 sheet",
+    "缺少必需列",
+)
+
+
+class InvalidWorkbookError(RuntimeError):
+    """A safely classified workbook error that the user can correct."""
+
+
+def _safe_command_output(value: object) -> str:
+    """Bound and redact subprocess diagnostics before writing server logs."""
+    if value is None:
+        return "<empty>"
+    if isinstance(value, bytes):
+        text = value.decode("utf-8", errors="replace")
+    else:
+        text = str(value)
+    text = _COMMAND_OUTPUT_MASKER.mask_text(text.strip())
+    for pattern in _COMMAND_SECRET_PATTERNS:
+        text = pattern.sub(lambda match: f"{match.group(1)}=[REDACTED]" if match.lastindex else "[REDACTED]", text)
+    if len(text) > COMMAND_LOG_OUTPUT_LIMIT:
+        text = f"{text[:COMMAND_LOG_OUTPUT_LIMIT]}...[truncated]"
+    return text or "<empty>"
+
+
+def _is_invalid_workbook_output(stderr: str, stdout: str) -> bool:
+    combined = f"{stderr}\n{stdout}".lower()
+    return any(marker in combined for marker in _INVALID_WORKBOOK_MARKERS)
 
 
 def run_command(command: list[str], timeout: int | None = None) -> str:
@@ -334,17 +376,40 @@ def run_command(command: list[str], timeout: int | None = None) -> str:
             timeout=effective_timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"脚本执行超时 ({effective_timeout}s) | cmd: {' '.join(command)}") from exc
+        logger.warning(
+            "Processing command timed out after %ss (executable=%s, stderr=%s, stdout=%s)",
+            effective_timeout,
+            Path(command[0]).name,
+            _safe_command_output(exc.stderr),
+            _safe_command_output(exc.stdout),
+        )
+        raise RuntimeError(f"处理脚本执行超时（{effective_timeout}s）") from exc
 
     stderr = (completed.stderr or "").strip()
     stdout = (completed.stdout or "").strip()
 
     if completed.returncode != 0:
-        msg = stderr or stdout or "脚本执行失败"
-        raise RuntimeError(f"{msg} | cmd: {' '.join(command)}")
+        logger.warning(
+            "Processing command failed (executable=%s, exit_code=%s, stderr=%s, stdout=%s)",
+            Path(command[0]).name,
+            completed.returncode,
+            _safe_command_output(stderr),
+            _safe_command_output(stdout),
+        )
+        if _is_invalid_workbook_output(stderr, stdout):
+            raise InvalidWorkbookError("工作簿格式不符合要求，请检查必需的工作表和列")
+        raise RuntimeError("处理脚本执行失败，请查看服务端日志")
 
     if stderr and "[ERROR]" in stderr:
-        raise RuntimeError(f"{stderr} | cmd: {' '.join(command)}")
+        logger.warning(
+            "Processing command reported an error (executable=%s, stderr=%s, stdout=%s)",
+            Path(command[0]).name,
+            _safe_command_output(stderr),
+            _safe_command_output(stdout),
+        )
+        if _is_invalid_workbook_output(stderr, stdout):
+            raise InvalidWorkbookError("工作簿格式不符合要求，请检查必需的工作表和列")
+        raise RuntimeError("处理脚本报告错误，请查看服务端日志")
 
     return stdout
 
