@@ -2,7 +2,7 @@
 KB-Derived Hints for LLM Prompt Enrichment
 ===========================================
 
-Analyses the structured KB (ALS2SDTM_TEST.json or any compatible JSON KB) at
+Analyses the structured KB (ALS2SDTM_Mapping_Template_v1.0.json or any compatible JSON KB) at
 load-time and exposes five types of deterministic prompt hints that reduce
 LLM guessing work:
 

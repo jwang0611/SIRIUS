@@ -24,7 +24,7 @@ Usage:
   python scripts/eval_prompt_accuracy.py \
       --ai-output data/output/result.json
 
-Ground truth is loaded from data/knowledge_base/structured/ALS2SDTM_TEST.json
+Ground truth is loaded from data/knowledge_base/structured/ALS2SDTM_Mapping_Template_v1.0.json
 by default. Each entry should have: annotation_table, annotation_variable,
 metadata_variable, SDTM_Domain, SDTM_Variable.
 """
@@ -43,7 +43,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.processors.sdtm_processor import compute_diff_status  # noqa: E402
 
-DEFAULT_GT_PATH = PROJECT_ROOT / "data" / "knowledge_base" / "structured" / "ALS2SDTM_TEST.json"
+DEFAULT_GT_PATH = PROJECT_ROOT / "data" / "knowledge_base" / "structured" / "ALS2SDTM_Mapping_Template_v1.0.json"
 
 # ---------------------------------------------------------------------------
 # Helpers

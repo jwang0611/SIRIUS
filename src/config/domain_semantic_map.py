@@ -202,7 +202,7 @@ CHINESE_TABLE_DOMAIN_MAP: dict[str, str] = {
     "subject status": "SS",
     "ss": "SS",
     # -------------------------------------------------------------------------
-    # Extended from ALS2SDTM_TEST.json knowledge base
+    # Extended from ALS2SDTM_Mapping_Template_v1.0.json knowledge base
     # -------------------------------------------------------------------------
     # DM - Demographics (additional variants)
     "人口学资料": "DM",
