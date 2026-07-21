@@ -187,7 +187,7 @@ ALS 生成选项:
   --language LANG          Prompt 语言 (en/cn)
 
 映射选项:
-  --als-sheet SHEET        ALS Sheet 名称 (默认: eCRF)
+  --als-sheet SHEET        ALS Sheet 名称（优先级：命令行参数 > ALS_DEFAULT_SHEET > 配置；默认 Sheet1）
   --highlight              高亮新映射 (默认: True)
   --no-highlight           禁用高亮
   --dry-run                预览模式
@@ -353,4 +353,3 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 ## 许可证
 
 内部工具 - 版权所有
-

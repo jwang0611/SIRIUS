@@ -111,7 +111,11 @@ class ParsedMapping:
             Tuple of (condition_tuple, condition_type)
         """
         # Match first condition variable=value
-        match = re.search(r"when\s+(\w+)\s*=\s*([^\s]+?)(?:\s+and\s+|\s*$)", condition, re.IGNORECASE)
+        match = re.search(
+            r"(?:when|if)\s+(\w+)\s*=\s*([^\s]+?)(?:\s+and\s+|\s*$)",
+            condition,
+            re.IGNORECASE,
+        )
         if match:
             var = match.group(1).upper()
             val = match.group(2).strip().strip("\"'")
@@ -128,13 +132,18 @@ class ParsedMapping:
 
     @staticmethod
     def _extract_first_condition(condition: str) -> tuple[str, str] | None:
-        """Extract first condition from a when clause (for OTHER type).
+        """Extract first condition from a when/if clause (for OTHER type).
 
         Examples:
             "when ECMOOD=已执行" -> ("ECMOOD", "已执行")
             "when RSSCAT=病理评估" -> ("RSSCAT", "病理评估")
+            "if RANDYN=是" -> ("RANDYN", "是")
         """
-        match = re.search(r"when\s+(\w+)\s*=\s*([^\s]+?)(?:\s+and\s+|\s*$)", condition, re.IGNORECASE)
+        match = re.search(
+            r"(?:when|if)\s+(\w+)\s*=\s*([^\s]+?)(?:\s+and\s+|\s*$)",
+            condition,
+            re.IGNORECASE,
+        )
         if match:
             var = match.group(1).upper()
             val = match.group(2).strip().strip("\"'")

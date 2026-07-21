@@ -152,15 +152,15 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 - **写入端整体硬编码列索引/行号**：读取端是表头驱动的（好），但 `excel_writer.py` 所有后处理写死 A=1…K=11、数据起始行 14、CONTENT 格式参考行 52、`A15="DOMAIN"` 等魔法坐标（`excel_writer.py:674-677,1007-1011,1503-1516,482,1140`）。换任何一家 sponsor 的模板即全线崩塌——**当前"支持模板"实际上是"焊死在两个 CDISC-CN 模板上"**。
 - 仅 2 字符纯字母 sheet 被识别为域（`config.yaml`；`__init__.py:340`），拆分数据集/自定义域被静默跳过。
 - 版本探测只看 `CONTENT!B4` 且 `startswith("3.4")` else 3.2 —— IG 3.3 或厂商变体静默套错配置（`__init__.py:166-194`）。
-- **写入路径实质零测试**：唯一的集成触点是 `dry_run=True` 的 smoke（`tests/smoke_test.py:645`；`__init__.py:278-281` dry_run 在写入前就返回），1,614 行 excel_writer 的 SUPP 插入/CODELIST 插入移位/超链接修复/公式生成全部无保护。`sdtm_parser.py` 这个正确性核心（when/if/|// DSL 语法）没有专属测试文件。
+- **写入路径实质零测试**：唯一的集成触点是 `dry_run=True` 的 smoke（`tests/smoke_test.py:645`；`__init__.py:278-281` dry_run 在写入前就返回），1,614 行 excel_writer 的 SUPP 插入/CODELIST 插入移位/超链接修复/公式生成全部无保护。DSL 解析器的专属行为测试已在 Issue #12 一致性清理中补齐；Excel 写入端到端保护仍属于 A5。
 - 插入行会**摧毁**重叠的合并单元格且不恢复（`format_utils.py:63-77`）；CONTENT SUPP 行重跑可能重复追加。
-- ALS sheet 默认名 `Sheet1` vs README/CLI 宣称 `eCRF` 不一致（`__init__.py:150` vs README）。
+- ALS sheet 默认名差异已在 Issue #12 一致性清理中解决：运行时、CLI 与文档统一为 `Sheet1`，并用行为测试锁定“显式参数 > 环境变量 > 配置”的优先级。
 - EDC 提取脚本（百奥知/太美）~90% 代码互相复制，厂商差异以模块常量硬编码，无适配器抽象——新增一家 EDC = 重写 300 行脚本。
 
 ### 发现八：工程债 —— 双引擎、双配置、文档漂移
 
 - **两套管线并存且文档指错方向（高危）**：`CascadePredictor` / `RecommendationOrchestrator` / `RecommendationNormalizer` / `LLMInferenceService` 这套干净的 DI 管线**只被测试引用**，生产 `SDTMProcessor` 用的是自己内联的 `_try_cascade_shortcircuit`（`sdtm_processor.py:575`）和 `PostprocessMixin` 的重复实现。`normalizer.py:6` 的 docstring 声称"mixin 已委托给它们"（不实），CLAUDE.md 也把 DI 管线描述为现役。级联决策、SUPP/when 子句、去重逻辑各有两份拷贝要人肉同步——**必须二选一：接入或删除**。
-- `_process_mappings_parallel` 是永远不会被调用的死路径（~150 行，且是唯一丢弃表上下文的实现，`sdtm_processor.py:1188`）。
+- 旧 `_process_mappings_parallel` 及其专用单变量 helper 已在 Issue #12 一致性清理中删除；生产保留表间并行、表内顺序处理的 hybrid 路径。
 - **双配置源**：pydantic-settings 的类型化配置树只被测试/日志使用，生产代码仍满地 `os.getenv`（`sdtm_processor.py:316-480` 十余处；`tasks.py:27-31`），且两边默认值已经打架（默认模型不一致即为一例）。
 - 验证逻辑三处重叠：`DeterministicValidator`、`_compute_ig34_check`（`sdtm_processor.py:86`）、`MappingCritic` 各自实现 QNAM/变量合法性判断。
 - mypy 仅覆盖小部分模块且在 GitLab CI 中 `allow_failure`、GitHub CI 干脆没跑；运行时与开发依赖混在同一个 requirements.txt；`app.py` 用已废弃的 `@app.on_event("startup")`；集中式 logger 建好了但 `session_manager.py`/`app.py` 仍大量 `print()`（中文、无结构，无法聚合监控）。
@@ -185,6 +185,8 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 ### Phase A（0-4 周）：止血与度量地基
 
 **目标：让"改动是否让产品变好"变成可回答的问题；消灭最危险的静默失败。**
+
+> **状态更新（2026-07-21）**：PR #11 已完成 A2、A3、A4、A6。A1 仍等待合规 held-out metadata 数据；A5、A7 尚未完成。Issue #12 中不依赖真实临床数据或 LLM API 的一致性清理（默认 sheet、死路径、DSL 测试）已完成。Phase B 准入闸门仍未开放。
 
 | # | 事项 | 关键动作 | 验收标准 |
 |---|------|---------|---------|
@@ -237,7 +239,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 3. **Spec 版本化与 diff**：产物内嵌 provenance（源 ALS 哈希、配置版本、工具版本），提供两版 Spec 的差异对比——契合用户"高亮评审"的既有心智。
 4. **define.xml 导出 + P21/CT 一致性检查**：SDTM 交付物的自然下一站，显著提升"端到端"叙事。
 5. **代码生成（原 Phase 4）**：维持原定前置条件（映射准确率 ≥95%），且"准确率"必须以 A1 的无泄漏评测为准。
-6. **双引擎收敛**：将 `SDTMProcessor` 迁移到 DI 管线（CascadePredictor/Orchestrator）或删除后者；删除死代码 `_process_mappings_parallel`；`os.getenv` 全面收敛到 settings——建议穿插在 B/C 阶段的顺手重构中完成，不单独立项。
+6. **双引擎收敛**：将 `SDTMProcessor` 迁移到 DI 管线（CascadePredictor/Orchestrator）或删除后者；`os.getenv` 全面收敛到 settings——建议穿插在 B/C 阶段的顺手重构中完成，不单独立项。旧 `_process_mappings_parallel` 已删除。
 
 ---
 
@@ -251,10 +253,10 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 6. 加 `/healthz` + `/version` 端点（desktop 外壳与 CI 探活都在等它）。
 7. GitHub CI 补 mypy（先 non-blocking 再转 blocking）与 coverage 报告。
 8. `start.sh` 默认 `RELOAD=0`，reload 仅开发文档提及。
-9. ALS sheet 默认名与 README 对齐（`Sheet1` vs `eCRF`）。
+9. [x] ALS sheet 默认名与 README 对齐（统一为 `Sheet1`，并锁定参数/环境变量/配置优先级）。
 10. 审计写失败从 warning 升级为可配置的阻断（`audit_logger.py:218`）。
-11. 死代码 `_process_mappings_parallel` 删除。
-12. `sdtm_parser.py` 补一个专属单测文件（docstring 里的示例本身就是现成用例）。
+11. [x] 死代码 `_process_mappings_parallel` 及其专用 helper 删除。
+12. [x] `sdtm_parser.py` 增加专属 DSL 单测，覆盖 `when`、`if`、`|`、`/`、`//`、SUPP 与 assignment。
 
 ---
 
