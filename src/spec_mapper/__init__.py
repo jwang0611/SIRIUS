@@ -74,7 +74,8 @@ class SpecMapper:
     Attributes:
         als_file: Path to the ALS Excel file
         template_file: Path to the SDTM template Excel file
-        als_sheet: Sheet name in ALS file (default: "Sheet1")
+        als_sheet: Sheet name in ALS file. Priority: explicit argument,
+            ALS_DEFAULT_SHEET, config value, then "Sheet1".
         config: Configuration loader instance
 
     Examples:

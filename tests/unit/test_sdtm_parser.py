@@ -47,6 +47,15 @@ def test_if_condition_is_extracted_for_each_variable(parser: SDTMVariableParser)
     assert all(item.condition_type == ConditionType.TEST for item in mappings)
 
 
+def test_if_testcd_condition_is_extracted(parser: SDTMVariableParser) -> None:
+    [mapping] = parser.parse("FA", "FAORRES if FATESTCD=THDIA")
+
+    assert mapping.mapping_type == MappingType.CONDITIONAL
+    assert mapping.condition == "if FATESTCD=THDIA"
+    assert mapping.test_condition == ("FATESTCD", "THDIA")
+    assert mapping.condition_type == ConditionType.TESTCD
+
+
 def test_if_condition_preserves_non_test_predicate(parser: SDTMVariableParser) -> None:
     [mapping] = parser.parse("DS", "DSDECOD if DSSCAT=DISPOSITION")
 
