@@ -511,11 +511,12 @@ def _run_spec_mapper_job(
         root_logger.addHandler(log_handler)
 
         try:
+            # Log only file *names*, never absolute/relative server paths, since
+            # this log is user-downloadable via the download-log endpoint.
             logging.info(f"[Spec Mapper Job {job_id}] Started")
-            logging.info(f"ALS File: {als_path}")
-            logging.info(f"Template File: {template_path}")
-            logging.info(f"Output Path: {output_path}")
-            logging.info(f"Log Path: {log_path}")
+            logging.info(f"ALS file: {als_path.name}")
+            logging.info(f"Template file: {template_path.name}")
+            logging.info(f"Output file: {output_path.name}")
 
             # 初始化 SpecMapper
             mapper = SpecMapper(als_file=als_path, template_file=template_path, als_sheet=als_sheet, log_level="INFO")
@@ -539,8 +540,14 @@ def _run_spec_mapper_job(
                 )
                 return
 
-            updates_count = stats.get("updates", 0)
-            total_als_records = stats.get("als_records", 0)
+            total_als_records = int(stats.get("als_records", 0))
+            # Actual (not planned) workbook write outcome.
+            actual = stats.get("actual") or {}
+            attempted = int(actual.get("attempted", 0))
+            written = int(actual.get("written", 0))
+            skipped = int(actual.get("skipped", 0))
+            warn_count = int(actual.get("warnings", 0))
+            err_count = int(actual.get("errors", 0))
 
             # 记录输出文件归属于当前 session
             if session_id and output_path.exists():
@@ -550,15 +557,38 @@ def _run_spec_mapper_job(
             if session_id and log_path.exists():
                 session_manager.add_file(session_id, str(log_path))
 
-            # 完成
+            # Defensive: save() reported success but the artifact is missing.
+            # Treat as a fatal failure rather than reporting (partial) success.
+            if not output_path.exists():
+                raise RuntimeError("generated workbook is unavailable")
+
+            # Decide the terminal state from the *actual* write result:
+            #   * some planned writes failed or were skipped -> completed_with_errors
+            #     (the workbook is still saved and downloadable for manual review)
+            #   * every planned write succeeded              -> completed
+            if written < attempted or err_count > 0:
+                state = "completed_with_errors"
+                message = (
+                    f"⚠️ Spec 已生成但需人工复核：成功写入 {written}/{attempted} 项，"
+                    f"跳过 {skipped}，警告 {warn_count}，错误 {err_count}"
+                )
+            else:
+                state = "completed"
+                message = f"✓ 完成！处理 {total_als_records} 条记录，成功写入 {written}/{attempted} 项操作"
+
             job_manager.update_job(
                 job_id,
-                state="completed",
-                message=f"✓ 完成！处理了 {total_als_records} 条记录，生成了 {updates_count} 个更新",
+                state=state,
+                message=message,
                 processed=5,
                 total=5,
                 output_excel=str(output_path),
                 output_log=str(log_path),
+                spec_attempted=attempted,
+                spec_written=written,
+                spec_skipped=skipped,
+                spec_warnings=warn_count,
+                spec_errors=err_count,
             )
         finally:
             # 移除日志处理器并恢复原始日志级别
@@ -566,13 +596,21 @@ def _run_spec_mapper_job(
             log_handler.close()
             root_logger.setLevel(original_level)
 
-            logging.info(f"[Spec Mapper Job {job_id}] Completed")
-            logging.info(f"Log file saved to: {log_path}")
+            logging.info(f"[Spec Mapper Job {job_id}] Finished")
 
     except Exception as exc:
+        # Never surface raw exception text (may embed paths/tracebacks) in the
+        # user-facing job message; report a safe, typed summary instead.
         current = job_manager.get_job(job_id)
         if current and current.state != "cancelled":
-            job_manager.update_job(job_id, state="failed", message=f"错误: {exc!s}")
+            if isinstance(exc, FileNotFoundError):
+                safe_message = "Spec 生成失败：ALS2SDTM 文件或模板文件不存在。"
+            else:
+                safe_message = (
+                    f"Spec 生成失败：无法生成工作簿（{type(exc).__name__}）。"
+                    "请检查 ALS2SDTM 文件、模板与 sheet 名称后重试。"
+                )
+            job_manager.update_job(job_id, state="failed", message=safe_message)
 
 
 def start_spec_mapper_job(

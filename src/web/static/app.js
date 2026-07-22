@@ -1322,26 +1322,45 @@ function pollSpecJob(jobId) {
       if (specProgressPct) specProgressPct.textContent = `${percentage}%`;
       if (specProgressText) specProgressText.textContent = job.message || "处理中...";
 
-      if (job.state === "completed") {
+      if (job.state === "completed" || job.state === "completed_with_errors") {
         clearInterval(specPollTimer);
-        if (specProgressPct) specProgressPct.textContent = "✓ 完成";
+        const needsReview = job.state === "completed_with_errors";
+        if (specProgressPct) specProgressPct.textContent = needsReview ? "⚠️ 需复核" : "✓ 完成";
 
         if (job.output_excel && specDownloadArea) {
+          const attempted = Number(job.spec_attempted) || 0;
+          const written = Number(job.spec_written) || 0;
+          const skipped = Number(job.spec_skipped) || 0;
+          const warnings = Number(job.spec_warnings) || 0;
+          const errors = Number(job.spec_errors) || 0;
+          const summary = `<p class="spec-write-summary">尝试 ${attempted} · 写入 ${written} · 跳过 ${skipped} · 警告 ${warnings} · 错误 ${errors}</p>`;
+
+          // completed_with_errors still yields a downloadable workbook for manual review.
           let downloadButtons = `
             <a href="api/jobs/${jobId}/download?format=excel" class="download-btn">📥 下载 Spec Excel</a>
           `;
           downloadButtons += `
             <button onclick="window.location.reload()" class="download-btn">🔄 刷新页面</button>
           `;
+          const heading = needsReview ? "⚠️ Spec 已生成，请先人工复核" : "✅ Spec 生成成功！";
+          const reviewNote = needsReview
+            ? `<p>部分写入未成功或被跳过，已生成的 Excel 仍可下载供人工复核。</p>`
+            : "";
           specDownloadArea.innerHTML = `
             <div class="success-message">
-              <h3>✅ Spec 生成成功！</h3>
+              <h3>${heading}</h3>
+              ${reviewNote}
+              ${summary}
               <div class="download-buttons">${downloadButtons}</div>
             </div>
           `;
         }
 
-        showToast({ type: "success", title: "Spec 生成成功", message: "SDTM 规范文档已生成完成" });
+        if (needsReview) {
+          showToast({ type: "warning", title: "Spec 已生成，需复核", message: "部分写入未成功，请下载后人工复核" });
+        } else {
+          showToast({ type: "success", title: "Spec 生成成功", message: "SDTM 规范文档已生成完成" });
+        }
       } else if (job.state === "failed") {
         clearInterval(specPollTimer);
         if (specProgressPct) specProgressPct.textContent = "✗ 失败";

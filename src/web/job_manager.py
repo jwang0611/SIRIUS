@@ -31,6 +31,12 @@ class JobStatus:
     json_file: str | None = None  # Store input file for resume
     failed_variables: int = 0
     consistency_errors: int = 0
+    # Spec Mapper write observability (actual workbook write outcome).
+    spec_attempted: int = 0  # planned write operations that were attempted
+    spec_written: int = 0  # operations that actually mutated the workbook
+    spec_skipped: int = 0  # operations safely not performed
+    spec_warnings: int = 0  # recoverable, advisory issues
+    spec_errors: int = 0  # recoverable per-item write failures
 
     def to_dict(self) -> dict[str, str | int | float | bool | None]:
         data = asdict(self)
