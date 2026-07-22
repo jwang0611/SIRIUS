@@ -463,7 +463,7 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - [x] A2 / A3 / A4 / A6：外部调用重试、错误状态可见、Spec 真实阶段进度、配置与文档校准（PR #11）。
 - [x] 一致性清理：Spec Mapper 默认 sheet 统一为 `Sheet1`（显式参数 > `ALS_DEFAULT_SHEET` > 配置）、删除未调用的旧并行路径，并为 `when` / `if` / `|` / `/` / `//` DSL 增加专属单测。
 - [ ] A1：等待维护者提供合规、去标识化且与 KB/规则不相交的 held-out metadata 数据；在此之前不调整 prompt、阈值或默认模型。
-- [ ] A5：Spec 实际写入统计、结构化 warnings/errors 与两个真实模板族的端到端保护。
+- [x] A5：Spec 实际写入统计、结构化 warnings/errors 与两个真实模板族的端到端保护（见下方更新日志）。
 - [ ] A7：运行时/开发依赖拆分、精确 lockfile 和 CI 安装/类型/覆盖率门禁。
 
 ### Phase 1: 快速收益 -- 已完成
@@ -507,6 +507,17 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - [ ] **端到端自动化** — 映射 → Spec → 代码 → 执行 → P21 验证
 
 ## 📋 更新日志
+
+### Unreleased
+
+**Spec Mapper — 实际写入统计与错误可观测性（Issue #12 A5）**
+- 新增结构化、可序列化的写入结果（`src/spec_mapper/models/write_result.py`）：`WriteResult` / `StageWriteResult` / `WriteIssue`，按阶段（`cell_updates` / `supp_rows` / `unmatched_rows` / `conditional_mappings` / `codelist_records` / `fixed_variable_rules` / `formulas_and_links` / `source_columns` / `external_coding` / `content_domains` / `styles`）记录 `attempted` / `written` / `skipped` / `warnings` / `errors`
+- `SpecMapper.process()` 的 `stats` 同时返回 **planned**（映射计划数量，旧字段 `updates` / `supp_records` … 语义不变）与 **actual**（真实写入结果）；`written` 仅在对应 workbook mutation 成功后递增，不再用 `len(updates)` 代表成功写入数
+- 逐项可恢复的写入问题记录到结构化 `warnings` / `errors` 并继续处理，不再被静默吞掉；`warnings` / `errors` 仅含安全的 `code` / `stage` / `operation` 与 workbook 定位信息，不含绝对路径、原始临床值、token 或 traceback
+- 后台任务按实际写入结果判定终态：全部计划写入成功 → `completed`；workbook 已保存但存在写入失败/跳过 → `completed_with_errors`（生成的 Excel 仍可下载供人工复核）；workbook 无法打开/保存 → `failed`
+- Spec Job API / 任务 message / 可下载日志不再记录 ALS、模板、输出、日志的绝对路径或异常 traceback；Job 状态新增 `spec_attempted` / `spec_written` / `spec_skipped` / `spec_warnings` / `spec_errors` 安全摘要字段
+- Spec 前端 `pollSpecJob()` 识别 `completed_with_errors`，展示 attempted/written/skipped/warning/error 摘要，并在需人工复核时保留 Excel 下载按钮
+- 新增基于仓库真实模板（IG 3.2 / IG 3.4）的端到端测试，覆盖 cell update、SUPP 插行、QNAM/QVAL、CODELIST merge/insert、公式与超链接的保持/生成、样式保持、生成单元格高亮、合并单元格完整性、重复运行去重，以及可恢复写入失败（`completed_with_errors`）与致命保存失败（`failed`）
 
 ### v1.0 (2026-07-01)
 

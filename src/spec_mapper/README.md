@@ -148,10 +148,17 @@ stats = mapper.process(
     dry_run=False
 )
 
-print(f"✓ Processed {stats['updates']} mappings")
-print(f"✓ Inserted {stats['supp_records']} SUPP rows")
-print(f"✓ Created {stats['conditional_records']} conditional sheets")
+# planned（计划数量，旧字段语义不变）
+print(f"✓ Planned {stats['updates']} cell updates, {stats['supp_records']} SUPP rows")
+# actual（真实写入结果）
+actual = stats["actual"]
+print(f"✓ Written {actual['written']}/{actual['attempted']} "
+      f"(skipped={actual['skipped']}, warnings={actual['warnings']}, errors={actual['errors']})")
 ```
+
+> ⚠️ `stats['updates']` / `stats['supp_records']` 等顶层计数是**计划**（planned）数量。
+> 真实成功写入的数量在 `stats['actual']['written']` 和逐阶段的 `stats['write_result']` 中，
+> 详见下方「写入结果可观测性」。
 
 ### 方式 3: 便捷函数
 
@@ -166,6 +173,55 @@ stats = map_als_to_spec(
     output_file="data/spec_output/result.xlsx"
 )
 ```
+
+## 写入结果可观测性
+
+`process()` 会返回一个结构化、可 JSON 序列化的**实际写入结果**，用于区分「计划做多少」与「真正写成功多少」。
+
+### stats 结构
+
+```python
+stats = {
+    # ---- planned（映射计划数量；旧字段，语义不变，向后兼容）----
+    "als_records": 120, "template_records": 1277,
+    "updates": 42, "supp_records": 8, "conditional_records": 3,
+    "codelist_records": 5, "unmatched_records": 1,
+    "planned": {"cell_updates": 42, "supp_rows": 8, "unmatched_rows": 1,
+                "conditional_mappings": 3, "codelist_records": 5},
+
+    # ---- actual（真实写入结果的安全摘要）----
+    "actual": {"attempted": 96, "written": 95, "skipped": 1,
+               "warnings": 2, "errors": 0},
+
+    # ---- write_result（逐阶段明细，见下）----
+    "write_result": {"summary": {...}, "stages": {...}, "warnings": [...], "errors": [...]},
+    "output_file": "data/spec_output/result.xlsx",
+}
+```
+
+### 阶段（stage）
+
+写操作按类型归入以下阶段，每个阶段独立记录 `attempted` / `written` / `skipped` / `warnings` / `errors`：
+
+`cell_updates`、`supp_rows`、`unmatched_rows`、`conditional_mappings`、`codelist_records`、
+`fixed_variable_rules`、`formulas_and_links`、`source_columns`、`external_coding`、`content_domains`、`styles`。
+
+不变式：每个阶段 `attempted == written + skipped + len(errors)`。`written` **只在**对应 workbook mutation 成功后递增。
+
+### warnings / errors 安全约定（GxP / PHI）
+
+`WriteIssue` 只包含安全字段：`code`、`stage`、`operation` 和 workbook 定位（`sheet` / `row` / `column`），
+`detail` 仅为异常**类名**（如 `"ValueError"`）。**不包含**绝对路径、原始临床值、API key/token、Python traceback 或完整异常文本。
+
+### 任务终态判定（Web 后台任务）
+
+| 场景 | 终态 | 产物 |
+| --- | --- | --- |
+| 所有计划写入成功（`written == attempted`，无 error） | `completed` | Excel 可下载 |
+| workbook 已保存，但存在写入失败或跳过（`written < attempted` 或有 error） | `completed_with_errors` | Excel **仍可下载**供人工复核 |
+| workbook 无法打开 / 保存 / 产物不可用 | `failed` | 无产物 |
+
+Job 状态额外暴露 `spec_attempted` / `spec_written` / `spec_skipped` / `spec_warnings` / `spec_errors` 安全摘要供前端展示。
 
 ## 命令行参数
 
@@ -321,6 +377,16 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 ```
 
 ## 版本历史
+
+### v0.3.0 (Unreleased)
+
+**实际写入统计、错误可观测性与真实模板端到端保护（Issue #12 A5）**
+- 新增结构化写入结果模型 `WriteResult` / `StageWriteResult` / `WriteIssue`（`models/write_result.py`）
+- `process()` 返回值同时包含 `planned` 与 `actual`，`actual.written` 来自真实成功写入，不再用 `len(updates)` 代表成功写入数
+- 逐项可恢复的写入问题记录到结构化 `warnings` / `errors` 并继续处理，不再静默吞掉；结构化对象不泄漏路径、原始临床值、token 或 traceback
+- 后台任务据实际写入结果判定 `completed` / `completed_with_errors` / `failed`；`completed_with_errors` 产物仍可下载
+- Spec Job API / 任务 message / 可下载日志改为仅记录文件名，不再记录绝对路径或异常 traceback
+- 新增基于真实 IG 3.2 / IG 3.4 模板的端到端测试（cell update、SUPP、QNAM/QVAL、CODELIST merge/insert、公式与超链接保持/生成、样式、生成高亮、合并单元格、重复运行去重、可恢复失败、致命失败）
 
 ### v0.2.0 (2026-03-11)
 
