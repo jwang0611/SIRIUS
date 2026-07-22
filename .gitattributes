@@ -1,0 +1,2 @@
+# Keep hash-pinned evaluation and knowledge-base JSON stable across platforms.
+data/**/*.json text eol=lf

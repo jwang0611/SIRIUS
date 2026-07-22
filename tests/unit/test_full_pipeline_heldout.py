@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HELDOUT_PATH = ROOT / "data/evaluation/full_pipeline_heldout_v1.json"
 MANIFEST_PATH = ROOT / "data/evaluation/full_pipeline_heldout_v1.manifest.json"
 KB_PATH = ROOT / "data/knowledge_base/structured/ALS2SDTM_Mapping_Template_v1.0.json"
+GITATTRIBUTES_PATH = ROOT / ".gitattributes"
 KEY_FIELDS = ("annotation_table", "metadata_table", "annotation_variable", "metadata_variable")
 
 
@@ -28,6 +29,12 @@ def _normalized_mapping(row: dict) -> tuple[str, str]:
     for separator in ("=", "|", "/", ";"):
         variable = variable.replace(f" {separator}", separator).replace(f"{separator} ", separator)
     return domain, variable
+
+
+def _sha256_with_lf_endings(path: Path) -> str:
+    """Hash text data independently of Git's checkout line-ending mode."""
+    normalized = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(normalized).hexdigest()
 
 
 def test_heldout_is_complete_unique_and_metadata_only():
@@ -74,7 +81,7 @@ def test_heldout_cohort_labels_match_current_production_kb():
 
 def test_manifest_is_bound_to_current_production_kb():
     manifest = _load_json(MANIFEST_PATH)
-    actual_hash = hashlib.sha256(KB_PATH.read_bytes()).hexdigest()
+    actual_hash = _sha256_with_lf_endings(KB_PATH)
 
     assert manifest["production_kb"]["sha256"] == actual_hash
     assert manifest["source"]["workbook_sha256"] == ("92883e555254fa93e455f58938a662ce9b4cf678d52c83beb284e98bf7fbd414")
@@ -90,3 +97,18 @@ def test_manifest_is_bound_to_current_production_kb():
             "Case-insensitive comparison after trimming whitespace and normalizing mapping-expression separators."
         ),
     }
+
+
+def test_hash_pinned_data_json_is_forced_to_lf():
+    attributes = GITATTRIBUTES_PATH.read_text(encoding="utf-8")
+
+    assert "data/**/*.json text eol=lf" in attributes.splitlines()
+
+
+def test_manifest_hash_is_independent_of_windows_line_endings(tmp_path):
+    lf_path = tmp_path / "lf.json"
+    crlf_path = tmp_path / "crlf.json"
+    lf_path.write_bytes(b'{\n  "value": 1\n}\n')
+    crlf_path.write_bytes(b'{\r\n  "value": 1\r\n}\r\n')
+
+    assert _sha256_with_lf_endings(lf_path) == _sha256_with_lf_endings(crlf_path)
