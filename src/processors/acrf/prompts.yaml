@@ -1,0 +1,39 @@
+# Prompt templates for the optional LLM-assisted aCRF field extraction pass.
+# Kept in YAML (not hard-coded in Python) per the project's prompt-content
+# decision. Loaded directly by src/processors/acrf/llm_extractor.py; this file
+# is intentionally outside src/prompts/ so it is not bound by the prompt-CI
+# schema used by the mapping prompts.
+field_extraction:
+  cn: |
+    你是临床数据标准专家。下面是一份 eCRF（病例报告表）中某个表单的页面文本，
+    表单名称为「{form_name}」。请提取该表单中所有需要填写的“字段名 / 问题标签”。
+
+    规则：
+    - 只返回字段标签本身；去掉选项内容（如 ○是 ○否、单选/多选选项）、示例值、
+      页眉页脚、说明性文字、访视/周期列标题、页码、下划线填空。
+    - 如果一个标签被换行拆成多行，请合并成完整标签。
+    - 保留原文用语，不要翻译，不要增删标点以外的内容。
+    - 严格只输出一个 JSON 字符串数组，例如 ["字段1","字段2"]；不要输出其它任何文字。
+
+    页面文本：
+    ---
+    {page_text}
+    ---
+  en: |
+    You are a clinical data standards expert. Below is the page text of one form
+    from an eCRF (Case Report Form). The form name is "{form_name}". Extract every
+    data-entry field name / question label on this form.
+
+    Rules:
+    - Return only the field labels themselves; drop answer options (e.g. Yes/No,
+      radio/checkbox choices), example values, headers/footers, instructions,
+      visit/timing column titles, page numbers, and underscore blanks.
+    - If a label is wrapped across lines, join it back into one label.
+    - Keep the original wording; do not translate.
+    - Output STRICTLY a JSON array of strings, e.g. ["Field 1","Field 2"], and
+      nothing else.
+
+    Page text:
+    ---
+    {page_text}
+    ---

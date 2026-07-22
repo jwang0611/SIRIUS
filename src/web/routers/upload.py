@@ -89,7 +89,7 @@ async def upload_file(
         elif callable(cmd):
             output = run_command(cmd(destination))
 
-            if category in ("raw", "raw_taimei"):
+            if category in ("raw", "raw_taimei", "raw_acrf"):
                 for ext in (".json", ".xlsx"):
                     derived = Path("data/processed") / f"{destination.stem}{ext}"
                     if derived.exists():

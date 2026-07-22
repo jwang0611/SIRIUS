@@ -186,3 +186,27 @@ ALS_DEFAULT_SHEET=Sheet1
 
 # Spec Mapper 是否高亮显示新映射
 SPEC_HIGHLIGHT_MAPPINGS=true
+
+# ================================
+# aCRF / eCRF PDF 提取
+# ================================
+# 直接从带书签的 eCRF PDF 读取 form name(书签) 与 field name(页面文本)，
+# 生成 4 字段 JSON(供推荐) 与 als2sdtm 格式工作簿(可跨项目复用)。
+# CLI: python scripts/extract_acrf_pdf.py --input your_acrf.pdf [--use-llm]
+
+# 是否默认启用 LLM 辅助字段提取(清理换行/去选项/识别表格字段)。
+# 默认关闭：纯确定性启发式可离线运行、无需凭据；开启需要有效的 LLM 凭据，
+# 且会将(经 PHI 脱敏的)页面文本发送至 LLM。CLI 亦可用 --use-llm 覆盖。
+ACRF_USE_LLM=false
+
+# 单个表单字段数量的合理性下/上限(用于告警与截断)
+ACRF_MIN_FIELDS=1
+ACRF_MAX_FIELDS=300
+
+# 页眉/页脚边缘带占页高比例(该带内文本视为页眉页脚并丢弃)
+ACRF_HEADER_FOOTER_BAND=0.08
+
+# metadata_variable 填充方式：
+#   label     = 使用字段标签(同名时加 _2/_3 后缀，人类可读、可追溯，默认)
+#   synthetic = 使用 F01_001 形式的 ASCII 占位编码
+ACRF_MDV_MODE=label
