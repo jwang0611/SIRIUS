@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -458,6 +460,77 @@ def start_recommendations_job(
 
 # ==================== Spec Mapper Task ====================
 
+# Maximum number of structured write issues surfaced on the job (keeps the
+# API payload bounded; the full detail stays in the workbook + server logs).
+_SPEC_ISSUE_CAP = 50
+
+# Absolute (or 2+ segment) filesystem paths, redacted from the downloadable log.
+_ABS_PATH_RE = re.compile(r"(?:[A-Za-z]:\\[^\s'\"]*|(?:/[^\s'\"/]+){2,})")
+
+
+class _SpecJobLogFilter(logging.Filter):
+    """Scope a Spec-job file handler to its own worker thread and redact paths.
+
+    The handler is attached to the root logger (so it can capture spec_mapper,
+    ConfigLoader and openpyxl records), but this filter:
+
+    * drops records emitted from any other thread, so concurrent jobs / other
+      sessions never bleed into this job's downloadable log; and
+    * redacts absolute (or multi-segment) filesystem paths from every message,
+      so server paths / package locations cannot leak regardless of source.
+    """
+
+    def __init__(self, thread_id: int) -> None:
+        super().__init__()
+        self._thread_id = thread_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.thread != self._thread_id:
+            return False
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        if "/" in message or "\\" in message:
+            redacted = _ABS_PATH_RE.sub("<path>", message)
+            if redacted != message:
+                record.msg = redacted
+                record.args = ()
+        return True
+
+
+def _collect_spec_issues(stats: dict) -> list[dict]:
+    """Extract safe, structured, capped write issues (errors first) from stats."""
+    write_result = stats.get("write_result") or {}
+    errors = write_result.get("errors") or []
+    warnings = write_result.get("warnings") or []
+    return (errors + warnings)[:_SPEC_ISSUE_CAP]
+
+
+# Concurrency-safe root-logger level management: keep the root logger at DEBUG
+# while ANY spec job is capturing and restore only when the last one finishes,
+# so overlapping jobs never suppress each other's capture.
+_spec_log_lock = threading.Lock()
+_spec_log_active = 0
+_spec_log_saved_level = logging.NOTSET
+
+
+def _acquire_root_debug(root_logger: logging.Logger) -> None:
+    global _spec_log_active, _spec_log_saved_level
+    with _spec_log_lock:
+        if _spec_log_active == 0:
+            _spec_log_saved_level = root_logger.level
+            root_logger.setLevel(logging.DEBUG)
+        _spec_log_active += 1
+
+
+def _release_root_debug(root_logger: logging.Logger) -> None:
+    global _spec_log_active
+    with _spec_log_lock:
+        _spec_log_active = max(0, _spec_log_active - 1)
+        if _spec_log_active == 0:
+            root_logger.setLevel(_spec_log_saved_level)
+
 
 def _run_spec_mapper_job(
     job_id: str,
@@ -491,23 +564,22 @@ def _run_spec_mapper_job(
         if not template_path.exists():
             raise FileNotFoundError(f"模板文件不存在: {template_file}")
 
-        # 导入必要的模块
-        import logging
-
         from src.spec_mapper import SpecMapper
 
-        # 设置日志文件处理器
+        # 设置日志文件处理器（仅捕获本 job 所在线程、并脱敏绝对路径）
         log_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
         log_handler.setLevel(logging.DEBUG)
         log_formatter = logging.Formatter(
             fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
         log_handler.setFormatter(log_formatter)
+        # Isolate this job's log from other concurrent jobs/sessions (thread
+        # scope) and redact any absolute paths that slip through from any module.
+        log_handler.addFilter(_SpecJobLogFilter(threading.get_ident()))
 
-        # 获取 root logger 并添加文件处理器
+        # 获取 root logger 并添加文件处理器（并发安全地提升到 DEBUG）
         root_logger = logging.getLogger()
-        original_level = root_logger.level
-        root_logger.setLevel(logging.DEBUG)  # 捕获所有级别
+        _acquire_root_debug(root_logger)
         root_logger.addHandler(log_handler)
 
         try:
@@ -589,14 +661,15 @@ def _run_spec_mapper_job(
                 spec_skipped=skipped,
                 spec_warnings=warn_count,
                 spec_errors=err_count,
+                spec_issues=_collect_spec_issues(stats),
             )
         finally:
-            # 移除日志处理器并恢复原始日志级别
+            # 记录结束标记（在移除 handler 前，确保写入本 job 日志），随后移除
+            # 处理器并并发安全地恢复原始日志级别。
+            logging.info(f"[Spec Mapper Job {job_id}] Finished")
             root_logger.removeHandler(log_handler)
             log_handler.close()
-            root_logger.setLevel(original_level)
-
-            logging.info(f"[Spec Mapper Job {job_id}] Finished")
+            _release_root_debug(root_logger)
 
     except Exception as exc:
         # Never surface raw exception text (may embed paths/tracebacks) in the

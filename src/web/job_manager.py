@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from threading import Lock
 from typing import Any
@@ -37,6 +37,10 @@ class JobStatus:
     spec_skipped: int = 0  # operations safely not performed
     spec_warnings: int = 0  # recoverable, advisory issues
     spec_errors: int = 0  # recoverable per-item write failures
+    # Safe, structured, locatable issues (capped) so the UI can show *which*
+    # items failed/skipped, not just counts. Each item: code/stage/operation/
+    # sheet/row/column — never paths, clinical values, or tracebacks.
+    spec_issues: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, str | int | float | bool | None]:
         data = asdict(self)

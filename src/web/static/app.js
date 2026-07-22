@@ -1303,6 +1303,17 @@ runSpecMapperBtn?.addEventListener("click", async () => {
   }
 });
 
+// Escape untrusted-ish text before inserting into innerHTML.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[ch]);
+}
+
 // Poll Spec Mapper job
 function pollSpecJob(jobId) {
   if (specPollTimer) clearInterval(specPollTimer);
@@ -1335,6 +1346,21 @@ function pollSpecJob(jobId) {
           const errors = Number(job.spec_errors) || 0;
           const summary = `<p class="spec-write-summary">尝试 ${attempted} · 写入 ${written} · 跳过 ${skipped} · 警告 ${warnings} · 错误 ${errors}</p>`;
 
+          // Locatable, safe detail so the user can see *which* items failed/skipped.
+          const issues = Array.isArray(job.spec_issues) ? job.spec_issues : [];
+          let issuesHtml = "";
+          if (needsReview && issues.length) {
+            const rows = issues.slice(0, 20).map((it) => {
+              const loc = [it.sheet, it.row != null ? `行 ${it.row}` : "", it.column != null ? `列 ${it.column}` : ""]
+                .filter(Boolean)
+                .join(" ");
+              const where = escapeHtml(`${it.stage || ""} / ${it.operation || ""}${loc ? " @ " + loc : ""}`);
+              return `<li><code>${escapeHtml(it.code || "issue")}</code> — ${where}</li>`;
+            }).join("");
+            const more = issues.length > 20 ? `<li>… 其余 ${issues.length - 20} 项见任务日志</li>` : "";
+            issuesHtml = `<details class="spec-issues"><summary>问题明细（${issues.length}）</summary><ul>${rows}${more}</ul></details>`;
+          }
+
           // completed_with_errors still yields a downloadable workbook for manual review.
           let downloadButtons = `
             <a href="api/jobs/${jobId}/download?format=excel" class="download-btn">📥 下载 Spec Excel</a>
@@ -1351,6 +1377,7 @@ function pollSpecJob(jobId) {
               <h3>${heading}</h3>
               ${reviewNote}
               ${summary}
+              ${issuesHtml}
               <div class="download-buttons">${downloadButtons}</div>
             </div>
           `;
