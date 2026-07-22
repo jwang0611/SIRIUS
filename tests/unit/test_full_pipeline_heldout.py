@@ -22,6 +22,14 @@ def _key(row: dict) -> tuple[str, str, str, str]:
     return tuple(str(row.get(field, "") or "").strip().lower() for field in KEY_FIELDS)
 
 
+def _normalized_mapping(row: dict) -> tuple[str, str]:
+    domain = "".join(str(row.get("SDTM_Domain", "") or "").split()).upper()
+    variable = " ".join(str(row.get("SDTM_Variable", "") or "").split()).upper()
+    for separator in ("=", "|", "/", ";"):
+        variable = variable.replace(f" {separator}", separator).replace(f"{separator} ", separator)
+    return domain, variable
+
+
 def test_heldout_is_complete_unique_and_metadata_only():
     rows = _load_json(HELDOUT_PATH)
 
@@ -44,17 +52,23 @@ def test_heldout_contains_both_reference_sources_and_pipeline_cohorts():
     cohorts = Counter(row["evaluation_cohort"] for row in rows)
 
     assert reference_sources == {"KB": 278, "LLM": 212}
-    assert cohorts == {"KB_OVERLAP": 181, "AI_RECOMMENDATION": 309}
+    assert cohorts == {"AI_RECOMMENDATION": 309, "KB_AGREE": 107, "KB_DISAGREE": 74}
     assert dict(reference_sources) == manifest["curation"]["reference_source_counts"]
     assert dict(cohorts) == manifest["curation"]["evaluation_cohort_counts"]
 
 
 def test_heldout_cohort_labels_match_current_production_kb():
     rows = _load_json(HELDOUT_PATH)
-    kb_keys = {_key(row) for row in _load_json(KB_PATH)}
+    kb_by_key = {_key(row): row for row in _load_json(KB_PATH)}
 
     for row in rows:
-        expected = "KB_OVERLAP" if _key(row) in kb_keys else "AI_RECOMMENDATION"
+        kb_row = kb_by_key.get(_key(row))
+        if kb_row is None:
+            expected = "AI_RECOMMENDATION"
+        elif _normalized_mapping(kb_row) == _normalized_mapping(row):
+            expected = "KB_AGREE"
+        else:
+            expected = "KB_DISAGREE"
         assert row["evaluation_cohort"] == expected
 
 
@@ -66,3 +80,13 @@ def test_manifest_is_bound_to_current_production_kb():
     assert manifest["source"]["workbook_sha256"] == ("92883e555254fa93e455f58938a662ce9b4cf678d52c83beb284e98bf7fbd414")
     assert manifest["curation"]["included_rows"] == 490
     assert manifest["curation"]["excluded_rows"] == 26
+    assert manifest["production_kb"]["mapping_agreement"] == {
+        "overlap_rows": 181,
+        "agree_rows": 107,
+        "disagree_rows": 74,
+        "exact_rate_against_manual_ground_truth": 107 / 181,
+        "comparison_fields": ["SDTM_Domain", "SDTM_Variable"],
+        "normalization": (
+            "Case-insensitive comparison after trimming whitespace and normalizing mapping-expression separators."
+        ),
+    }

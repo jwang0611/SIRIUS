@@ -13,6 +13,8 @@ from scripts.eval_prompt_accuracy import (
     generate_benchmark_input,
     load_ai_output,
     load_ground_truth,
+    main,
+    print_report,
 )
 
 
@@ -26,7 +28,7 @@ def _gt_entry(**overrides):
         "SDTM_Domain": "TU|TR",
         "SDTM_Variable": "TUDTC|TRDTC",
         "reference_source": "KB",
-        "evaluation_cohort": "KB_OVERLAP",
+        "evaluation_cohort": "KB_AGREE",
     }
     entry.update(overrides)
     return entry
@@ -192,6 +194,86 @@ def test_nested_processor_output_recovers_full_key_and_supp_expression(tmp_path)
     assert metrics["exact_match"] == 1
 
 
+def test_nested_processor_output_warns_when_original_mapping_is_missing(tmp_path, caplog):
+    output_path = tmp_path / "output.json"
+    output_path.write_text(
+        json.dumps(
+            [
+                {
+                    "table_name": "TH6",
+                    "original_mappings": [],
+                    "domain_recommendations": [
+                        {
+                            "variable_name": "THPTYPO",
+                            "domain": "FA",
+                            "sdtm_variable": "FAORRES",
+                        }
+                    ],
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("WARNING"):
+        rows = load_ai_output(output_path)
+
+    assert len(rows) == 1
+    assert "TH6.THPTYPO" in caplog.text
+    assert "cannot be scored" in caplog.text
+
+
+def test_evaluate_uses_full_gt_denominator_and_reports_coverage(tmp_path):
+    records = [
+        _gt_entry(),
+        _gt_entry(evaluation_id="FPH-0002", metadata_table="TL"),
+    ]
+    path = tmp_path / "gt.json"
+    path.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+
+    metrics = evaluate(
+        [
+            _ai_row(),
+            _ai_row(annotation_table="not in gt", metadata_variable="EXTRA"),
+        ],
+        load_ground_truth(path),
+    )
+
+    assert metrics["gt_size"] == 2
+    assert metrics["total_evaluated"] == 1
+    assert metrics["coverage"] == 0.5
+    assert metrics["missing_gt_rows"] == 1
+    assert metrics["extra_ai_rows"] == 1
+    assert metrics["exact_rate"] == 0.5
+    assert metrics["evaluated_exact_rate"] == 1.0
+    assert metrics["cohort_stats"]["KB_AGREE"] == {
+        "gt_size": 2,
+        "total": 1,
+        "match": 1,
+        "domain_match": 1,
+    }
+    assert metrics["domain_stats"]["TU|TR"] == {
+        "gt_size": 2,
+        "total": 1,
+        "match": 1,
+        "domain_match": 1,
+    }
+
+
+def test_report_warns_when_coverage_is_incomplete(tmp_path, capsys):
+    records = [_gt_entry(), _gt_entry(evaluation_id="FPH-0002", metadata_table="TL")]
+    path = tmp_path / "gt.json"
+    path.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+    metrics = evaluate([_ai_row()], load_ground_truth(path))
+
+    print_report(metrics)
+
+    report = capsys.readouterr().out
+    assert "Coverage:              1/2 = 50.0%" in report
+    assert "WARNING: Coverage is below 100%" in report
+
+
 def test_generate_benchmark_keeps_both_cohorts_and_complex_mappings(tmp_path):
     records = [
         _gt_entry(),
@@ -227,3 +309,48 @@ def test_cli_requires_explicit_ground_truth():
 
     with pytest.raises(SystemExit):
         parser.parse_args(["--ai-output", "result.json"])
+
+
+def test_cli_full_coverage_gate_exits_nonzero(tmp_path, monkeypatch, capsys):
+    gt_path = tmp_path / "gt.json"
+    gt_path.write_text(
+        json.dumps(
+            [_gt_entry(), _gt_entry(evaluation_id="FPH-0002", metadata_table="TL")],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "output.json"
+    output_path.write_text(
+        json.dumps(
+            [
+                {
+                    "metadata_table": "TLB",
+                    "metadata_variable": "TUDAT",
+                    "annotation_table": "靶病灶明细",
+                    "annotation_variable": "检查日期",
+                    "SDTM_Domain": "TU|TR",
+                    "SDTM_Variable": "TUDTC|TRDTC",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "eval_prompt_accuracy.py",
+            "--ground-truth",
+            str(gt_path),
+            "--ai-output",
+            str(output_path),
+            "--require-full-coverage",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    assert "full coverage is required" in capsys.readouterr().err

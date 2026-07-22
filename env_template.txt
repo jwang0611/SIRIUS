@@ -60,6 +60,8 @@ TOP_K_RETRIEVAL=3
 # 存放于 data/knowledge_base/structured/ 目录下
 # 例如: ALS2SDTM_Mapping_Template_v1.0.parquet
 # 旧名称 ALS2SDTM_TEST.{json,parquet} 会兼容迁移，但建议更新配置
+# 仅文件名会在 structured/ 下解析；带目录的相对路径先按当前工作目录解析，
+# 再尝试 structured/，绝对路径保持不变
 RAG_KB_DEFAULT_FILE=
 
 # 注意: 用户通过网页上传的 example 文件会自动生成 session KB，

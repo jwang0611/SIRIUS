@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import sys
 from collections import Counter, defaultdict
@@ -47,6 +48,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.processors.sdtm_processor import compute_diff_status  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -136,6 +139,7 @@ def load_ai_output(path: Path) -> list[dict]:
         data = json.load(f)
 
     rows: list[dict] = []
+    unmatched_original_variables: set[str] = set()
 
     if isinstance(data, list) and data:
         first = data[0]
@@ -149,7 +153,11 @@ def load_ai_output(path: Path) -> list[dict]:
 
                 for drec in table_rec.get("domain_recommendations", []):
                     var_name = drec.get("variable_name", "")
-                    source_mapping = (original_by_variable.get(str(var_name)) or [{}])[0]
+                    source_mappings = original_by_variable.get(str(var_name)) or []
+                    if not source_mappings:
+                        display_name = str(var_name or "<missing variable_name>")
+                        unmatched_original_variables.add(f"{table_name}.{display_name}")
+                    source_mapping = (source_mappings or [{}])[0]
                     rows.append(
                         {
                             "metadata_table": table_name,
@@ -178,6 +186,13 @@ def load_ai_output(path: Path) -> list[dict]:
                     }
                 )
 
+    if unmatched_original_variables:
+        logger.warning(
+            "Could not match processor recommendations to original_mappings; "
+            "these variables cannot be scored against the four-field ground-truth key: %s",
+            ", ".join(sorted(unmatched_original_variables)),
+        )
+
     return rows
 
 
@@ -204,15 +219,32 @@ def evaluate(
 ) -> dict:
     """Compare AI rows against ground truth. Return metrics dict."""
     ai_rows = _dedup_rows(ai_rows)
+    gt_size = len(gt)
+    ai_keys = {_mapping_key(row) for row in ai_rows}
+    gt_keys = set(gt)
+    missing_gt_keys = sorted(gt_keys - ai_keys)
+    extra_ai_keys = sorted(ai_keys - gt_keys)
 
     total = 0
     matched = 0
     domain_matched = 0
     statuses: Counter = Counter()
-    domain_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "match": 0, "domain_match": 0})
+    domain_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
+    )
     source_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "match": 0, "domain_match": 0})
-    cohort_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "match": 0, "domain_match": 0})
+    cohort_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
+    )
     mismatches: list[dict] = []
+
+    for ref in gt.values():
+        cohort = ref.get("evaluation_cohort") or ref.get("reference_source") or "UNSPECIFIED"
+        cohort_stats[cohort]["gt_size"] += 1
+        ref_domain = _normalize_domain(ref.get("SDTM_Domain", ""))
+        ref_variable = _normalize_variable(ref.get("SDTM_Variable", ""))
+        domain_key = "NOT_SUBMITTED" if ref_variable == "NOT SUBMITTED" else (ref_domain or "UNKNOWN")
+        domain_stats[domain_key]["gt_size"] += 1
 
     for row in ai_rows:
         key = _mapping_key(row)
@@ -271,15 +303,23 @@ def evaluate(
                 }
             )
 
+    coverage = total / gt_size if gt_size else 0
     return {
         "label": label,
+        "gt_size": gt_size,
         "total_evaluated": total,
         "total_ai_rows": len(ai_rows),
-        "gt_coverage": total,
+        "coverage": coverage,
+        "missing_gt_rows": len(missing_gt_keys),
+        "extra_ai_rows": len(extra_ai_keys),
+        "missing_gt_keys": missing_gt_keys,
+        "extra_ai_keys": extra_ai_keys,
         "exact_match": matched,
         "domain_match": domain_matched,
-        "exact_rate": matched / total if total else 0,
-        "domain_rate": domain_matched / total if total else 0,
+        "exact_rate": matched / gt_size if gt_size else 0,
+        "domain_rate": domain_matched / gt_size if gt_size else 0,
+        "evaluated_exact_rate": matched / total if total else 0,
+        "evaluated_domain_rate": domain_matched / total if total else 0,
         "statuses": dict(statuses),
         "domain_stats": dict(domain_stats),
         "source_stats": dict(source_stats),
@@ -300,28 +340,39 @@ def _pct(n: int, total: int) -> str:
 def print_report(metrics: dict, verbose: bool = False) -> None:
     label = metrics["label"]
     total = metrics["total_evaluated"]
+    gt_size = metrics["gt_size"]
 
     print(f"\n{'=' * 64}")
     print(f"  {label} Evaluation Report")
     print(f"{'=' * 64}")
     print(f"  AI output rows:        {metrics['total_ai_rows']}")
-    print(f"  Matched to GT:         {total} (variables found in ground truth)")
-    print(f"  Exact Match:           {metrics['exact_match']}/{total} = {_pct(metrics['exact_match'], total)}")
-    print(f"  Domain Match:          {metrics['domain_match']}/{total} = {_pct(metrics['domain_match'], total)}")
+    print(f"  Ground-truth rows:     {gt_size}")
+    print(f"  Coverage:              {total}/{gt_size} = {_pct(total, gt_size)}")
+    print(f"  Missing GT outputs:    {metrics['missing_gt_rows']}")
+    print(f"  AI rows outside GT:    {metrics['extra_ai_rows']}")
+    print(f"  Exact Match / GT:      {metrics['exact_match']}/{gt_size} = {_pct(metrics['exact_match'], gt_size)}")
+    print(f"  Domain Match / GT:     {metrics['domain_match']}/{gt_size} = {_pct(metrics['domain_match'], gt_size)}")
+    print(f"  Exact among evaluated: {metrics['exact_match']}/{total} = {_pct(metrics['exact_match'], total)}")
     print(f"  Domain + Var Diff:     {metrics['statuses'].get('var_diff', 0)}")
     print(f"  Domain Diff:           {metrics['statuses'].get('domain_diff', 0)}")
+    if metrics["coverage"] < 1:
+        print("  WARNING: Coverage is below 100%; missing outputs count as non-matches in headline rates.")
     print()
 
     ds = metrics["domain_stats"]
     if ds:
-        print(f"  {'Domain':<10} {'Total':>6} {'Exact':>6} {'Rate':>8}  {'Dom Match':>10} {'Dom Rate':>8}")
-        print(f"  {'-' * 56}")
-        for domain in sorted(ds.keys(), key=lambda d: -ds[d]["total"]):
+        print(
+            f"  {'Domain':<14} {'GT':>5} {'Eval':>5} {'Coverage':>9} "
+            f"{'Exact':>6} {'Rate':>8} {'Dom Match':>10} {'Dom Rate':>8}"
+        )
+        print(f"  {'-' * 76}")
+        for domain in sorted(ds.keys(), key=lambda d: -ds[d]["gt_size"]):
             s = ds[domain]
             print(
-                f"  {domain:<10} {s['total']:>6} {s['match']:>6} "
-                f"{_pct(s['match'], s['total']):>8}  "
-                f"{s['domain_match']:>10} {_pct(s['domain_match'], s['total']):>8}"
+                f"  {domain:<14} {s['gt_size']:>5} {s['total']:>5} "
+                f"{_pct(s['total'], s['gt_size']):>9} {s['match']:>6} "
+                f"{_pct(s['match'], s['gt_size']):>8} {s['domain_match']:>10} "
+                f"{_pct(s['domain_match'], s['gt_size']):>8}"
             )
         print()
 
@@ -338,11 +389,29 @@ def print_report(metrics: dict, verbose: bool = False) -> None:
     cs = metrics["cohort_stats"]
     if cs:
         print("  Held-out cohort:")
-        print(f"  {'Cohort':<18} {'Total':>6} {'Exact':>6} {'Rate':>8}")
-        print(f"  {'-' * 44}")
-        for cohort in sorted(cs.keys(), key=lambda c: -cs[c]["total"]):
+        print(f"  {'Cohort':<20} {'GT':>5} {'Eval':>5} {'Coverage':>9} {'Exact':>6} {'Rate':>8}")
+        print(f"  {'-' * 61}")
+        for cohort in sorted(cs.keys(), key=lambda c: -cs[c]["gt_size"]):
             s = cs[cohort]
-            print(f"  {cohort:<18} {s['total']:>6} {s['match']:>6} {_pct(s['match'], s['total']):>8}")
+            print(
+                f"  {cohort:<20} {s['gt_size']:>5} {s['total']:>5} "
+                f"{_pct(s['total'], s['gt_size']):>9} {s['match']:>6} "
+                f"{_pct(s['match'], s['gt_size']):>8}"
+            )
+        print()
+
+    if verbose and metrics["missing_gt_keys"]:
+        print("  Missing GT Outputs (showing first 30):")
+        for key in metrics["missing_gt_keys"][:30]:
+            annotation_table, metadata_table, annotation_variable, metadata_variable = key
+            print(f"    {annotation_table} / {metadata_table} / {annotation_variable} / {metadata_variable}")
+        print()
+
+    if verbose and metrics["extra_ai_keys"]:
+        print("  AI Outputs Outside Ground Truth (showing first 30):")
+        for key in metrics["extra_ai_keys"][:30]:
+            annotation_table, metadata_table, annotation_variable, metadata_variable = key
+            print(f"    {annotation_table} / {metadata_table} / {annotation_variable} / {metadata_variable}")
         print()
 
     if verbose and metrics["mismatches"]:
@@ -364,23 +433,28 @@ def print_comparison(baseline: dict, improved: dict) -> None:
 
     b_total = baseline["total_evaluated"]
     i_total = improved["total_evaluated"]
-    max(b_total, i_total)
 
     b_exact = baseline["exact_rate"]
     i_exact = improved["exact_rate"]
     b_domain = baseline["domain_rate"]
     i_domain = improved["domain_rate"]
+    b_coverage = baseline["coverage"]
+    i_coverage = improved["coverage"]
 
     delta_exact = (i_exact - b_exact) * 100
     delta_domain = (i_domain - b_domain) * 100
+    delta_coverage = (i_coverage - b_coverage) * 100
 
     sign_e = "+" if delta_exact >= 0 else ""
     sign_d = "+" if delta_domain >= 0 else ""
+    sign_c = "+" if delta_coverage >= 0 else ""
 
     print(f"  {'Metric':<22} {'Baseline':>12} {'Improved':>12} {'Delta':>10}")
     print(f"  {'-' * 58}")
+    print(f"  {'Ground-truth Vars':<22} {baseline['gt_size']:>12} {improved['gt_size']:>12}")
     print(f"  {'Evaluated Vars':<22} {b_total:>12} {i_total:>12}")
-    print(f"  {'Exact Match Rate':<22} {b_exact * 100:>11.1f}% {i_exact * 100:>11.1f}% {sign_e}{delta_exact:>8.1f}%")
+    print(f"  {'Coverage':<22} {b_coverage * 100:>11.1f}% {i_coverage * 100:>11.1f}% {sign_c}{delta_coverage:>8.1f}%")
+    print(f"  {'Exact Match / GT':<22} {b_exact * 100:>11.1f}% {i_exact * 100:>11.1f}% {sign_e}{delta_exact:>8.1f}%")
     print(
         f"  {'Domain Match Rate':<22} {b_domain * 100:>11.1f}% {i_domain * 100:>11.1f}% {sign_d}{delta_domain:>8.1f}%"
     )
@@ -398,10 +472,10 @@ def print_comparison(baseline: dict, improved: dict) -> None:
         print(f"  {'Domain':<10} {'Base Exact':>12} {'Impr Exact':>12} {'Delta':>10}")
         print(f"  {'-' * 46}")
         for domain in all_domains[:15]:
-            bs = baseline["domain_stats"].get(domain, {"total": 0, "match": 0})
-            ims = improved["domain_stats"].get(domain, {"total": 0, "match": 0})
-            br = bs["match"] / bs["total"] * 100 if bs["total"] else 0
-            ir = ims["match"] / ims["total"] * 100 if ims["total"] else 0
+            bs = baseline["domain_stats"].get(domain, {"gt_size": 0, "match": 0})
+            ims = improved["domain_stats"].get(domain, {"gt_size": 0, "match": 0})
+            br = bs["match"] / bs["gt_size"] * 100 if bs["gt_size"] else 0
+            ir = ims["match"] / ims["gt_size"] * 100 if ims["gt_size"] else 0
             delta = ir - br
             sign = "+" if delta >= 0 else ""
             print(f"  {domain:<10} {br:>11.1f}% {ir:>11.1f}% {sign}{delta:>8.1f}%")
@@ -429,10 +503,10 @@ def print_comparison(baseline: dict, improved: dict) -> None:
         print(f"  {'Cohort':<20} {'Base Exact':>12} {'Impr Exact':>12} {'Delta':>10}")
         print(f"  {'-' * 56}")
         for cohort in all_cohorts:
-            bs = baseline["cohort_stats"].get(cohort, {"total": 0, "match": 0})
-            ims = improved["cohort_stats"].get(cohort, {"total": 0, "match": 0})
-            br = bs["match"] / bs["total"] * 100 if bs["total"] else 0
-            ir = ims["match"] / ims["total"] * 100 if ims["total"] else 0
+            bs = baseline["cohort_stats"].get(cohort, {"gt_size": 0, "match": 0})
+            ims = improved["cohort_stats"].get(cohort, {"gt_size": 0, "match": 0})
+            br = bs["match"] / bs["gt_size"] * 100 if bs["gt_size"] else 0
+            ir = ims["match"] / ims["gt_size"] * 100 if ims["gt_size"] else 0
             delta = ir - br
             sign = "+" if delta >= 0 else ""
             print(f"  {cohort:<20} {br:>11.1f}% {ir:>11.1f}% {sign}{delta:>8.1f}%")
@@ -544,6 +618,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explicit held-out ground truth JSON path (never defaults to the production KB)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Show individual mismatches")
+    parser.add_argument(
+        "--require-full-coverage",
+        action="store_true",
+        help="Exit non-zero if any evaluated output covers less than 100% of ground truth",
+    )
 
     bench_group = parser.add_argument_group("benchmark generation")
     bench_group.add_argument(
@@ -603,11 +682,13 @@ def main() -> None:
 
     gt = load_ground_truth(args.ground_truth)
     print(f"Loaded {len(gt)} ground truth entries from {args.ground_truth.name}")
+    evaluated_metrics: list[dict] = []
 
     if args.ai_output:
         rows = load_ai_output(args.ai_output)
         metrics = evaluate(rows, gt, label=args.ai_output.name)
         print_report(metrics, verbose=args.verbose)
+        evaluated_metrics.append(metrics)
 
     if args.baseline and args.improved:
         base_rows = load_ai_output(args.baseline)
@@ -619,6 +700,20 @@ def main() -> None:
         print_report(base_metrics, verbose=args.verbose)
         print_report(impr_metrics, verbose=args.verbose)
         print_comparison(base_metrics, impr_metrics)
+        evaluated_metrics.extend([base_metrics, impr_metrics])
+
+    if args.require_full_coverage:
+        incomplete = [metrics for metrics in evaluated_metrics if metrics["coverage"] < 1]
+        if incomplete:
+            for metrics in incomplete:
+                print(
+                    f"ERROR: {metrics['label']} coverage is "
+                    f"{metrics['total_evaluated']}/{metrics['gt_size']} "
+                    f"({_pct(metrics['total_evaluated'], metrics['gt_size'])}); "
+                    "full coverage is required.",
+                    file=sys.stderr,
+                )
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

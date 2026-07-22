@@ -107,7 +107,7 @@
     "SDTM_Domain": "SV",
     "SDTM_Variable": "SVSTDTC/SVENDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0024",
@@ -118,7 +118,7 @@
     "SDTM_Domain": "DS",
     "SDTM_Variable": "DSSTDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0025",
@@ -129,7 +129,7 @@
     "SDTM_Domain": "DS",
     "SDTM_Variable": "QVAL when QNAM=ICVER",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0026",
@@ -173,7 +173,7 @@
     "SDTM_Domain": "DM",
     "SDTM_Variable": "BRTHDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0030",
@@ -184,7 +184,7 @@
     "SDTM_Domain": "DM",
     "SDTM_Variable": "AGE/AGEU",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0031",
@@ -195,7 +195,7 @@
     "SDTM_Domain": "DM",
     "SDTM_Variable": "SEX",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0032",
@@ -206,7 +206,7 @@
     "SDTM_Domain": "DM",
     "SDTM_Variable": "QVAL when QNAM=ETHNICC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0033",
@@ -217,7 +217,7 @@
     "SDTM_Domain": "DM",
     "SDTM_Variable": "QVAL when QNAM=ETHNOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0035",
@@ -228,7 +228,7 @@
     "SDTM_Domain": "DM",
     "SDTM_Variable": "QVAL when QNAM=RPREAS",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0036",
@@ -239,7 +239,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTEXTCD=MHYN",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0037",
@@ -250,7 +250,7 @@
     "SDTM_Domain": "MH",
     "SDTM_Variable": "MHTERM",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0038",
@@ -261,7 +261,7 @@
     "SDTM_Domain": "MH",
     "SDTM_Variable": "MHSTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0039",
@@ -272,7 +272,7 @@
     "SDTM_Domain": "MH",
     "SDTM_Variable": "MHENRF",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0040",
@@ -283,7 +283,7 @@
     "SDTM_Domain": "MH",
     "SDTM_Variable": "MHENDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0041",
@@ -470,7 +470,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=DHYN",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0058",
@@ -481,7 +481,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=CDHYN",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0059",
@@ -492,7 +492,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=RHYN",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0060",
@@ -503,7 +503,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=SGHYN",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0061",
@@ -514,7 +514,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=OHYN",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0062",
@@ -525,7 +525,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMDOSRGM",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0063",
@@ -536,7 +536,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMINDC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0064",
@@ -547,7 +547,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMINOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0065",
@@ -558,7 +558,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMSTDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0066",
@@ -569,7 +569,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMENDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0067",
@@ -580,7 +580,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMEOTREA",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0068",
@@ -613,7 +613,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMBEA",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0071",
@@ -679,7 +679,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMSTDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0077",
@@ -690,7 +690,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMENDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0078",
@@ -701,7 +701,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRLOC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0079",
@@ -712,7 +712,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRLOCOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0080",
@@ -723,7 +723,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRDOSE/PRDOSTXT",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0081",
@@ -734,7 +734,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRDOSU",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0082",
@@ -745,7 +745,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRDOUOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0083",
@@ -756,7 +756,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRINDC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0084",
@@ -767,7 +767,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRINOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0085",
@@ -778,7 +778,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRSTDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0086",
@@ -789,7 +789,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRENDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0087",
@@ -800,7 +800,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRTRT",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0088",
@@ -811,7 +811,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRINDC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0089",
@@ -822,7 +822,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRINOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0090",
@@ -833,7 +833,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRSTDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0091",
@@ -844,7 +844,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRTRT",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0092",
@@ -855,7 +855,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRSTDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0093",
@@ -866,7 +866,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRENDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0094",
@@ -877,7 +877,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0095",
@@ -888,7 +888,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0096",
@@ -943,7 +943,7 @@
     "SDTM_Domain": "PE",
     "SDTM_Variable": "PESTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0101",
@@ -954,7 +954,7 @@
     "SDTM_Domain": "PE",
     "SDTM_Variable": "PEDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0102",
@@ -998,7 +998,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSSTAT",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0106",
@@ -1009,7 +1009,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0107",
@@ -1020,7 +1020,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSORRES/VSORRESU when VSTESTCD=HEIGHT",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0108",
@@ -1031,7 +1031,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSORRES/VSORRESU when VSTESTCD=WEIGHT",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0109",
@@ -1042,7 +1042,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0110",
@@ -1053,7 +1053,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0111",
@@ -1064,7 +1064,7 @@
     "SDTM_Domain": "VS",
     "SDTM_Variable": "VSORRES/VSORRESU when VSTESTCD=WEIGHT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0112",
@@ -1075,7 +1075,7 @@
     "SDTM_Domain": "QS",
     "SDTM_Variable": "QSSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0113",
@@ -1086,7 +1086,7 @@
     "SDTM_Domain": "QS",
     "SDTM_Variable": "QSDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0114",
@@ -1097,7 +1097,7 @@
     "SDTM_Domain": "QS",
     "SDTM_Variable": "QSTEST/QSORRES when QSTESTCD=ECOG",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0116",
@@ -1108,7 +1108,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0117",
@@ -1119,7 +1119,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0118",
@@ -1130,7 +1130,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBNAM",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0119",
@@ -1383,7 +1383,7 @@
     "SDTM_Domain": "CV",
     "SDTM_Variable": "CVSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0143",
@@ -1394,7 +1394,7 @@
     "SDTM_Domain": "CV",
     "SDTM_Variable": "CVDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0144",
@@ -1405,7 +1405,7 @@
     "SDTM_Domain": "CV",
     "SDTM_Variable": "CVORRES/CVORRESU when CVTESTCD=LVEF",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0145",
@@ -1416,7 +1416,7 @@
     "SDTM_Domain": "CV",
     "SDTM_Variable": "CVORRES when CVTESTCD=INTP",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0146",
@@ -1427,7 +1427,7 @@
     "SDTM_Domain": "CV",
     "SDTM_Variable": "QVAL when QNAM=CVDESC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0147",
@@ -1438,7 +1438,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0148",
@@ -1449,7 +1449,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0149",
@@ -1460,7 +1460,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBSPEC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0150",
@@ -1471,7 +1471,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBORRES when LBTESTCD=HCG",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0151",
@@ -1482,7 +1482,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0152",
@@ -1493,7 +1493,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0156",
@@ -1526,7 +1526,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0159",
@@ -1537,7 +1537,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0161",
@@ -1548,7 +1548,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "QVAL when QNAM=LBQURES when LBTESTCD=HBDNA",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0162",
@@ -1559,7 +1559,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "QVAL when QNAM=LBORUNIT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0163",
@@ -1570,7 +1570,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "QVAL when QNAM=LBUOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0164",
@@ -1581,7 +1581,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0165",
@@ -1592,7 +1592,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "LBDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0166",
@@ -1614,7 +1614,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "QVAL when QNAM=LBORUNIT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0169",
@@ -1625,7 +1625,7 @@
     "SDTM_Domain": "LB",
     "SDTM_Variable": "QVAL when QNAM=LBUOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0170",
@@ -3132,7 +3132,7 @@
     "SDTM_Domain": "PC",
     "SDTM_Variable": "PCTPT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0309",
@@ -3143,7 +3143,7 @@
     "SDTM_Domain": "PC",
     "SDTM_Variable": "PCDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0310",
@@ -3209,7 +3209,7 @@
     "SDTM_Domain": "IS",
     "SDTM_Variable": "ISTPT",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0316",
@@ -3220,7 +3220,7 @@
     "SDTM_Domain": "IS",
     "SDTM_Variable": "ISDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0317",
@@ -3242,7 +3242,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=AEYN",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0319",
@@ -3253,7 +3253,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "AETERM",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0320",
@@ -3264,7 +3264,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "AESTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0321",
@@ -3275,7 +3275,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "QVAL when QNAM=AEPRIOR",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0322",
@@ -3286,7 +3286,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "QVAL when QNAM=AEINFRE",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0323",
@@ -3297,7 +3297,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "QVAL when QNAM=AEIMRE",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0324",
@@ -3308,7 +3308,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "AESER",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0325",
@@ -3385,7 +3385,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "QVAL when QNAM=SAESTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0332",
@@ -3462,7 +3462,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "AEACNOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0339",
@@ -3473,7 +3473,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "AEOUT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0340",
@@ -3484,7 +3484,7 @@
     "SDTM_Domain": "AE",
     "SDTM_Variable": "AEENDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0341",
@@ -3517,7 +3517,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=CMYN",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0344",
@@ -3528,7 +3528,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMTRT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0345",
@@ -3539,7 +3539,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMSTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0346",
@@ -3550,7 +3550,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMENRF",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0347",
@@ -3561,7 +3561,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMENDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0348",
@@ -3572,7 +3572,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMINDC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0349",
@@ -3583,7 +3583,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMAENO",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0350",
@@ -3594,7 +3594,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMMHNO",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0351",
@@ -3605,7 +3605,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMINPL",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0353",
@@ -3616,7 +3616,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMINCS",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0354",
@@ -3627,7 +3627,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMINOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0355",
@@ -3638,7 +3638,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMDOSE/CMDOSTXT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0356",
@@ -3649,7 +3649,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMDOSU",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0357",
@@ -3660,7 +3660,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMDOUOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0358",
@@ -3671,7 +3671,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMDOSFRM",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0359",
@@ -3682,7 +3682,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMFRMOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0360",
@@ -3693,7 +3693,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMDOSFRQ",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0361",
@@ -3704,7 +3704,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMFRQOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0362",
@@ -3715,7 +3715,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMROUTE",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0363",
@@ -3726,7 +3726,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMROUOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0364",
@@ -3737,7 +3737,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=PRYN",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0365",
@@ -3748,7 +3748,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRTRT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0366",
@@ -3759,7 +3759,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRSTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0367",
@@ -3770,7 +3770,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRENRF",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0368",
@@ -3781,7 +3781,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRENDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0369",
@@ -3792,7 +3792,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRINDC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0370",
@@ -3803,7 +3803,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRAENO",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0371",
@@ -3814,7 +3814,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRMHNO",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0373",
@@ -3825,7 +3825,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRINCS",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0374",
@@ -3836,7 +3836,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRINOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0375",
@@ -3847,7 +3847,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=TLYN",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0376",
@@ -3858,7 +3858,7 @@
     "SDTM_Domain": "TR",
     "SDTM_Variable": "TRORRES/TRORRESU when TRTESTCD=SUMDIAM",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0377",
@@ -3957,7 +3957,7 @@
     "SDTM_Domain": "XM",
     "SDTM_Variable": "XMORRES when XMTESTCD=TUYN",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0386",
@@ -4045,7 +4045,7 @@
     "SDTM_Domain": "RS",
     "SDTM_Variable": "RSLNKGRP/QVAL when QNAM=RSCYC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0394",
@@ -4067,7 +4067,7 @@
     "SDTM_Domain": "RS",
     "SDTM_Variable": "RSREASND",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0396",
@@ -4078,7 +4078,7 @@
     "SDTM_Domain": "TR",
     "SDTM_Variable": "TRLNKGRP/VISIT/QVAL when QNAM=TRCYC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0397",
@@ -4089,7 +4089,7 @@
     "SDTM_Domain": "TR",
     "SDTM_Variable": "TRORRES/TRORRESU when TRTESTCD=SUMDIAM",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0398",
@@ -4166,7 +4166,7 @@
     "SDTM_Domain": "TR",
     "SDTM_Variable": "TRLNKGRP/VISIT/QVAL when QNAM=TRCYC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0405",
@@ -4232,7 +4232,7 @@
     "SDTM_Domain": "TU|TR",
     "SDTM_Variable": "QVAL when QNAM=TUCYC|TRLNKGRP/QVAL when QNAM=TRCYC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0411",
@@ -4320,7 +4320,7 @@
     "SDTM_Domain": "RS",
     "SDTM_Variable": "QVAL when QNAM=RSCYC/RSLNKGRP",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0419",
@@ -4331,7 +4331,7 @@
     "SDTM_Domain": "RS",
     "SDTM_Variable": "QVAL when QNAM=RSORDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0420",
@@ -4342,7 +4342,7 @@
     "SDTM_Domain": "RS",
     "SDTM_Variable": "RSORRES when RSTESTCD=TRGRESP",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0421",
@@ -4353,7 +4353,7 @@
     "SDTM_Domain": "RS",
     "SDTM_Variable": "RSORRES when RSTESTCD=NTRGRESP",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0422",
@@ -4364,7 +4364,7 @@
     "SDTM_Domain": "RS",
     "SDTM_Variable": "RSORRES when RSTESTCD=NEWLPROG",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0423",
@@ -4375,7 +4375,7 @@
     "SDTM_Domain": "RS",
     "SDTM_Variable": "RSORRES when RSTESTCD=OVRLRESP",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0424",
@@ -4716,7 +4716,7 @@
     "SDTM_Domain": "DS",
     "SDTM_Variable": "DSSTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0456",
@@ -4727,7 +4727,7 @@
     "SDTM_Domain": "DS",
     "SDTM_Variable": "DSTERM",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0457",
@@ -4760,7 +4760,7 @@
     "SDTM_Domain": "DS",
     "SDTM_Variable": "QVAL when QNAM=DSREAOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0460",
@@ -4771,7 +4771,7 @@
     "SDTM_Domain": "SS",
     "SDTM_Variable": "SSSTAT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0461",
@@ -4804,7 +4804,7 @@
     "SDTM_Domain": "",
     "SDTM_Variable": "NOT SUBMITTED",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0464",
@@ -4815,7 +4815,7 @@
     "SDTM_Domain": "",
     "SDTM_Variable": "NOT SUBMITTED",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0465",
@@ -4826,7 +4826,7 @@
     "SDTM_Domain": "",
     "SDTM_Variable": "NOT SUBMITTED",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0466",
@@ -4837,7 +4837,7 @@
     "SDTM_Domain": "",
     "SDTM_Variable": "NOT SUBMITTED",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0467",
@@ -4848,7 +4848,7 @@
     "SDTM_Domain": "",
     "SDTM_Variable": "NOT SUBMITTED",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0468",
@@ -4859,7 +4859,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMDOSRGM",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0469",
@@ -4870,7 +4870,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMINDC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0470",
@@ -4881,7 +4881,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMINOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0471",
@@ -4892,7 +4892,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMSTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0472",
@@ -4914,7 +4914,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "CMENDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0474",
@@ -4925,7 +4925,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMEOTREA",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0475",
@@ -4936,7 +4936,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMEOTOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0476",
@@ -4947,7 +4947,7 @@
     "SDTM_Domain": "CM",
     "SDTM_Variable": "QVAL when QNAM=CMBEA",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0477",
@@ -5046,7 +5046,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRLOC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0486",
@@ -5057,7 +5057,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRLOCOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0487",
@@ -5068,7 +5068,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRDOSE",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0488",
@@ -5079,7 +5079,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRDOSU",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0489",
@@ -5090,7 +5090,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRDOUOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0490",
@@ -5101,7 +5101,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRINDC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0491",
@@ -5112,7 +5112,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRINOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0492",
@@ -5123,7 +5123,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRSTDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0493",
@@ -5145,7 +5145,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRENDTC",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0495",
@@ -5156,7 +5156,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRTRT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0496",
@@ -5178,7 +5178,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRINOTH",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0498",
@@ -5189,7 +5189,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRSTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0499",
@@ -5200,7 +5200,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRTRT",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0500",
@@ -5211,7 +5211,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRSTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0501",
@@ -5222,7 +5222,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "QVAL when QNAM=PRENRF",
     "reference_source": "LLM",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0502",
@@ -5233,7 +5233,7 @@
     "SDTM_Domain": "PR",
     "SDTM_Variable": "PRENDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0503",
@@ -5244,7 +5244,7 @@
     "SDTM_Domain": "DD|DM",
     "SDTM_Variable": "DDDTC|DTHDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0504",
@@ -5255,7 +5255,7 @@
     "SDTM_Domain": "DD",
     "SDTM_Variable": "DDORRES when DDTESTCD=PRCDTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0505",
@@ -5266,7 +5266,7 @@
     "SDTM_Domain": "DD",
     "SDTM_Variable": "QVAL when QNAM=DDREAOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0506",
@@ -5277,7 +5277,7 @@
     "SDTM_Domain": "DS",
     "SDTM_Variable": "DSSTDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0507",
@@ -5288,7 +5288,7 @@
     "SDTM_Domain": "DS",
     "SDTM_Variable": "DSTERM",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0508",
@@ -5299,7 +5299,7 @@
     "SDTM_Domain": "DS",
     "SDTM_Variable": "QVAL when QNAM=DSREAOTH",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_AGREE"
   },
   {
     "evaluation_id": "FPH-0509",
@@ -5321,7 +5321,7 @@
     "SDTM_Domain": "XB",
     "SDTM_Variable": "XBDTC",
     "reference_source": "KB",
-    "evaluation_cohort": "KB_OVERLAP"
+    "evaluation_cohort": "KB_DISAGREE"
   },
   {
     "evaluation_id": "FPH-0511",
