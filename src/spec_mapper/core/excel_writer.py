@@ -10,6 +10,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from ..models.template_record import CellUpdate
 from ..models.write_result import (
+    RECOVERABLE_WRITE_ERRORS,
     STAGE_CELL_UPDATES,
     STAGE_CODELIST_RECORDS,
     StageWriteResult,
@@ -192,7 +193,7 @@ class ExcelWriter:
                 result.record_written()
                 if update.reason:
                     logger.debug(f"  Reason: {update.reason}")
-            except Exception as e:
+            except RECOVERABLE_WRITE_ERRORS as e:
                 result.record_error(
                     WriteIssue(
                         code="cell_write_failed",
@@ -294,8 +295,11 @@ class ExcelWriter:
             logger.error("Failed to save workbook '%s' (%s)", output_path.name, type(e).__name__)
             raise OSError(f"Failed to save workbook '{output_path.name}'") from e
 
-    def highlight_modified_sheet_tabs(self, color: str = "FFFF00") -> None:
-        """Highlight tabs of sheets that have been modified."""
+    def highlight_modified_sheet_tabs(self, color: str = "FFFF00") -> int:
+        """Highlight tabs of sheets that have been modified.
+
+        Returns the number of tabs highlighted (0 = nothing to do).
+        """
         highlighted = _fmt.highlight_sheet_tabs(
             self.workbook,
             modified_sheets=self.modified_sheets,
@@ -306,22 +310,23 @@ class ExcelWriter:
             logger.info(f"Highlighted {highlighted} sheet tab(s) with color #{color}")
         else:
             logger.debug("No modified sheets to highlight")
+        return highlighted
 
-    def set_active_sheet(self, sheet_name: str) -> None:
+    def set_active_sheet(self, sheet_name: str) -> int:
         """Set the active sheet (the one shown when opening the file).
 
         Args:
             sheet_name: Name of the sheet to set as active
 
-        Raises:
-            ValueError: If sheet name doesn't exist
+        Returns:
+            1 if the active sheet was set, 0 if the sheet does not exist.
         """
         if sheet_name not in self.workbook.sheetnames:
             logger.warning(
                 f"Cannot set active sheet '{sheet_name}': sheet not found. "
                 f"Available sheets: {', '.join(self.workbook.sheetnames)}"
             )
-            return
+            return 0
 
         # Get the sheet index
         sheet_index = self.workbook.sheetnames.index(sheet_name)
@@ -330,6 +335,7 @@ class ExcelWriter:
         self.workbook.active = sheet_index
 
         logger.info(f"Set active sheet to '{sheet_name}' (index: {sheet_index})")
+        return 1
 
     def close(self) -> None:
         """Close the workbook.
@@ -515,7 +521,7 @@ class ExcelWriter:
 
     def add_supp_to_content_sheet(
         self, domain: str, content_sheet_name: str = "CONTENT", reference_row: int = 52, highlight: bool = True
-    ) -> None:
+    ) -> int:
         """Add SUPP information to the CONTENT sheet for a given domain.
 
         This method:
@@ -556,7 +562,7 @@ class ExcelWriter:
             logger.warning(
                 f"Domain '{domain}' not found in column A of '{content_sheet_name}'. Cannot add SUPP information."
             )
-            return
+            return 0
 
         logger.info(f"Found domain '{domain}' at row {domain_row} in '{content_sheet_name}'")
 
@@ -639,8 +645,9 @@ class ExcelWriter:
             f"Added {supp_domain} information to '{content_sheet_name}' at row {insert_row_idx}"
             f"{' with yellow highlight' if highlight else ''}"
         )
+        return 1
 
-    def fix_content_sheet_hyperlinks(self, content_sheet_name: str = "CONTENT") -> None:
+    def fix_content_sheet_hyperlinks(self, content_sheet_name: str = "CONTENT") -> int:
         """Fix all hyperlinks in CONTENT sheet.
 
         After inserting SUPP rows, hyperlinks in CONTENT sheet may be misaligned.
@@ -699,6 +706,7 @@ class ExcelWriter:
 
         if fixed_count > 0:
             logger.info(f"Fixed {fixed_count} hyperlink(s) in '{content_sheet_name}' sheet")
+        return fixed_count
 
     def apply_fixed_variable_rules(
         self,
@@ -709,7 +717,7 @@ class ExcelWriter:
         source_column: int = 6,
         transformation_column: int = 8,
         highlight: bool = True,
-    ) -> None:
+    ) -> int:
         """Apply fixed variable rules from configuration.
 
         This method applies predefined transformation rules for specific SDTM variables
@@ -879,6 +887,7 @@ class ExcelWriter:
         if updated_count > 0:
             self.modified_sheets.add(sheet_name)
             logger.info(f"Applied {updated_count} fixed variable rule(s) in '{sheet_name}'")
+        return updated_count
 
     def update_variable_order_column(
         self, sheet_name: str, start_row: int = 14, order_column: int = 10, type_column: int = 9
@@ -933,7 +942,7 @@ class ExcelWriter:
         domain_column: int = 1,
         start_row: int = 2,
         highlight: bool = True,
-    ) -> None:
+    ) -> int:
         """Update F column (source references) in CONTENT sheet.
 
         Only domains present in *domain_sources* (derived from the ALS file)
@@ -960,7 +969,7 @@ class ExcelWriter:
         """
         if not domain_sources:
             logger.info("No domain_sources provided, skipping CONTENT F column update")
-            return
+            return 0
 
         if content_sheet_name not in self.workbook.sheetnames:
             raise ValueError(f"Sheet '{content_sheet_name}' not found in workbook")
@@ -1035,6 +1044,7 @@ class ExcelWriter:
             logger.debug(f"Copied F column from '{parent}' to '{domain_str}' at row {row_idx}")
 
         logger.info(f"Updated {updated_count} F column value(s) in '{content_sheet_name}'")
+        return updated_count
 
     def update_domain_source_column(
         self,
@@ -1044,7 +1054,7 @@ class ExcelWriter:
         transformation_column: int = 8,
         variable_name_column: int = 1,
         highlight: bool = True,
-    ) -> None:
+    ) -> int:
         """Update F column (Source) based on transformation definition.
 
         Rules (applied only to rows that have a non-empty transformation):
@@ -1101,10 +1111,11 @@ class ExcelWriter:
         if updated_count > 0:
             self.modified_sheets.add(sheet_name)
             logger.info(f"Updated {updated_count} F column value(s) in '{sheet_name}'")
+        return updated_count
 
     def add_nonstandard_domain_to_content(
         self, domain: str, content_sheet_name: str = "CONTENT", reference_row: int = 52
-    ) -> None:
+    ) -> int:
         """Add a non-standard domain to the CONTENT sheet with yellow highlight.
 
         This method adds a new row at the end of the domain list for domains
@@ -1139,7 +1150,7 @@ class ExcelWriter:
 
         if last_domain_row is None:
             logger.warning(f"Could not find last domain row in '{content_sheet_name}'")
-            return
+            return 0
 
         # Insert new row after the last domain
         insert_row_idx = last_domain_row + 1
@@ -1167,8 +1178,9 @@ class ExcelWriter:
             f"Added non-standard domain '{domain.upper()}' to '{content_sheet_name}' "
             f"at row {insert_row_idx} with yellow highlight"
         )
+        return 1
 
-    def add_content_link_to_domain(self, sheet_name: str, highlight: bool = True) -> None:
+    def add_content_link_to_domain(self, sheet_name: str, highlight: bool = True) -> int:
         """Replace existing CONTENT hyperlink with formula in a domain sheet.
 
         This finds the existing "CONTENT" cell and replaces it with:
@@ -1200,7 +1212,7 @@ class ExcelWriter:
 
         if content_row is None:
             logger.warning(f"No existing CONTENT link found in '{sheet_name}', skipping")
-            return
+            return 0
 
         # Formula: =IFERROR(HYPERLINK("#CONTENT!$A"&MATCH(LEFT(A1,IF(A15="DOMAIN",2,6)),CONTENT!A:A,0),"CONTENT"),"CONTENT")
         # Use IFERROR to handle cases where MATCH doesn't find a result
@@ -1218,6 +1230,7 @@ class ExcelWriter:
 
         self.modified_sheets.add(sheet_name)
         logger.info(f"Replaced CONTENT link with formula in '{sheet_name}' at row {content_row}")
+        return 1
 
     def update_domain_sort_key_formula(
         self,
@@ -1226,7 +1239,7 @@ class ExcelWriter:
         sort_key_row: int = 10,
         sort_key_col: int = 4,
         highlight: bool = True,
-    ) -> None:
+    ) -> int:
         """Set cell D10 in a domain sheet to a formula that looks up the
         sorting variables from the CONTENT sheet's H column.
 
@@ -1242,7 +1255,7 @@ class ExcelWriter:
             highlight: Apply yellow background
         """
         if sheet_name not in self.workbook.sheetnames:
-            return
+            return 0
         ws = self.workbook[sheet_name]
         domain = sheet_name.upper()
         formula = f'=IFERROR(INDEX({content_sheet_name}!$H:$H,MATCH("{domain}",{content_sheet_name}!$A:$A,0)),"")'
@@ -1252,10 +1265,11 @@ class ExcelWriter:
             cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
         self.modified_sheets.add(sheet_name)
         logger.debug(f"Set D{sort_key_row} sort-key formula in '{sheet_name}'")
+        return 1
 
     def add_external_coding_variables(
         self, sheet_name: str, variables: list, variable_type: str = "SUPP", highlight: bool = True
-    ) -> None:
+    ) -> int:
         """Add external coding file related variables to a domain sheet.
 
         Each variable dict should have keys:
@@ -1381,10 +1395,11 @@ class ExcelWriter:
 
         self.modified_sheets.add(sheet_name)
         logger.info(f"Added {len(variables)} external coding variables to '{sheet_name}'")
+        return len(variables)
 
     def update_existing_variables(
         self, sheet_name: str, variables: list, start_row: int = 14, highlight: bool = True
-    ) -> None:
+    ) -> int:
         """Update existing variables in a domain sheet with external coding info.
 
         Each variable dict should have keys:
@@ -1497,8 +1512,9 @@ class ExcelWriter:
         if updated_count > 0:
             self.modified_sheets.add(sheet_name)
             logger.info(f"Updated {updated_count} variables in '{sheet_name}'")
+        return updated_count
 
-    def set_column_wrap_text(self, sheet_name: str, column: int = 8, start_row: int = 14) -> None:
+    def set_column_wrap_text(self, sheet_name: str, column: int = 8, start_row: int = 14) -> int:
         """Set wrap_text=True for a column in a domain sheet.
 
         This enables automatic line wrapping for cells in the specified column,
@@ -1522,6 +1538,7 @@ class ExcelWriter:
         updated_count = _fmt.set_column_wrap_text(ws, column=column, start_row=start_row)
 
         logger.info(f"Set wrap_text for {updated_count} cells in column {column} of '{sheet_name}'")
+        return updated_count
 
     def write_codelist_records(
         self, codelist_records: list, sheet_name: str = "CODELIST", start_row: int = 3, highlight: bool = True
@@ -1661,7 +1678,7 @@ class ExcelWriter:
                             global_last_row = target_row
                         inserted_count += 1
                         result.record_written()
-                except Exception as exc:
+                except RECOVERABLE_WRITE_ERRORS as exc:
                     result.record_error(
                         WriteIssue(
                             code="codelist_write_failed",

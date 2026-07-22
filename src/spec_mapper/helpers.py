@@ -11,6 +11,7 @@ from openpyxl.styles import PatternFill
 from .core import ExcelWriter
 from .models import ConditionalRecord, SUPPRecord
 from .models.write_result import (
+    RECOVERABLE_WRITE_ERRORS,
     STAGE_CONDITIONAL_MAPPINGS,
     STAGE_SUPP_ROWS,
     StageWriteResult,
@@ -181,7 +182,7 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
 
                 # Set variable order formula (J column = column 10)
                 ws.cell(row=current_insert_row, column=10).value = "=ROW()-13"
-            except Exception as exc:
+            except RECOVERABLE_WRITE_ERRORS as exc:
                 result.record_error(
                     WriteIssue(
                         code="supp_row_insert_failed",
@@ -362,7 +363,7 @@ def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[
                         cell.font = copy_obj(template_font)
 
                 logger.debug(f"    Row {row_offset}: {row_values}")
-        except Exception as exc:
+        except RECOVERABLE_WRITE_ERRORS as exc:
             result.record_error(
                 WriteIssue(
                     code="conditional_write_failed",

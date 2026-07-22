@@ -26,6 +26,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from openpyxl.utils.exceptions import IllegalCharacterError
+
+# Exceptions treated as *recoverable*, per-item write problems: the code's own
+# guard rails (bad sheet / row / column raise ValueError) and openpyxl rejecting
+# a cell value. Anything else (AttributeError, TypeError, KeyError, OSError,
+# RuntimeError, ...) is an unknown/fatal error and must NOT be swallowed into a
+# recoverable warning — it propagates so the job is marked ``failed``.
+RECOVERABLE_WRITE_ERRORS: tuple[type[Exception], ...] = (ValueError, IllegalCharacterError)
+
 # --- stage name constants (operation groups tracked by SpecMapper.process) ----
 STAGE_CELL_UPDATES = "cell_updates"
 STAGE_SUPP_ROWS = "supp_rows"

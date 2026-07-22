@@ -31,6 +31,7 @@ from .core import ExcelReader, ExcelWriter, Mapper
 from .helpers import insert_supp_rows, process_conditional_mappings
 from .models import ALSRecord, CellUpdate, ConditionalRecord, SUPPRecord, TemplateRecord
 from .models.write_result import (
+    RECOVERABLE_WRITE_ERRORS,
     STAGE_CONTENT_DOMAINS,
     STAGE_EXTERNAL_CODING,
     STAGE_FIXED_VARIABLE_RULES,
@@ -643,25 +644,27 @@ class SpecMapper:
         result: WriteResult,
         stage: str,
         operation: str,
-        fn: Callable[..., Any],
+        fn: Callable[..., int | None],
         *args: Any,
         guard_sheet: str | None = None,
         guard_code: str = "write_failed",
         **kwargs: Any,
-    ) -> Any:
-        """Run a single workbook-mutating call and record its outcome.
+    ) -> int | None:
+        """Run a single workbook-mutating call and record its real outcome.
 
-        On success one ``written`` operation is recorded for *stage*; on any
-        exception a structured, non-sensitive :class:`WriteIssue` is recorded
-        instead and processing continues. The call's return value is passed
-        through so existing call sites keep working.
+        The wrapped method returns the number of workbook mutations it made, so
+        this records ``written`` only when the call actually changed the
+        workbook (>0). A no-op call (target missing / nothing to do) is recorded
+        as ``skipped`` — never as a phantom write.
+
+        Only *recoverable* write errors (see ``RECOVERABLE_WRITE_ERRORS``) are
+        caught and recorded as structured errors; any other exception is an
+        unknown/fatal error and propagates so the job is marked ``failed``.
         """
         stage_res = result.stage(stage)
         try:
             ret = fn(*args, **kwargs)
-            stage_res.record_written()
-            return ret
-        except Exception as exc:
+        except RECOVERABLE_WRITE_ERRORS as exc:
             stage_res.record_error(
                 WriteIssue(
                     code=guard_code,
@@ -673,6 +676,14 @@ class SpecMapper:
             )
             self.logger.warning("Write op '%s' failed on sheet '%s' (%s)", operation, guard_sheet, type(exc).__name__)
             return None
+
+        mutated = ret if isinstance(ret, int) else (1 if ret else 0)
+        if mutated > 0:
+            stage_res.record_written()
+        else:
+            # Exception-free but no mutation: surface as a skip, not a write.
+            stage_res.record_skipped(WriteIssue(code="no_op", stage=stage, operation=operation, sheet=guard_sheet))
+        return ret
 
     def _insert_unmatched_rows(self, writer: ExcelWriter, unmatched_records: list[dict]) -> StageWriteResult:
         """Insert rows for SDTM variables that exist in ALS but not in template.
@@ -755,7 +766,7 @@ class SpecMapper:
 
                     # J: Variable Order
                     ws.cell(row=current_row, column=10).value = "=ROW()-13"
-                except Exception as exc:
+                except RECOVERABLE_WRITE_ERRORS as exc:
                     result.record_error(
                         WriteIssue(
                             code="unmatched_row_insert_failed",
