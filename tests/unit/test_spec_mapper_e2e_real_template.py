@@ -257,10 +257,11 @@ def test_merged_cells_intact(e2e) -> None:
 # ---------------------------------------------------------------------------
 # 11. repeated run — no duplicate SUPP / CODELIST rows
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("ig", ["IG3.2"])
+@pytest.mark.parametrize("ig", ["IG3.2", "IG3.4"])
 def test_repeated_run_no_duplicates(ig: str, tmp_path: Path) -> None:
-    # Dedup logic (delete-existing-SUPP + CODELIST merge) is template-agnostic;
-    # one real template exercises it fully while keeping the suite fast.
+    # Cover both template families: IG 3.2 (pre-populated CODELIST) and IG 3.4
+    # (empty CODELIST) exercise the delete-existing-SUPP + CODELIST merge dedup
+    # on re-run so a regression in either is caught by the gate.
     if not TEMPLATES[ig].exists():
         pytest.skip(f"{ig} template not present")
     logging.disable(logging.CRITICAL)
@@ -312,9 +313,10 @@ def test_recoverable_write_failure_still_saves(tmp_path: Path, monkeypatch) -> N
         write_synthetic_als(als)
         out = tmp_path / "out.xlsx"
 
-        # Inject a recoverable, per-operation failure into a guarded write step.
+        # Inject a *recoverable* (classified) per-operation failure into a
+        # guarded write step: a ValueError, like the writer's own guard rails.
         def boom(self, *a, **k):
-            raise RuntimeError("injected content-link failure")
+            raise ValueError("injected recoverable failure")
 
         monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
 
@@ -328,10 +330,67 @@ def test_recoverable_write_failure_still_saves(tmp_path: Path, monkeypatch) -> N
         assert out.exists()
         wb = load_workbook(out)
         wb.close()
-        # Error payload is structured + safe (no path / message / traceback).
+        # Error payload is structured + safe: only the exception *class* name,
+        # never the raw message ("injected ...") or a traceback.
         errors = stats["write_result"]["errors"]
-        assert errors and all(e["detail"] == "RuntimeError" for e in errors)
+        assert errors and all(e["detail"] == "ValueError" for e in errors)
         assert all("injected" not in str(e["detail"]) for e in errors)
+    finally:
+        logging.disable(logging.NOTSET)
+
+
+def test_unknown_write_error_is_fatal(tmp_path: Path, monkeypatch) -> None:
+    """An unknown (non-recoverable) exception in a guarded op must NOT be masked
+    as completed_with_errors — it propagates so the job fails."""
+    ig = "IG3.2"
+    if not TEMPLATES[ig].exists():
+        pytest.skip("template not present")
+    logging.disable(logging.CRITICAL)
+    try:
+        tpl = tmp_path / "tpl.xlsx"
+        shutil.copy2(TEMPLATES[ig], tpl)
+        als = tmp_path / "als.xlsx"
+        write_synthetic_als(als)
+        out = tmp_path / "out.xlsx"
+
+        def boom(self, *a, **k):
+            raise RuntimeError("unexpected programming error")
+
+        monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
+
+        mapper = SpecMapper(als_file=als, template_file=tpl, als_sheet="Sheet1", log_level="CRITICAL")
+        with pytest.raises(RuntimeError):
+            mapper.process(output_file=out, highlight=True)
+    finally:
+        logging.disable(logging.NOTSET)
+
+
+def test_guarded_no_op_is_skipped_not_written(tmp_path: Path, monkeypatch) -> None:
+    """A guarded op that returns without mutating (count 0) is recorded as a
+    skip, never as a phantom write, and drives completed_with_errors."""
+    ig = "IG3.2"
+    if not TEMPLATES[ig].exists():
+        pytest.skip("template not present")
+    logging.disable(logging.CRITICAL)
+    try:
+        tpl = tmp_path / "tpl.xlsx"
+        shutil.copy2(TEMPLATES[ig], tpl)
+        als = tmp_path / "als.xlsx"
+        write_synthetic_als(als)
+        out = tmp_path / "out.xlsx"
+
+        # Exception-free call that performs no workbook mutation.
+        monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", lambda self, *a, **k: 0)
+
+        mapper = SpecMapper(als_file=als, template_file=tpl, als_sheet="Sheet1", log_level="CRITICAL")
+        stats = mapper.process(output_file=out, highlight=True)
+
+        actual = stats["actual"]
+        assert actual["errors"] == 0
+        assert actual["skipped"] >= 1
+        assert actual["written"] < actual["attempted"]
+        codes = {i["code"] for i in stats["write_result"]["warnings"]}
+        assert "no_op" in codes
     finally:
         logging.disable(logging.NOTSET)
 

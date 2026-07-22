@@ -173,6 +173,36 @@ class TestUpdateCellsAccounting:
         assert result.written == 0
 
 
+class TestGuardedMethodsReturnMutationCounts:
+    """Guarded write methods must report *actual* mutation counts so a no-op is
+    never miscounted as a real write."""
+
+    def _domain(self, tmp_path: Path, *, with_content: bool) -> Path:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "DM"
+        ws.cell(row=14, column=1, value="STUDYID")
+        ws.cell(row=15, column=1, value="DOMAIN")
+        if with_content:
+            ws.cell(row=20, column=1, value="CONTENT")
+        path = tmp_path / "wb.xlsx"
+        wb.save(path)
+        return path
+
+    def test_add_content_link_returns_zero_without_content_cell(self, tmp_path: Path) -> None:
+        writer = ExcelWriter(self._domain(tmp_path, with_content=False))
+        assert writer.add_content_link_to_domain("DM") == 0  # no-op
+
+    def test_add_content_link_returns_one_with_content_cell(self, tmp_path: Path) -> None:
+        writer = ExcelWriter(self._domain(tmp_path, with_content=True))
+        assert writer.add_content_link_to_domain("DM") == 1  # real mutation
+
+    def test_set_active_sheet_reports_missing_as_zero(self, tmp_path: Path) -> None:
+        writer = ExcelWriter(self._domain(tmp_path, with_content=False))
+        assert writer.set_active_sheet("NOPE") == 0
+        assert writer.set_active_sheet("DM") == 1
+
+
 # ---------------------------------------------------------------------------
 # ExcelWriter.write_codelist_records (real template)
 # ---------------------------------------------------------------------------
