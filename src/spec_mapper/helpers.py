@@ -10,6 +10,12 @@ from openpyxl.styles import PatternFill
 
 from .core import ExcelWriter
 from .models import ConditionalRecord, SUPPRecord
+from .models.write_result import (
+    STAGE_CONDITIONAL_MAPPINGS,
+    STAGE_SUPP_ROWS,
+    StageWriteResult,
+    WriteIssue,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +60,21 @@ def calculate_char_length(text: str) -> int:
     return length
 
 
-def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highlight: bool) -> None:
+def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highlight: bool) -> StageWriteResult:
     """Insert SUPP domain rows into the Excel file.
 
     Args:
         writer: ExcelWriter instance
         supp_records: List of SUPPRecord objects
         highlight: Whether to highlight the inserted rows
+
+    Returns:
+        A :class:`StageWriteResult`; each SUPP record counts as one attempt and is
+        ``written`` only after its row was actually inserted and filled. Records
+        whose target domain is missing from the template are ``skipped``.
     """
+    result = StageWriteResult(stage=STAGE_SUPP_ROWS)
+
     # Group SUPP records by sheet/domain
     by_domain: dict[str, list[SUPPRecord]] = defaultdict(list)
     for record in supp_records:
@@ -79,6 +92,15 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
         # Check if domain exists in template
         if domain not in writer.workbook.sheetnames:
             logger.warning(f"Domain '{domain}' not found in template, skipping {len(records_sorted)} SUPP rows")
+            for _record in records_sorted:
+                result.record_skipped(
+                    WriteIssue(
+                        code="domain_not_found",
+                        stage=STAGE_SUPP_ROWS,
+                        operation="insert_supp_row",
+                        sheet=domain,
+                    )
+                )
             continue
 
         ws = writer.get_worksheet(domain)
@@ -129,35 +151,57 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
             logger.debug(f"Inserting after last SDTM row {last_sdtm_row}")
 
         # Step 4: Insert and fill SUPP rows
-        num_inserted = len(records_sorted)
-        for i, record in enumerate(records_sorted):
-            current_insert_row = insert_row + i
+        num_inserted = 0
+        for record in records_sorted:
+            current_insert_row = insert_row + num_inserted
 
             # Insert new row, copying format from the row BEFORE the insertion point
             # (not the row after, which may have different formatting)
             copy_from_row = insert_row - 1 if insert_row > 14 else 14
-            writer.insert_row(
-                sheet_name=domain, row_index=current_insert_row, amount=1, copy_format_from_row=copy_from_row
-            )
+            try:
+                writer.insert_row(
+                    sheet_name=domain, row_index=current_insert_row, amount=1, copy_format_from_row=copy_from_row
+                )
 
-            # Fill the row with SUPP data
-            record.insert_row = current_insert_row
-            writer.fill_row(
-                sheet_name=domain, row=current_insert_row, column_data=record.to_row_data(), highlight=highlight
-            )
+                # Fill the row with SUPP data
+                record.insert_row = current_insert_row
+                writer.fill_row(
+                    sheet_name=domain, row=current_insert_row, column_data=record.to_row_data(), highlight=highlight
+                )
 
-            # Overwrite length cell (column D) with a numeric value so that the
-            # cell number format inherited from the SDTM row (e.g. "$"0) renders
-            # correctly.  fill_row writes str(), which Excel treats as text.
-            length_cell = ws.cell(row=current_insert_row, column=4)
-            ref_cell = ws.cell(row=copy_from_row, column=4)
-            with contextlib.suppress(ValueError, TypeError):
-                length_cell.value = int(record.length)
-            if ref_cell.number_format:
-                length_cell.number_format = ref_cell.number_format
+                # Overwrite length cell (column D) with a numeric value so that the
+                # cell number format inherited from the SDTM row (e.g. "$"0) renders
+                # correctly.  fill_row writes str(), which Excel treats as text.
+                length_cell = ws.cell(row=current_insert_row, column=4)
+                ref_cell = ws.cell(row=copy_from_row, column=4)
+                with contextlib.suppress(ValueError, TypeError):
+                    length_cell.value = int(record.length)
+                if ref_cell.number_format:
+                    length_cell.number_format = ref_cell.number_format
 
-            # Set variable order formula (J column = column 10)
-            ws.cell(row=current_insert_row, column=10).value = "=ROW()-13"
+                # Set variable order formula (J column = column 10)
+                ws.cell(row=current_insert_row, column=10).value = "=ROW()-13"
+            except Exception as exc:
+                result.record_error(
+                    WriteIssue(
+                        code="supp_row_insert_failed",
+                        stage=STAGE_SUPP_ROWS,
+                        operation="insert_supp_row",
+                        sheet=domain,
+                        row=current_insert_row,
+                        detail=type(exc).__name__,
+                    )
+                )
+                logger.warning(
+                    "Failed to insert SUPP row '%s' in '%s' (%s)",
+                    record.variable_name,
+                    domain,
+                    type(exc).__name__,
+                )
+                continue
+
+            num_inserted += 1
+            result.record_written()
 
             # Check B column (variable_label) character length
             # Chinese characters count as 3, others as 1
@@ -180,11 +224,30 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
                 cell_b = ws.cell(row=current_insert_row, column=2)
                 cell_b.fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
                 if label_length > 40:
+                    result.add_warning(
+                        WriteIssue(
+                            code="supp_label_too_long",
+                            stage=STAGE_SUPP_ROWS,
+                            operation="insert_supp_row",
+                            sheet=domain,
+                            row=current_insert_row,
+                            column=2,
+                        )
+                    )
                     logger.warning(
-                        f"  SUPP variable '{record.variable_name}' label exceeds 40 chars "
-                        f"(length={label_length}): '{record.variable_label}'"
+                        f"  SUPP variable '{record.variable_name}' label exceeds 40 chars (length={label_length})"
                     )
                 if has_multi_source:
+                    result.add_warning(
+                        WriteIssue(
+                            code="supp_multi_source",
+                            stage=STAGE_SUPP_ROWS,
+                            operation="insert_supp_row",
+                            sheet=domain,
+                            row=current_insert_row,
+                            column=2,
+                        )
+                    )
                     logger.info(
                         f"  SUPP variable '{record.variable_name}' has multiple sources, B column highlighted red"
                     )
@@ -192,7 +255,7 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
             logger.info(f"  Inserted SUPP row: {domain}.{record.variable_name} at row {current_insert_row}")
 
         # Step 5: Fix CONTENT hyperlink if it was affected by insertion
-        if content_row and content_hyperlink and insert_row <= content_row:
+        if content_row and content_hyperlink and num_inserted and insert_row <= content_row:
             # CONTENT was pushed down by insertion
             new_content_row = content_row + num_inserted
 
@@ -206,8 +269,10 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
 
             logger.info(f"  Fixed CONTENT hyperlink: moved from row {content_row} to row {new_content_row}")
 
+    return result
 
-def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[ConditionalRecord]) -> None:
+
+def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[ConditionalRecord]) -> StageWriteResult:
     """Process conditional mapping records by adding columns to target sheets.
 
     For each conditional record:
@@ -221,6 +286,10 @@ def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[
         writer: ExcelWriter instance
         conditional_records: List of ConditionalRecord objects
 
+    Returns:
+        A :class:`StageWriteResult`; each conditional record counts as one attempt.
+        Records whose target sheet is missing are ``skipped``.
+
     Examples:
         Sheet FATEST:
         - Add columns CRF_TESTCD (condition values) and CRF_ORRES (raw references)
@@ -229,6 +298,7 @@ def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[
         - Row 3: THFDTC, [RAW]TH.THFDAT
     """
     logger.info(f"=== Processing {len(conditional_records)} conditional mapping group(s) ===")
+    result = StageWriteResult(stage=STAGE_CONDITIONAL_MAPPINGS)
 
     for record in conditional_records:
         sheet_name = record.sheet_name
@@ -239,51 +309,74 @@ def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[
                 f"Sheet '{sheet_name}' not found in template, skipping conditional mapping "
                 f"for columns: {', '.join(record.column_names)}"
             )
+            result.record_skipped(
+                WriteIssue(
+                    code="sheet_not_found",
+                    stage=STAGE_CONDITIONAL_MAPPINGS,
+                    operation="write_conditional_columns",
+                    sheet=sheet_name,
+                )
+            )
             continue
 
         logger.info(f"Processing conditional mapping for sheet '{sheet_name}': {len(record.mappings)} row(s)")
 
-        # Get worksheet
-        ws = writer.get_worksheet(sheet_name)
+        try:
+            # Get worksheet
+            ws = writer.get_worksheet(sheet_name)
 
-        # Get template font style from an existing cell (row 1, col 1)
-        # This ensures new columns match the template's font
-        template_cell = ws.cell(row=1, column=1)
-        template_font: Any = template_cell.font
+            # Get template font style from an existing cell (row 1, col 1)
+            # This ensures new columns match the template's font
+            template_cell = ws.cell(row=1, column=1)
+            template_font: Any = template_cell.font
 
-        # Find last non-empty column in row 1 (header row)
-        last_col = 1
-        for col in range(1, ws.max_column + 1):
-            cell_value = ws.cell(row=1, column=col).value
-            if cell_value:
-                last_col = col
+            # Find last non-empty column in row 1 (header row)
+            last_col = 1
+            for col in range(1, ws.max_column + 1):
+                cell_value = ws.cell(row=1, column=col).value
+                if cell_value:
+                    last_col = col
 
-        # New columns start after last_col
-        num_cols = len(record.column_names)
-        first_col_idx = last_col + 1
+            # New columns start after last_col
+            num_cols = len(record.column_names)
+            first_col_idx = last_col + 1
 
-        logger.info(f"  Adding {num_cols} column(s) starting at position {first_col_idx} (after column {last_col})")
+            logger.info(f"  Adding {num_cols} column(s) starting at position {first_col_idx} (after column {last_col})")
 
-        # Write headers for all columns
-        for i, col_name in enumerate(record.column_names):
-            col_idx = first_col_idx + i
-            header_cell = ws.cell(row=1, column=col_idx)
-            header_cell.value = col_name
-            if template_font:
-                header_cell.font = copy_obj(template_font)
-
-        # Write data rows
-        for row_offset, row_values in enumerate(record.mappings, start=2):
-            # row_values is a tuple with len(column_names) values
-            for i, value in enumerate(row_values):
+            # Write headers for all columns
+            for i, col_name in enumerate(record.column_names):
                 col_idx = first_col_idx + i
-                cell = ws.cell(row=row_offset, column=col_idx)
-                cell.value = value
+                header_cell = ws.cell(row=1, column=col_idx)
+                header_cell.value = col_name
                 if template_font:
-                    cell.font = copy_obj(template_font)
+                    header_cell.font = copy_obj(template_font)
 
-            logger.debug(f"    Row {row_offset}: {row_values}")
+            # Write data rows
+            for row_offset, row_values in enumerate(record.mappings, start=2):
+                # row_values is a tuple with len(column_names) values
+                for i, value in enumerate(row_values):
+                    col_idx = first_col_idx + i
+                    cell = ws.cell(row=row_offset, column=col_idx)
+                    cell.value = value
+                    if template_font:
+                        cell.font = copy_obj(template_font)
 
+                logger.debug(f"    Row {row_offset}: {row_values}")
+        except Exception as exc:
+            result.record_error(
+                WriteIssue(
+                    code="conditional_write_failed",
+                    stage=STAGE_CONDITIONAL_MAPPINGS,
+                    operation="write_conditional_columns",
+                    sheet=sheet_name,
+                    detail=type(exc).__name__,
+                )
+            )
+            logger.warning("Failed to write conditional mapping for '%s' (%s)", sheet_name, type(exc).__name__)
+            continue
+
+        result.record_written()
         logger.info(f"  ✓ Added {len(record.mappings)} row(s) to '{sheet_name}' ({', '.join(record.column_names)})")
 
     logger.info("=== Completed conditional mappings ===")
+    return result

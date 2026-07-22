@@ -9,6 +9,12 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from ..models.template_record import CellUpdate
+from ..models.write_result import (
+    STAGE_CELL_UPDATES,
+    STAGE_CODELIST_RECORDS,
+    StageWriteResult,
+    WriteIssue,
+)
 from .excel import format_utils as _fmt
 
 logger = logging.getLogger(__name__)
@@ -43,7 +49,7 @@ class ExcelWriter:
         if not self.file_path.exists():
             raise FileNotFoundError(f"Excel file not found: {self.file_path}")
 
-        logger.info(f"Loading workbook from {self.file_path}")
+        logger.info(f"Loading workbook '{self.file_path.name}'")
         # Load with formatting preserved (data_only=False to keep formulas)
         # keep_vba=False to avoid compatibility issues
         self.workbook: Workbook = load_workbook(
@@ -146,25 +152,35 @@ class ExcelWriter:
 
         logger.debug(f"Updated {sheet_name}!{cell.coordinate}: '{old_value}' -> '{value}'")
 
-    def update_cells(self, updates: list[CellUpdate], highlight: bool = False, clear_existing: bool = False) -> None:
+    def update_cells(
+        self, updates: list[CellUpdate], highlight: bool = False, clear_existing: bool = False
+    ) -> StageWriteResult:
         """Update multiple cells at once.
+
+        Each cell is attempted independently: a per-cell failure is recorded as a
+        recoverable error and processing continues with the remaining cells.
 
         Args:
             updates: List of CellUpdate objects describing the changes
             highlight: If True, apply yellow background and italic font to all updates
             clear_existing: If True, clear existing values before writing new ones
+
+        Returns:
+            A :class:`StageWriteResult` where ``written`` counts only cells whose
+            workbook mutation actually succeeded.
         """
         logger.info(f"Applying {len(updates)} cell updates")
+        result = StageWriteResult(stage=STAGE_CELL_UPDATES)
 
         for update in updates:
+            value = update.value
+            # Keep Source column labels language-aware even for generic
+            # mapper updates (e.g. assignment mappings that set F="指定").
+            if update.col == 6 and isinstance(value, str):
+                mapped = self._src_label(value)
+                if mapped is not None:
+                    value = mapped
             try:
-                value = update.value
-                # Keep Source column labels language-aware even for generic
-                # mapper updates (e.g. assignment mappings that set F="指定").
-                if update.col == 6 and isinstance(value, str):
-                    mapped = self._src_label(value)
-                    if mapped is not None:
-                        value = mapped
                 self.update_cell_value(
                     update.sheet_name,
                     update.row,
@@ -173,13 +189,32 @@ class ExcelWriter:
                     highlight=highlight,
                     clear_existing=clear_existing,
                 )
+                result.record_written()
                 if update.reason:
                     logger.debug(f"  Reason: {update.reason}")
             except Exception as e:
-                logger.error(f"Failed to update cell at {update.sheet_name}!R{update.row}C{update.col}: {e}")
+                result.record_error(
+                    WriteIssue(
+                        code="cell_write_failed",
+                        stage=STAGE_CELL_UPDATES,
+                        operation="update_cell",
+                        sheet=update.sheet_name,
+                        row=update.row,
+                        column=update.col,
+                        detail=type(e).__name__,
+                    )
+                )
+                logger.warning(
+                    "Failed to update cell at %s!R%sC%s (%s)",
+                    update.sheet_name,
+                    update.row,
+                    update.col,
+                    type(e).__name__,
+                )
                 continue
 
-        logger.info("All cell updates completed")
+        logger.info("Cell updates: %s/%s written, %s error(s)", result.written, result.attempted, len(result.errors))
+        return result
 
     def insert_row(
         self, sheet_name: str, row_index: int, amount: int = 1, copy_format_from_row: int | None = None
@@ -251,13 +286,13 @@ class ExcelWriter:
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Saving workbook to {output_path}")
+        logger.info(f"Saving workbook '{output_path.name}'")
         try:
             self.workbook.save(output_path)
-            logger.info(f"Successfully saved workbook to {output_path}")
+            logger.info(f"Successfully saved workbook '{output_path.name}'")
         except Exception as e:
-            logger.error(f"Failed to save workbook: {e}")
-            raise OSError(f"Failed to save workbook to {output_path}: {e}") from e
+            logger.error("Failed to save workbook '%s' (%s)", output_path.name, type(e).__name__)
+            raise OSError(f"Failed to save workbook '{output_path.name}'") from e
 
     def highlight_modified_sheet_tabs(self, color: str = "FFFF00") -> None:
         """Highlight tabs of sheets that have been modified."""
@@ -1490,7 +1525,7 @@ class ExcelWriter:
 
     def write_codelist_records(
         self, codelist_records: list, sheet_name: str = "CODELIST", start_row: int = 3, highlight: bool = True
-    ) -> None:
+    ) -> StageWriteResult:
         """Write CODELIST records to CODELIST sheet.
 
         Merges with existing template content:
@@ -1513,14 +1548,30 @@ class ExcelWriter:
             sheet_name: Name of CODELIST sheet (default: "CODELIST")
             start_row: First data row (default: 3, after two header rows)
             highlight: If True, apply yellow background (default: True)
+
+        Returns:
+            A :class:`StageWriteResult`; each input record counts as one attempt
+            and is ``written`` when its row was inserted or its target cells were
+            populated (an already-satisfied entry counts as written).
         """
-        if sheet_name not in self.workbook.sheetnames:
-            logger.warning(f"Sheet '{sheet_name}' not found in workbook, skipping CODELIST write")
-            return
+        result = StageWriteResult(stage=STAGE_CODELIST_RECORDS)
 
         if not codelist_records:
             logger.info("No CODELIST records to write")
-            return
+            return result
+
+        if sheet_name not in self.workbook.sheetnames:
+            logger.warning(f"Sheet '{sheet_name}' not found in workbook, skipping CODELIST write")
+            for _rec in codelist_records:
+                result.record_skipped(
+                    WriteIssue(
+                        code="sheet_not_found",
+                        stage=STAGE_CODELIST_RECORDS,
+                        operation="write_codelist",
+                        sheet=sheet_name,
+                    )
+                )
+            return result
 
         ws: Worksheet = self.workbook[sheet_name]
 
@@ -1562,53 +1613,69 @@ class ExcelWriter:
 
         for domain, recs in by_domain.items():
             for rec in recs:
-                key = (rec.domain.upper(), rec.testcd_var.upper(), rec.testcd_value.upper())
+                try:
+                    key = (rec.domain.upper(), rec.testcd_var.upper(), rec.testcd_value.upper())
 
-                if key in existing_keys:
-                    # Row already exists — only fill I/J if currently empty
-                    exist_row = existing_keys[key]
-                    for col, value in [(9, rec.source_variable), (10, rec.metadata_variable)]:
-                        if not value:
-                            continue
-                        cell = ws.cell(row=exist_row, column=col)
-                        if not cell.value:
-                            cell.value = value
-                            if highlight:
-                                cell.fill = yellow
-                            updated_count += 1
-                else:
-                    # New entry — insert a row after the domain's last row
-                    if domain in domain_last_row:
-                        target_row = domain_last_row[domain] + 1
+                    if key in existing_keys:
+                        # Row already exists — only fill I/J if currently empty
+                        exist_row = existing_keys[key]
+                        for col, value in [(9, rec.source_variable), (10, rec.metadata_variable)]:
+                            if not value:
+                                continue
+                            cell = ws.cell(row=exist_row, column=col)
+                            if not cell.value:
+                                cell.value = value
+                                if highlight:
+                                    cell.fill = yellow
+                                updated_count += 1
+                        # An already-present entry is satisfied; count as written.
+                        result.record_written()
                     else:
-                        target_row = global_last_row + 1
+                        # New entry — insert a row after the domain's last row
+                        if domain in domain_last_row:
+                            target_row = domain_last_row[domain] + 1
+                        else:
+                            target_row = global_last_row + 1
 
-                    # Insert a blank row so existing content below is not overwritten
-                    ws.insert_rows(target_row)
+                        # Insert a blank row so existing content below is not overwritten
+                        ws.insert_rows(target_row)
 
-                    # Shift all tracked row indices that are >= target_row
-                    existing_keys = {k: (v + 1 if v >= target_row else v) for k, v in existing_keys.items()}
-                    domain_last_row = {d: (r + 1 if r >= target_row else r) for d, r in domain_last_row.items()}
-                    if global_last_row >= target_row:
-                        global_last_row += 1
+                        # Shift all tracked row indices that are >= target_row
+                        existing_keys = {k: (v + 1 if v >= target_row else v) for k, v in existing_keys.items()}
+                        domain_last_row = {d: (r + 1 if r >= target_row else r) for d, r in domain_last_row.items()}
+                        if global_last_row >= target_row:
+                            global_last_row += 1
 
-                    row_data = rec.to_row_data()
-                    for col, value in row_data.items():
-                        if value:
-                            cell = ws.cell(row=target_row, column=col)
-                            cell.value = value
-                            if highlight:
-                                cell.fill = yellow
+                        row_data = rec.to_row_data()
+                        for col, value in row_data.items():
+                            if value:
+                                cell = ws.cell(row=target_row, column=col)
+                                cell.value = value
+                                if highlight:
+                                    cell.fill = yellow
 
-                    # Update bookkeeping
-                    existing_keys[key] = target_row
-                    domain_last_row[domain] = target_row
-                    if target_row > global_last_row:
-                        global_last_row = target_row
-                    inserted_count += 1
+                        # Update bookkeeping
+                        existing_keys[key] = target_row
+                        domain_last_row[domain] = target_row
+                        if target_row > global_last_row:
+                            global_last_row = target_row
+                        inserted_count += 1
+                        result.record_written()
+                except Exception as exc:
+                    result.record_error(
+                        WriteIssue(
+                            code="codelist_write_failed",
+                            stage=STAGE_CODELIST_RECORDS,
+                            operation="write_codelist",
+                            sheet=sheet_name,
+                            detail=type(exc).__name__,
+                        )
+                    )
+                    logger.warning("Failed to write CODELIST record for domain '%s' (%s)", domain, type(exc).__name__)
 
         self.modified_sheets.add(sheet_name)
         logger.info(
             f"CODELIST: updated {updated_count} existing cell(s), "
             f"inserted {inserted_count} new row(s) in '{sheet_name}'"
         )
+        return result

@@ -44,7 +44,7 @@ class ExcelReader:
             raise FileNotFoundError(f"Excel file not found: {self.file_path}")
 
         self.config = config or ConfigLoader()
-        logger.info(f"Initialized ExcelReader for {self.file_path}")
+        logger.info(f"Initialized ExcelReader for '{self.file_path.name}'")
 
     def read_als_records(self, sheet_name: str | None = None) -> list[ALSRecord]:
         """Read ALS records from the Excel file.
