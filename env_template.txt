@@ -58,7 +58,8 @@ TOP_K_RETRIEVAL=3
 
 # KB默认文件 (始终加载，作为基础知识库)
 # 存放于 data/knowledge_base/structured/ 目录下
-# 例如: ALS2SDTM_common.parquet
+# 例如: ALS2SDTM_Mapping_Template_v1.0.parquet
+# 旧名称 ALS2SDTM_TEST.{json,parquet} 会兼容迁移，但建议更新配置
 RAG_KB_DEFAULT_FILE=
 
 # 注意: 用户通过网页上传的 example 文件会自动生成 session KB，

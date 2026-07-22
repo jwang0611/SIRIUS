@@ -397,7 +397,7 @@
     "annotation_variable":"若AE开始日期等于首次给药日期，请填写发生阶段",
     "metadata_variable":"AEPHASE",
     "SDTM_Domain":"AE",
-    "SDTM_Variable":"QVAL when QNAM=AEPHASE"
+    "SDTM_Variable":"QVAL when QNAM=AEPRIOR"
   },
   {
     "annotation_table":"不良事件",
@@ -437,7 +437,7 @@
     "annotation_variable":"是否为特别关注的不良事件（AESI）？",
     "metadata_variable":"AESIYN",
     "SDTM_Domain":"AE",
-    "SDTM_Variable":"QVAL when QNAM=AESI"
+    "SDTM_Variable":"QVAL when QNAM=AESPECI"
   },
   {
     "annotation_table":"不良事件",
@@ -573,7 +573,7 @@
     "annotation_variable":"严重程度开始日期",
     "metadata_variable":"AESEVDAT",
     "SDTM_Domain":"AE",
-    "SDTM_Variable":"QVAL when QNAM=SEVDTC"
+    "SDTM_Variable":"QVAL when QNAM=AESEVDTC"
   },
   {
     "annotation_table":"不良事件",
@@ -2989,7 +2989,7 @@
     "annotation_variable":"其他关系，请说明",
     "metadata_variable":"FHRELOTH",
     "SDTM_Domain":"APMH",
-    "SDTM_Variable":"QVAL when QNAM=SRELOTH"
+    "SDTM_Variable":"QVAL when QNAM=OTHREL"
   },
   {
     "annotation_table":"家族史",
@@ -4397,7 +4397,7 @@
     "annotation_variable":"若为区域外淋巴结，请注明具体部位",
     "metadata_variable":"THMLOCA",
     "SDTM_Domain":"FA",
-    "SDTM_Variable":"QVAL when QNAM=THLOCLYM when FATESTCD=THMETLOC"
+    "SDTM_Variable":"FAORRES when FATESTCD=THMLOCA"
   },
   {
     "annotation_table":"非小细胞肺癌史",
@@ -5517,7 +5517,7 @@
     "annotation_variable":"评估周期",
     "metadata_variable":"TUCYC",
     "SDTM_Domain":"TU|TR",
-    "SDTM_Variable":"TUORRES=新病灶 when TUTESTCD=TUMIDENT\/QVAL when QNAM=TUCYC|TRORRES when TRTESTCD=TUMSTATE\/QVAL when QNAM=TRCYC"
+    "SDTM_Variable":"QVAL when QNAM=TUCYC|QVAL when QNAM=TRCYC"
   },
   {
     "annotation_table":"新病灶",
@@ -6005,7 +6005,7 @@
     "annotation_variable":"其他，请说明",
     "metadata_variable":"BEMETOTH",
     "SDTM_Domain":"MK",
-    "SDTM_Variable":"MKMETHOD"
+    "SDTM_Variable":"QVAL when QNAM=MKMETOTH"
   },
   {
     "annotation_table":"骨骼检查-筛选期",
@@ -6077,7 +6077,7 @@
     "annotation_variable":"其他，请说明",
     "metadata_variable":"BEMETOTH",
     "SDTM_Domain":"MK",
-    "SDTM_Variable":"MKMETHOD"
+    "SDTM_Variable":"QVAL when QNAM=MKMETOTH"
   },
   {
     "annotation_table":"骨骼检查",
@@ -6597,7 +6597,7 @@
     "annotation_variable":"其他，请说明",
     "metadata_variable":"PRDOSUO",
     "SDTM_Domain":"PR",
-    "SDTM_Variable":"PRDOSU"
+    "SDTM_Variable":"QVAL when QNAM=PRDOUOTH"
   },
   {
     "annotation_table":"既往抗肿瘤放疗史",
@@ -6821,7 +6821,7 @@
     "annotation_variable":"复发日期\/难治日期",
     "metadata_variable":"CMRDAT",
     "SDTM_Domain":"CM",
-    "SDTM_Variable":"QVAL when QNAM=CMRDTC"
+    "SDTM_Variable":"QVAL when QNAM=CMPDDTC"
   },
   {
     "annotation_table":"研究疾病药物治疗史",
@@ -6837,7 +6837,7 @@
     "annotation_variable":"其他，请描述",
     "metadata_variable":"CMOUTOTH",
     "SDTM_Domain":"CM",
-    "SDTM_Variable":"QVAL when QNAM=CMOUTOTH"
+    "SDTM_Variable":"QVAL when QNAM=CMOUROTH"
   },
   {
     "annotation_table":"研究疾病药物治疗史",
@@ -6989,7 +6989,7 @@
     "annotation_variable":"复发日期\/难治日期",
     "metadata_variable":"PRRDAT",
     "SDTM_Domain":"PR",
-    "SDTM_Variable":"QVAL when QNAM=PRRDTC"
+    "SDTM_Variable":"QVAL when QNAM=PRPDDTC"
   },
   {
     "annotation_table":"研究疾病细胞疗法治疗史",
@@ -7285,7 +7285,7 @@
     "annotation_variable":"其他，请说明",
     "metadata_variable":"PRDOSUO",
     "SDTM_Domain":"PR",
-    "SDTM_Variable":"PRDOSU"
+    "SDTM_Variable":"QVAL when QNAM=PRDOUOTH"
   },
   {
     "annotation_table":"后续抗肿瘤放疗",
@@ -8541,7 +8541,7 @@
     "annotation_variable":"若结果异常，请详述",
     "metadata_variable":"IGRADESC",
     "SDTM_Domain":"LB",
-    "SDTM_Variable":"QVAL when QNAM=LBDESC"
+    "SDTM_Variable":"QVAL when QNAM=IGRADESC"
   },
   {
     "annotation_table":"细胞因子释放综合征（CRS）问询页",
@@ -10693,7 +10693,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQAAHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10709,7 +10709,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQABHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10725,7 +10725,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQBHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10741,7 +10741,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQCHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10757,7 +10757,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQDHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10773,7 +10773,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQEHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10789,7 +10789,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQFHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10805,7 +10805,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQGHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10821,7 +10821,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQHHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10837,7 +10837,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQIHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10853,7 +10853,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQJHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10869,7 +10869,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQKHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10885,7 +10885,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQLHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10901,7 +10901,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQMHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10917,7 +10917,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQNHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10933,7 +10933,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQOHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10949,7 +10949,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQPHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",
@@ -10965,7 +10965,7 @@
     "annotation_variable":"如果有",
     "metadata_variable":"VIQQHA",
     "SDTM_Domain":"QS",
-    "SDTM_Variable":"QVAL when QNAM=QSDESC"
+    "SDTM_Variable":"QVAL when QNAM=VIQDESC"
   },
   {
     "annotation_table":"视觉调查问卷",

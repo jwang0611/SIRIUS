@@ -54,6 +54,10 @@ class LLMKnowledgeQueryInterface:
         "annotation_table",
     ]
     NORMALIZED_SUFFIX: str = "__norm"
+    LEGACY_KB_FILENAMES: ClassVar[dict[str, str]] = {
+        "ALS2SDTM_TEST.json": "ALS2SDTM_Mapping_Template_v1.0.json",
+        "ALS2SDTM_TEST.parquet": "ALS2SDTM_Mapping_Template_v1.0.parquet",
+    }
     """
     Enhanced query interface for LLM testing against SDTM knowledge base.
 
@@ -223,12 +227,34 @@ class LLMKnowledgeQueryInterface:
             return None
 
     def _resolve_kb_path(self, filename: Path | None) -> Path | None:
-        """Resolve KB file path (absolute or relative to structured_path)."""
+        """Resolve KB paths and migrate the legacy default filename in place."""
         if not filename:
             return None
+
         if filename.is_absolute():
-            return filename
-        return self.structured_path / filename
+            candidates = [filename]
+        elif filename.parent == Path("."):
+            candidates = [self.structured_path / filename]
+        else:
+            candidates = [filename, self.structured_path / filename]
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        for candidate in candidates:
+            replacement_name = self.LEGACY_KB_FILENAMES.get(candidate.name)
+            if replacement_name:
+                replacement = candidate.with_name(replacement_name)
+                if replacement.exists():
+                    logger.warning(
+                        "Legacy KB filename '%s' is deprecated; using '%s'. Update RAG_KB_DEFAULT_FILE.",
+                        candidate.name,
+                        replacement.name,
+                    )
+                    return replacement
+
+        return candidates[0]
 
     def _load_ecrf_data(self):
         """Load and merge all KB sources for direct matching."""
