@@ -2,7 +2,7 @@
 
 Usage:
     # Set environment variables first:
-    #   RAG_KB_DEFAULT_FILE=data/knowledge_base/structured/ALS2SDTM_TEST.json
+    #   RAG_KB_DEFAULT_FILE=data/knowledge_base/structured/ALS2SDTM_Mapping_Template_v1.0.json
     #   KB_ENABLE_VECTOR_MATCHING=true
     #   KB_VERBOSE=true
     #
@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-os.environ.setdefault("RAG_KB_DEFAULT_FILE", "data/knowledge_base/structured/ALS2SDTM_TEST.json")
+os.environ.setdefault("RAG_KB_DEFAULT_FILE", "data/knowledge_base/structured/ALS2SDTM_Mapping_Template_v1.0.json")
 os.environ.setdefault("KB_ENABLE_VECTOR_MATCHING", "true")
 os.environ.setdefault("KB_VERBOSE", "true")
 

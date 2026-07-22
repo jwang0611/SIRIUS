@@ -132,8 +132,8 @@ OPENROUTER_API_KEY=your_api_key
 OPENROUTER_BASE_URL=https://ai-api.qilu-pharma.com/v1
 DEFAULT_MODEL=google/gemini-3-flash-preview
 
-# 知识库配置
-RAG_KB_DEFAULT_FILE=xxx.parquet
+# 知识库配置（推荐仅填写 structured/ 下的文件名）
+RAG_KB_DEFAULT_FILE=ALS2SDTM_Mapping_Template_v1.0.parquet
 
 # 级联预测阈值（可选，调整 LLM 调用量）
 CASCADE_KB_HIGH_CONF=0.85    # Level 2: KB 高置信度阈值，达到此分数跳过 LLM
@@ -439,8 +439,10 @@ echo %OPENROUTER_API_KEY%
 
 确保 `.env` 中配置了默认 KB：
 ```bash
-RAG_KB_DEFAULT_FILE=xxx.parquet
+RAG_KB_DEFAULT_FILE=ALS2SDTM_Mapping_Template_v1.0.parquet
 ```
+
+旧配置 `ALS2SDTM_TEST.json` / `ALS2SDTM_TEST.parquet` 会自动解析到版本化文件并记录迁移警告。
 
 或通过 Web 界面上传项目特定的 ALS2SDTM 示例文件。
 

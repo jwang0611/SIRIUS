@@ -1,0 +1,185 @@
+{
+  "dataset": "full_pipeline_heldout_v1",
+  "purpose": "End-to-end cascade evaluation containing both production-KB overlaps and records that require AI recommendation.",
+  "limitations": "This dataset measures full-pipeline performance and must not be reported as a prompt-only generalization benchmark. KB_DISAGREE rows require adjudication and are diagnostic, not a clean KB-path regression gate.",
+  "source": {
+    "workbook": "test_mapping_ALS2SDTM.xlsx",
+    "workbook_sha256": "92883e555254fa93e455f58938a662ce9b4cf678d52c83beb284e98bf7fbd414",
+    "sheet": "ALS2SDTM",
+    "input_columns": [
+      "表名",
+      "表",
+      "变量名",
+      "变量"
+    ],
+    "ground_truth_columns": [
+      "SDTM_Domain",
+      "SDTM_Variable"
+    ],
+    "cohort_source_column": "Source"
+  },
+  "production_kb": {
+    "filename": "ALS2SDTM_Mapping_Template_v1.0.json",
+    "sha256": "2a62ed5e8b0eeeda64205abb7348765cb5c417051896858b22c51094732c1b1d",
+    "overlap_key": [
+      "annotation_table",
+      "metadata_table",
+      "annotation_variable",
+      "metadata_variable"
+    ],
+    "mapping_agreement": {
+      "overlap_rows": 181,
+      "agree_rows": 107,
+      "disagree_rows": 74,
+      "exact_rate_against_manual_ground_truth": 0.5911602209944752,
+      "comparison_fields": [
+        "SDTM_Domain",
+        "SDTM_Variable"
+      ],
+      "normalization": "Case-insensitive comparison after trimming whitespace and normalizing mapping-expression separators."
+    }
+  },
+  "curation": {
+    "source_rows": 516,
+    "included_rows": 490,
+    "excluded_rows": 26,
+    "normalized_rows": 1,
+    "reference_source_counts": {
+      "KB": 278,
+      "LLM": 212
+    },
+    "evaluation_cohort_counts": {
+      "AI_RECOMMENDATION": 309,
+      "KB_AGREE": 107,
+      "KB_DISAGREE": 74
+    },
+    "evaluation_cohort_definitions": {
+      "AI_RECOMMENDATION": "The four-field input key is absent from the production KB.",
+      "KB_AGREE": "The four-field input key and normalized SDTM mapping both agree with the production KB; this is the clean KB-path regression cohort.",
+      "KB_DISAGREE": "The four-field input key occurs in the production KB but its normalized SDTM mapping disagrees with manual ground truth; retain for diagnosis and adjudication, not as a clean KB-path regression gate."
+    },
+    "rules": [
+      "Use only the Manual Check SDTM_Domain and SDTM_Variable columns as ground truth.",
+      "Exclude rows without a complete manual mapping.",
+      "Exclude rows whose review comment still contains an unresolved decision marker.",
+      "Normalize NOT SUBMITTED records to an empty SDTM_Domain.",
+      "Classify production-KB overlaps as KB_AGREE or KB_DISAGREE by comparing normalized SDTM_Domain and complete SDTM_Variable expressions.",
+      "Do not copy AI recommendation, score, reviewer names, comments, assignments, or timelines into the held-out artifact."
+    ],
+    "exclusions": [
+      {
+        "source_row_id": "5",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "11",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "12",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "13",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "14",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "15",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "16",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "17",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "18",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "19",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "20",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "21",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "22",
+        "reason": "manual_comment_requires_adjudication"
+      },
+      {
+        "source_row_id": "34",
+        "reason": "manual_comment_requires_adjudication"
+      },
+      {
+        "source_row_id": "115",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "124",
+        "reason": "manual_comment_requires_adjudication"
+      },
+      {
+        "source_row_id": "153",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "154",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "155",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "160",
+        "reason": "manual_comment_requires_adjudication"
+      },
+      {
+        "source_row_id": "167",
+        "reason": "manual_comment_requires_adjudication"
+      },
+      {
+        "source_row_id": "221",
+        "reason": "manual_comment_requires_adjudication"
+      },
+      {
+        "source_row_id": "280",
+        "reason": "manual_comment_requires_adjudication"
+      },
+      {
+        "source_row_id": "352",
+        "reason": "missing_manual_ground_truth"
+      },
+      {
+        "source_row_id": "372",
+        "reason": "manual_comment_requires_adjudication"
+      },
+      {
+        "source_row_id": "445",
+        "reason": "manual_comment_requires_adjudication"
+      }
+    ],
+    "normalizations": [
+      {
+        "source_row_id": "26",
+        "field": "SDTM_Domain",
+        "from": "DS",
+        "to": "",
+        "reason": "NOT SUBMITTED must not carry an SDTM domain"
+      }
+    ]
+  }
+}

@@ -24,6 +24,8 @@ data/processed/*
 !desktop/package-lock.json
 !data/knowledge_base/structured/*.json
 !data/knowledge_base/structured/*.parquet
+!data/evaluation/full_pipeline_heldout_v1.json
+!data/evaluation/full_pipeline_heldout_v1.manifest.json
 # Keep knowledge_base key subdirectories tracked
 !data/knowledge_base/template_spec/*.xlsx
 # Keep example files for user guide

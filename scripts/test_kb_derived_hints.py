@@ -8,7 +8,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 from src.knowledge_base.kb_derived_hints import KBDerivedHints  # noqa: E402
 
-hints = KBDerivedHints.from_json_file("data/knowledge_base/structured/ALS2SDTM_TEST.json")
+hints = KBDerivedHints.from_json_file("data/knowledge_base/structured/ALS2SDTM_Mapping_Template_v1.0.json")
 
 print("=== Direction 1: TESTCD pre-fill ===")
 for mv in ["AIMS0101", "AHKYN", "LBORRES", "AETERM", "CMTRT"]:
