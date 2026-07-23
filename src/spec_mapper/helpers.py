@@ -11,11 +11,11 @@ from openpyxl.styles import PatternFill
 from .core import ExcelWriter
 from .models import ConditionalRecord, SUPPRecord
 from .models.write_result import (
-    RECOVERABLE_WRITE_ERRORS,
     STAGE_CONDITIONAL_MAPPINGS,
     STAGE_SUPP_ROWS,
     StageWriteResult,
     WriteIssue,
+    contains_illegal_characters,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,14 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
         A :class:`StageWriteResult`; each SUPP record counts as one attempt and is
         ``written`` only after its row was actually inserted and filled. Records
         whose target domain is missing from the template are ``skipped``.
+
+    Atomicity: every record is pre-validated (illegal characters) BEFORE the
+    domain's existing SUPP block is deleted and before any row is inserted, so a
+    recoverable per-record problem never leaves a half-filled row behind and
+    never destroys the template's existing SUPP rows. If no record of a domain
+    survives validation the domain is left completely untouched. Any exception
+    raised during the actual insert/fill is unknown/fatal and propagates (the
+    job is marked ``failed`` rather than saving a partial workbook).
     """
     result = StageWriteResult(stage=STAGE_SUPP_ROWS)
 
@@ -103,6 +111,34 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
                     )
                 )
             continue
+
+        # Step 0: Pre-validate every record BEFORE any destructive operation
+        # (deleting the existing SUPP block, inserting rows). A record whose
+        # values openpyxl would reject is recorded as an error with zero
+        # mutation. If nothing survives, the domain is left untouched so the
+        # template's existing SUPP rows are never lost to a failed rewrite.
+        valid_records = []
+        for record in records_sorted:
+            if contains_illegal_characters(*record.to_row_data().values()):
+                result.record_error(
+                    WriteIssue(
+                        code="illegal_characters",
+                        stage=STAGE_SUPP_ROWS,
+                        operation="insert_supp_row",
+                        sheet=domain,
+                    )
+                )
+                logger.warning(
+                    "Skipped SUPP row '%s' in '%s': value contains illegal characters",
+                    record.variable_name,
+                    domain,
+                )
+            else:
+                valid_records.append(record)
+        if not valid_records:
+            logger.warning(f"No writable SUPP rows for domain '{domain}'; existing SUPP block left untouched")
+            continue
+        records_sorted = valid_records
 
         ws = writer.get_worksheet(domain)
 
@@ -151,7 +187,9 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
             insert_row = last_sdtm_row + 1
             logger.debug(f"Inserting after last SDTM row {last_sdtm_row}")
 
-        # Step 4: Insert and fill SUPP rows
+        # Step 4: Insert and fill SUPP rows. Records were pre-validated above,
+        # so any exception here is unknown/fatal and intentionally propagates —
+        # continuing after a mid-fill failure would save a half-written row.
         num_inserted = 0
         for record in records_sorted:
             current_insert_row = insert_row + num_inserted
@@ -159,47 +197,28 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
             # Insert new row, copying format from the row BEFORE the insertion point
             # (not the row after, which may have different formatting)
             copy_from_row = insert_row - 1 if insert_row > 14 else 14
-            try:
-                writer.insert_row(
-                    sheet_name=domain, row_index=current_insert_row, amount=1, copy_format_from_row=copy_from_row
-                )
+            writer.insert_row(
+                sheet_name=domain, row_index=current_insert_row, amount=1, copy_format_from_row=copy_from_row
+            )
 
-                # Fill the row with SUPP data
-                record.insert_row = current_insert_row
-                writer.fill_row(
-                    sheet_name=domain, row=current_insert_row, column_data=record.to_row_data(), highlight=highlight
-                )
+            # Fill the row with SUPP data
+            record.insert_row = current_insert_row
+            writer.fill_row(
+                sheet_name=domain, row=current_insert_row, column_data=record.to_row_data(), highlight=highlight
+            )
 
-                # Overwrite length cell (column D) with a numeric value so that the
-                # cell number format inherited from the SDTM row (e.g. "$"0) renders
-                # correctly.  fill_row writes str(), which Excel treats as text.
-                length_cell = ws.cell(row=current_insert_row, column=4)
-                ref_cell = ws.cell(row=copy_from_row, column=4)
-                with contextlib.suppress(ValueError, TypeError):
-                    length_cell.value = int(record.length)
-                if ref_cell.number_format:
-                    length_cell.number_format = ref_cell.number_format
+            # Overwrite length cell (column D) with a numeric value so that the
+            # cell number format inherited from the SDTM row (e.g. "$"0) renders
+            # correctly.  fill_row writes str(), which Excel treats as text.
+            length_cell = ws.cell(row=current_insert_row, column=4)
+            ref_cell = ws.cell(row=copy_from_row, column=4)
+            with contextlib.suppress(ValueError, TypeError):
+                length_cell.value = int(record.length)
+            if ref_cell.number_format:
+                length_cell.number_format = ref_cell.number_format
 
-                # Set variable order formula (J column = column 10)
-                ws.cell(row=current_insert_row, column=10).value = "=ROW()-13"
-            except RECOVERABLE_WRITE_ERRORS as exc:
-                result.record_error(
-                    WriteIssue(
-                        code="supp_row_insert_failed",
-                        stage=STAGE_SUPP_ROWS,
-                        operation="insert_supp_row",
-                        sheet=domain,
-                        row=current_insert_row,
-                        detail=type(exc).__name__,
-                    )
-                )
-                logger.warning(
-                    "Failed to insert SUPP row '%s' in '%s' (%s)",
-                    record.variable_name,
-                    domain,
-                    type(exc).__name__,
-                )
-                continue
+            # Set variable order formula (J column = column 10)
+            ws.cell(row=current_insert_row, column=10).value = "=ROW()-13"
 
             num_inserted += 1
             result.record_written()
@@ -289,7 +308,14 @@ def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[
 
     Returns:
         A :class:`StageWriteResult`; each conditional record counts as one attempt.
-        Records whose target sheet is missing are ``skipped``.
+        Records whose target sheet is missing are ``skipped``; records whose
+        values openpyxl would reject are recorded as ``illegal_characters``
+        errors BEFORE any cell is touched.
+
+    Idempotent: a column whose header already exists in row 1 (e.g. from a
+    previous run whose output is re-used as the template) is reused in place —
+    its data rows are overwritten and stale rows below the new data cleared —
+    instead of appending a duplicate column pair on every run.
 
     Examples:
         Sheet FATEST:
@@ -320,61 +346,83 @@ def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[
             )
             continue
 
-        logger.info(f"Processing conditional mapping for sheet '{sheet_name}': {len(record.mappings)} row(s)")
-
-        try:
-            # Get worksheet
-            ws = writer.get_worksheet(sheet_name)
-
-            # Get template font style from an existing cell (row 1, col 1)
-            # This ensures new columns match the template's font
-            template_cell = ws.cell(row=1, column=1)
-            template_font: Any = template_cell.font
-
-            # Find last non-empty column in row 1 (header row)
-            last_col = 1
-            for col in range(1, ws.max_column + 1):
-                cell_value = ws.cell(row=1, column=col).value
-                if cell_value:
-                    last_col = col
-
-            # New columns start after last_col
-            num_cols = len(record.column_names)
-            first_col_idx = last_col + 1
-
-            logger.info(f"  Adding {num_cols} column(s) starting at position {first_col_idx} (after column {last_col})")
-
-            # Write headers for all columns
-            for i, col_name in enumerate(record.column_names):
-                col_idx = first_col_idx + i
-                header_cell = ws.cell(row=1, column=col_idx)
-                header_cell.value = col_name
-                if template_font:
-                    header_cell.font = copy_obj(template_font)
-
-            # Write data rows
-            for row_offset, row_values in enumerate(record.mappings, start=2):
-                # row_values is a tuple with len(column_names) values
-                for i, value in enumerate(row_values):
-                    col_idx = first_col_idx + i
-                    cell = ws.cell(row=row_offset, column=col_idx)
-                    cell.value = value
-                    if template_font:
-                        cell.font = copy_obj(template_font)
-
-                logger.debug(f"    Row {row_offset}: {row_values}")
-        except RECOVERABLE_WRITE_ERRORS as exc:
+        # Pre-validate all values BEFORE touching the sheet so a recoverable
+        # problem never leaves partially-written columns behind.
+        flat_values = list(record.column_names) + [v for row in record.mappings for v in row]
+        if contains_illegal_characters(*flat_values):
             result.record_error(
                 WriteIssue(
-                    code="conditional_write_failed",
+                    code="illegal_characters",
                     stage=STAGE_CONDITIONAL_MAPPINGS,
                     operation="write_conditional_columns",
                     sheet=sheet_name,
-                    detail=type(exc).__name__,
                 )
             )
-            logger.warning("Failed to write conditional mapping for '%s' (%s)", sheet_name, type(exc).__name__)
+            logger.warning("Skipped conditional mapping for '%s': value contains illegal characters", sheet_name)
             continue
+
+        logger.info(f"Processing conditional mapping for sheet '{sheet_name}': {len(record.mappings)} row(s)")
+
+        # Get worksheet
+        ws = writer.get_worksheet(sheet_name)
+
+        # Get template font style from an existing cell (row 1, col 1)
+        # This ensures new columns match the template's font
+        template_cell = ws.cell(row=1, column=1)
+        template_font: Any = template_cell.font
+
+        # Existing headers in row 1 (for idempotent reuse) and the last
+        # non-empty header column (for appending genuinely new columns).
+        header_to_col: dict[str, int] = {}
+        last_col = 1
+        for col in range(1, ws.max_column + 1):
+            cell_value = ws.cell(row=1, column=col).value
+            if cell_value:
+                header_to_col[str(cell_value).strip()] = col
+                last_col = col
+
+        # Resolve each column: reuse an existing header column, else append.
+        next_free = last_col + 1
+        col_indices: list[int] = []
+        reused = 0
+        for col_name in record.column_names:
+            existing = header_to_col.get(col_name)
+            if existing is not None:
+                col_indices.append(existing)
+                reused += 1
+            else:
+                col_indices.append(next_free)
+                next_free += 1
+        if reused:
+            logger.info(f"  Reusing {reused} existing column(s) in '{sheet_name}' (repeated run); no duplicates added")
+        else:
+            logger.info(f"  Adding {len(record.column_names)} column(s) starting at position {last_col + 1}")
+
+        # Write headers for all columns
+        for col_name, col_idx in zip(record.column_names, col_indices, strict=True):
+            header_cell = ws.cell(row=1, column=col_idx)
+            header_cell.value = col_name
+            if template_font:
+                header_cell.font = copy_obj(template_font)
+
+        # Write data rows
+        for row_offset, row_values in enumerate(record.mappings, start=2):
+            # row_values is a tuple with len(column_names) values
+            for i, value in enumerate(row_values):
+                cell = ws.cell(row=row_offset, column=col_indices[i])
+                cell.value = value
+                if template_font:
+                    cell.font = copy_obj(template_font)
+
+            logger.debug(f"    Row {row_offset}: {row_values}")
+
+        # Clear stale data below the freshly-written block (a previous run may
+        # have written more rows than this one).
+        first_stale_row = 2 + len(record.mappings)
+        for col_idx in col_indices:
+            for row_idx in range(first_stale_row, ws.max_row + 1):
+                if ws.cell(row=row_idx, column=col_idx).value is not None:
+                    ws.cell(row=row_idx, column=col_idx).value = None
 
         result.record_written()
         logger.info(f"  ✓ Added {len(record.mappings)} row(s) to '{sheet_name}' ({', '.join(record.column_names)})")

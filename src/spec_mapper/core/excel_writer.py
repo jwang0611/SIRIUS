@@ -10,11 +10,11 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from ..models.template_record import CellUpdate
 from ..models.write_result import (
-    RECOVERABLE_WRITE_ERRORS,
     STAGE_CELL_UPDATES,
     STAGE_CODELIST_RECORDS,
     StageWriteResult,
     WriteIssue,
+    contains_illegal_characters,
 )
 from .excel import format_utils as _fmt
 
@@ -158,8 +158,12 @@ class ExcelWriter:
     ) -> StageWriteResult:
         """Update multiple cells at once.
 
-        Each cell is attempted independently: a per-cell failure is recorded as a
-        recoverable error and processing continues with the remaining cells.
+        Each cell is attempted independently. Recognized recoverable
+        preconditions (missing sheet, values openpyxl would reject) are checked
+        BEFORE the cell is touched and recorded as structured errors, so a
+        recoverable outcome never leaves the cell partially modified (e.g. a
+        cleared hyperlink without the new value). Any exception raised during
+        the actual write is unknown/fatal and propagates.
 
         Args:
             updates: List of CellUpdate objects describing the changes
@@ -203,38 +207,39 @@ class ExcelWriter:
                     update.col,
                 )
                 continue
-            try:
-                self.update_cell_value(
-                    update.sheet_name,
-                    update.row,
-                    update.col,
-                    value,
-                    highlight=highlight,
-                    clear_existing=clear_existing,
-                )
-                result.record_written()
-                if update.reason:
-                    logger.debug(f"  Reason: {update.reason}")
-            except RECOVERABLE_WRITE_ERRORS as e:
+            # Recognized recoverable precondition: openpyxl would reject the
+            # value. Checked BEFORE update_cell_value so the cell is never
+            # partially modified (its hyperlink is cleared before the value is
+            # assigned in there).
+            if contains_illegal_characters(value):
                 result.record_error(
                     WriteIssue(
-                        code="cell_write_failed",
+                        code="illegal_characters",
                         stage=STAGE_CELL_UPDATES,
                         operation="update_cell",
                         sheet=update.sheet_name,
                         row=update.row,
                         column=update.col,
-                        detail=type(e).__name__,
                     )
                 )
                 logger.warning(
-                    "Failed to update cell at %s!R%sC%s (%s)",
+                    "Skipped cell update at %s!R%sC%s (illegal characters)",
                     update.sheet_name,
                     update.row,
                     update.col,
-                    type(e).__name__,
                 )
                 continue
+            self.update_cell_value(
+                update.sheet_name,
+                update.row,
+                update.col,
+                value,
+                highlight=highlight,
+                clear_existing=clear_existing,
+            )
+            result.record_written()
+            if update.reason:
+                logger.debug(f"  Reason: {update.reason}")
 
         logger.info("Cell updates: %s/%s written, %s error(s)", result.written, result.attempted, len(result.errors))
         return result
@@ -1714,7 +1719,19 @@ class ExcelWriter:
 
         for domain, recs in by_domain.items():
             for rec in recs:
-                try:
+                # Pre-validate BEFORE mutating: an invalid value must not leave
+                # a half-filled inserted row (or a lone I without J) behind.
+                if contains_illegal_characters(*rec.to_row_data().values()):
+                    result.record_error(
+                        WriteIssue(
+                            code="illegal_characters",
+                            stage=STAGE_CODELIST_RECORDS,
+                            operation="write_codelist",
+                            sheet=sheet_name,
+                        )
+                    )
+                    logger.warning("Skipped CODELIST record for domain '%s': value contains illegal characters", domain)
+                else:
                     key = (rec.domain.upper(), rec.testcd_var.upper(), rec.testcd_value.upper())
                     rec_mutations = 0
 
@@ -1778,17 +1795,6 @@ class ExcelWriter:
                                 sheet=sheet_name,
                             )
                         )
-                except RECOVERABLE_WRITE_ERRORS as exc:
-                    result.record_error(
-                        WriteIssue(
-                            code="codelist_write_failed",
-                            stage=STAGE_CODELIST_RECORDS,
-                            operation="write_codelist",
-                            sheet=sheet_name,
-                            detail=type(exc).__name__,
-                        )
-                    )
-                    logger.warning("Failed to write CODELIST record for domain '%s' (%s)", domain, type(exc).__name__)
 
         self.modified_sheets.add(sheet_name)
         logger.info(

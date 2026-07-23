@@ -16,8 +16,10 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook, load_workbook
 
+from src.spec_mapper import SpecMapper
 from src.spec_mapper.core.excel_writer import ExcelWriter
-from src.spec_mapper.models import CellUpdate, CodelistRecord
+from src.spec_mapper.helpers import insert_supp_rows, process_conditional_mappings
+from src.spec_mapper.models import CellUpdate, CodelistRecord, ConditionalRecord, SUPPRecord
 from src.spec_mapper.models.write_result import (
     STAGE_CELL_UPDATES,
     StageWriteResult,
@@ -397,3 +399,184 @@ class TestInsertPathsIdempotent:
         ]
         writer.close()
         assert len(hits) == 1
+
+
+# ---------------------------------------------------------------------------
+# Per-item atomicity: pre-validation must run BEFORE any destructive mutation
+# ---------------------------------------------------------------------------
+def _dm_supp_state(ws) -> tuple[int, list[str]]:
+    """(count, names) of SUPP-type rows in a domain sheet (column I == SUPP)."""
+    rows = [r for r in range(14, ws.max_row + 1) if str(ws.cell(row=r, column=9).value or "").strip() == "SUPP"]
+    return len(rows), [str(ws.cell(row=r, column=1).value or "") for r in rows]
+
+
+@pytest.mark.skipif(not V32_TEMPLATE.exists(), reason="IG 3.2 template not present")
+class TestSuppInsertAtomicity:
+    """A SUPP record whose values openpyxl would reject must be caught by
+    pre-validation BEFORE the existing SUPP block is deleted or any row is
+    inserted — never leaving a half-written row or destroying old data."""
+
+    def _writer(self, tmp_path: Path) -> ExcelWriter:
+        tpl = tmp_path / "tpl.xlsx"
+        shutil.copy2(V32_TEMPLATE, tpl)
+        return ExcelWriter(tpl)
+
+    def _record(self, name: str, label: str) -> SUPPRecord:
+        return SUPPRecord(
+            sheet_name="DM",
+            variable_name=name,
+            variable_label=label,
+            transformation_def="[RAW]SUBJECT.X",
+            insert_row=0,
+        )
+
+    def test_all_invalid_leaves_domain_untouched(self, tmp_path: Path) -> None:
+        writer = self._writer(tmp_path)
+        before_count, before_names = _dm_supp_state(writer.workbook["DM"])
+        max_row_before = writer.workbook["DM"].max_row
+
+        bad = self._record("BADVAR", "bad\x01label")  # illegal control character
+        result = insert_supp_rows(writer, [bad], highlight=True)
+
+        assert result.written == 0
+        assert result.errors and result.errors[0].code == "illegal_characters"
+        # The template's existing SUPP block was NOT deleted and no row was
+        # inserted: the domain sheet is byte-for-byte untouched in shape.
+        after_count, after_names = _dm_supp_state(writer.workbook["DM"])
+        assert (after_count, after_names) == (before_count, before_names)
+        assert writer.workbook["DM"].max_row == max_row_before
+        writer.close()
+
+    def test_mixed_records_write_valid_fully_and_skip_invalid(self, tmp_path: Path) -> None:
+        writer = self._writer(tmp_path)
+        good = self._record("GOODVAR", "正常标签")
+        bad = self._record("BADVAR", "bad\x01label")
+
+        result = insert_supp_rows(writer, [good, bad], highlight=True)
+
+        assert result.written == 1
+        assert len(result.errors) == 1 and result.errors[0].code == "illegal_characters"
+
+        ws = writer.workbook["DM"]
+        _, names = _dm_supp_state(ws)
+        assert "GOODVAR" in names and "BADVAR" not in names
+        # The valid row is COMPLETE (no half-product): name, label, type, I set.
+        row = next(r for r in range(14, ws.max_row + 1) if ws.cell(row=r, column=1).value == "GOODVAR")
+        assert ws.cell(row=row, column=2).value == "正常标签"
+        assert ws.cell(row=row, column=9).value == "SUPP"
+        writer.close()
+
+
+class TestUpdateCellsPreValidation:
+    def test_illegal_character_value_is_error_and_cell_untouched(self, tmp_path: Path) -> None:
+        writer = ExcelWriter(_domain_workbook(tmp_path))
+        writer.workbook["DM"].cell(row=15, column=8, value="old")
+        updates = [CellUpdate(sheet_name="DM", row=15, col=8, value="bad\x02value")]
+
+        result = writer.update_cells(updates)
+
+        assert result.written == 0
+        assert result.errors and result.errors[0].code == "illegal_characters"
+        # Pre-validation means the cell was never touched at all.
+        assert writer.workbook["DM"].cell(row=15, column=8).value == "old"
+
+
+@pytest.mark.skipif(not V32_TEMPLATE.exists(), reason="IG 3.2 template not present")
+class TestCodelistPreValidation:
+    def test_illegal_character_record_is_error_and_nothing_inserted(self, tmp_path: Path) -> None:
+        tpl = tmp_path / "tpl.xlsx"
+        shutil.copy2(V32_TEMPLATE, tpl)
+        before = _codelist_row_count(tpl)
+
+        writer = ExcelWriter(tpl)
+        rec = CodelistRecord(
+            domain="ZZ",
+            testcd_var="ZZTESTCD",
+            testcd_value="bad\x03value",
+            source_variable="s",
+        )
+        result = writer.write_codelist_records([rec])
+
+        assert result.written == 0
+        assert result.errors and result.errors[0].code == "illegal_characters"
+
+        out = tmp_path / "out.xlsx"
+        writer.save(out)
+        writer.close()
+        assert _codelist_row_count(out) == before  # no row inserted
+
+
+# ---------------------------------------------------------------------------
+# Conditional mapping idempotency (column reuse on repeated runs)
+# ---------------------------------------------------------------------------
+class TestConditionalMappingIdempotent:
+    def _test_sheet_workbook(self, tmp_path: Path) -> Path:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "EGTEST"
+        ws.cell(row=1, column=1, value="Test")
+        ws.cell(row=2, column=1, value="QT")
+        path = tmp_path / "egtest.xlsx"
+        wb.save(path)
+        return path
+
+    def test_repeated_run_reuses_columns_and_clears_stale_rows(self, tmp_path: Path) -> None:
+        writer = ExcelWriter(self._test_sheet_workbook(tmp_path))
+        rec2rows = ConditionalRecord(
+            sheet_name="EGTEST",
+            column_names=["CRF_TESTCD", "CRF_ORRES"],
+            mappings=[("QT", "[RAW]EG.QTCF"), ("HR", "[RAW]EG.HR")],
+        )
+        rec1row = ConditionalRecord(
+            sheet_name="EGTEST",
+            column_names=["CRF_TESTCD", "CRF_ORRES"],
+            mappings=[("QT", "[RAW]EG.QTCF")],
+        )
+
+        assert process_conditional_mappings(writer, [rec2rows]).written == 1
+        # Second run (fewer rows) must reuse the same columns, not append.
+        assert process_conditional_mappings(writer, [rec1row]).written == 1
+
+        ws = writer.workbook["EGTEST"]
+        headers = [str(ws.cell(row=1, column=c).value or "") for c in range(1, ws.max_column + 1)]
+        assert headers.count("CRF_TESTCD") == 1
+        assert headers.count("CRF_ORRES") == 1
+        col = headers.index("CRF_TESTCD") + 1
+        # Fresh data written, stale second row from run 1 cleared.
+        assert ws.cell(row=2, column=col).value == "QT"
+        assert ws.cell(row=3, column=col).value is None
+        writer.close()
+
+
+# ---------------------------------------------------------------------------
+# _guard records full batch mutation counts
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(not V32_TEMPLATE.exists(), reason="IG 3.2 template not present")
+class TestGuardBatchCounting:
+    def _mapper(self, tmp_path: Path) -> SpecMapper:
+        als = tmp_path / "als.xlsx"
+        wb = Workbook()
+        wb.active.title = "Sheet1"
+        wb.save(als)
+        return SpecMapper(als_file=als, template_file=V32_TEMPLATE, als_sheet="Sheet1", log_level="CRITICAL")
+
+    def test_batch_return_count_is_recorded_verbatim(self, tmp_path: Path) -> None:
+        """A guarded method returning N > 1 contributes N to written/attempted,
+        so actual.written reflects real mutations, not call sites."""
+        mapper = self._mapper(tmp_path)
+        result = WriteResult()
+        ret = mapper._guard(result, "styles", "batch_op", lambda: 47)
+        assert ret == 47
+        stage = result.stages["styles"]
+        assert stage.written == 47
+        assert stage.attempted == 47
+
+    def test_single_and_zero_returns_still_correct(self, tmp_path: Path) -> None:
+        mapper = self._mapper(tmp_path)
+        result = WriteResult()
+        mapper._guard(result, "styles", "one_op", lambda: 1)
+        mapper._guard(result, "styles", "no_op_call", lambda: 0)
+        stage = result.stages["styles"]
+        assert stage.written == 1
+        assert stage.skipped == 1
+        assert stage.attempted == 2

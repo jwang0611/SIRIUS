@@ -635,19 +635,29 @@ def _run_spec_mapper_job(
             warn_count = int(actual.get("warnings", 0))
             err_count = int(actual.get("errors", 0))
 
-            # Full, safe structured issue list. The API payload is capped for
-            # size, but the COMPLETE list is persisted to a downloadable JSON so
-            # no skipped/failed item is ever silently dropped (A5 observability).
+            # Full, safe structured issue list. The API payload is normally
+            # capped for size while the COMPLETE list is persisted to a
+            # downloadable JSON. If that persistence fails, fall back to
+            # exposing the FULL list in the job payload instead — items beyond
+            # the cap must never become invisible (A5), and the UI only renders
+            # the download link when the file actually exists (output_issues).
             all_issues = _all_spec_issues(stats)
             issues_total = len(all_issues)
+            payload_issues = all_issues[:_SPEC_ISSUE_CAP]
             issues_json_path: Path | None = None
             if all_issues:
                 candidate = log_dir / f"{output_name}.issues.json"
                 try:
                     candidate.write_text(json.dumps(all_issues, ensure_ascii=False, indent=2), encoding="utf-8")
                     issues_json_path = candidate
-                except OSError:
+                except OSError as exc:
                     issues_json_path = None
+                    payload_issues = all_issues
+                    logging.warning(
+                        "Could not persist the full issue list (%s); exposing all %d issues in the job payload",
+                        type(exc).__name__,
+                        issues_total,
+                    )
                 if session_id and issues_json_path and issues_json_path.exists():
                     session_manager.add_file(session_id, str(issues_json_path))
 
@@ -691,7 +701,7 @@ def _run_spec_mapper_job(
                 spec_skipped=skipped,
                 spec_warnings=warn_count,
                 spec_errors=err_count,
-                spec_issues=all_issues[:_SPEC_ISSUE_CAP],
+                spec_issues=payload_issues,
                 spec_issues_total=issues_total,
                 output_issues=str(issues_json_path) if issues_json_path else None,
             )

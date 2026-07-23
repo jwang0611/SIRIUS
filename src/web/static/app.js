@@ -1358,17 +1358,22 @@ function pollSpecJob(jobId) {
               const where = escapeHtml(`${it.stage || ""} / ${it.operation || ""}${loc ? " @ " + loc : ""}`);
               return `<li><code>${escapeHtml(it.code || "issue")}</code> — ${where}</li>`;
             }).join("");
-            // Honest truncation: the list may be capped, so show how many are
-            // displayed vs. the true total and always offer the full, safe JSON
-            // for download — never claim the remainder is "in the log".
+            // Honest truncation: show how many are displayed vs. the true
+            // total. The full-detail download link is rendered ONLY when the
+            // backend actually persisted the file (output_issues) — never a
+            // dead link. If persistence failed, the backend falls back to
+            // including the complete list in spec_issues, so nothing is lost.
             const truncated = issuesTotal > issues.length;
+            const hasIssuesFile = Boolean(job.output_issues);
             const truncNote = truncated
               ? `<li>… 其余 ${issuesTotal - issues.length} 项已省略，请下载完整明细查看</li>`
               : "";
             const summaryLabel = truncated
               ? `问题明细（显示 ${issues.length} / 共 ${issuesTotal}）`
               : `问题明细（${issuesTotal}）`;
-            const downloadIssues = `<p><a href="api/jobs/${jobId}/download-issues" class="download-btn download-btn-sm">📄 下载完整问题明细 (JSON，共 ${issuesTotal} 项)</a></p>`;
+            const downloadIssues = hasIssuesFile
+              ? `<p><a href="api/jobs/${jobId}/download-issues" class="download-btn download-btn-sm">📄 下载完整问题明细 (JSON，共 ${issuesTotal} 项)</a></p>`
+              : "";
             issuesHtml = `<details class="spec-issues"><summary>${summaryLabel}</summary><ul>${rows}${truncNote}</ul>${downloadIssues}</details>`;
           }
 

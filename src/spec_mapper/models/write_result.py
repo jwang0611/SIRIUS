@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from openpyxl.utils.exceptions import IllegalCharacterError
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 
 class RecoverableWriteError(Exception):
@@ -37,23 +37,35 @@ class RecoverableWriteError(Exception):
     item is recorded as a structured error while the rest of the workbook is
     still written and saved.
 
-    Only this dedicated type — plus openpyxl's :class:`IllegalCharacterError`
-    at the actual cell-write boundary — is downgraded to a structured write
-    error. Every other exception (``ValueError``, ``AttributeError``,
-    ``TypeError``, ``KeyError``, ``OSError``, ``RuntimeError``, ...) is treated
-    as unknown/fatal and propagates so the job is marked ``failed`` — a broad
-    ``except ValueError`` at a call boundary would otherwise mask genuine bugs
-    behind a "recoverable" label.
+    Only this dedicated type is downgraded to a structured write error at the
+    single-call ``_guard`` boundary. Every other exception (``ValueError``,
+    ``AttributeError``, ``TypeError``, ``KeyError``, ``OSError``,
+    ``RuntimeError``, openpyxl's ``IllegalCharacterError``, ...) is treated as
+    unknown/fatal and propagates so the job is marked ``failed`` — a broad
+    ``except`` at a call boundary would otherwise mask genuine bugs behind a
+    "recoverable" label, or save a workbook whose counts do not reflect a
+    partial, mid-item mutation.
+
+    Per-item write loops therefore do NOT downgrade exceptions at all. Instead
+    they *pre-validate* each item (via :func:`contains_illegal_characters` and
+    explicit sheet/target checks) **before** performing any workbook mutation
+    for it: an invalid item is recorded as a structured error with zero
+    mutation, so a recorded "recoverable" outcome never coexists with a
+    half-written row or a destructively-modified block.
     """
 
 
-# Per-item write loops (single cell / single CODELIST record / single inserted
-# row) catch this narrow pair: our own recognized recoverable precondition and
-# openpyxl rejecting a specific cell value. Because each item is accounted for
-# the instant it succeeds, a failure on item *N* never loses the writes already
-# recorded for items ``1..N-1``. The single-call ``_guard`` boundary is even
-# narrower — it catches ``RecoverableWriteError`` alone.
-RECOVERABLE_WRITE_ERRORS: tuple[type[Exception], ...] = (RecoverableWriteError, IllegalCharacterError)
+def contains_illegal_characters(*values: Any) -> bool:
+    """True when any value's string form would be rejected by openpyxl.
+
+    Mirrors openpyxl's own cell-write check (``ILLEGAL_CHARACTERS_RE`` over
+    ``str`` values — control characters that cannot be stored in XLSX). Used to
+    pre-validate a whole item before any destructive workbook operation, so an
+    ``IllegalCharacterError`` can never fire mid-item and leave a half-written
+    row behind.
+    """
+    return any(isinstance(value, str) and ILLEGAL_CHARACTERS_RE.search(value) for value in values)
+
 
 # --- stage name constants (operation groups tracked by SpecMapper.process) ----
 STAGE_CELL_UPDATES = "cell_updates"

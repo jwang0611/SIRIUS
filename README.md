@@ -521,9 +521,10 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 
 **A5 复审加固（写入计数真实性、错误分类、可观测性完整）**
 - CODELIST 与 CONTENT/域插入路径的“真实 mutation”计数：CODELIST 记录仅在插入新行或填充空白 I/J 单元格时计入 `written`，已完全满足的记录记为 `skipped`（`codelist_unchanged`），不再产生 phantom write
-- 重复运行幂等性：`add_supp_to_content_sheet` 对已存在的 `SUPP{domain}` 行就地更新而非追加；`add_nonstandard_domain_to_content` 与 `add_external_coding_variables` 对已存在项跳过插入并返回真实插入数——以第一次输出作为第二次模板重跑时，CONTENT / SUPP / CODELIST 均不产生重复行（IG 3.2 与 IG 3.4 均有断言）
-- 错误分类收窄：新增专用 `RecoverableWriteError`；单次写操作边界（`_guard`）只降级该类型，逐项写循环只额外容忍 openpyxl `IllegalCharacterError`；任何裸 `ValueError` 或其他异常均视为未知/致命并向上传播使 Job `failed`，不再被宽泛 `except ValueError` 掩盖；单次写操作以返回计数（而非中途抛异常）表达可恢复状态，避免保存计数不实的部分工作簿
-- 问题明细不再静默截断：Job 新增 `spec_issues_total` 与完整问题清单文件（`output_issues`），新增 `GET /api/jobs/{job_id}/download-issues` 下载完整、脱敏的结构化清单；前端明确展示“显示 N / 共 M”并提供完整明细下载，不再声称“其余见日志”
+- 重复运行幂等性：`add_supp_to_content_sheet` 对已存在的 `SUPP{domain}` 行就地更新而非追加；`add_nonstandard_domain_to_content` 与 `add_external_coding_variables` 对已存在项跳过插入并返回真实插入数；`process_conditional_mappings` 复用已存在的 CRF_* 列（覆写数据并清理陈旧行）而非每次追加——以第一次输出作为第二次模板重跑时，CONTENT / SUPP / CODELIST / TEST sheet 条件列均不产生重复（IG 3.2 与 IG 3.4 均有断言）
+- 错误分类收窄 + 逐项原子性：新增专用 `RecoverableWriteError`，单次写操作边界（`_guard`）只降级该类型；逐项写循环（SUPP 行 / unmatched 行 / 条件映射 / CODELIST / 单元格）在**任何破坏性操作之前**预校验非法字符（与 openpyxl `ILLEGAL_CHARACTERS_RE` 同源）与目标存在性，不合法的项记录结构化 error（`illegal_characters`）且零 mutation——可恢复结果绝不与半成品行或已删除的旧 SUPP 块并存；写入过程中抛出的任何异常（含裸 `ValueError`、`IllegalCharacterError`）均为未知/致命并传播使 Job `failed`，不会保存计数不实的部分工作簿
+- `_guard` 按真实批量计数记账：批量方法（wrap_text、Source 列、固定变量规则等）返回 N>1 时记 `record_written(N)`，`actual.written` 反映真实 mutation 数而非调用次数
+- 问题明细不再静默截断：Job 新增 `spec_issues_total` 与完整问题清单文件（`output_issues`），新增 `GET /api/jobs/{job_id}/download-issues` 下载完整、脱敏的结构化清单；前端明确展示“显示 N / 共 M”，且仅在清单文件真实存在时渲染下载链接；若清单持久化失败（OSError），完整列表回退到 Job payload（`spec_issues`）——任何情况下超出 cap 的项都不会不可见
 - 可下载日志的 traceback 防泄漏：日志改由专用 formatter 输出，脱敏绝对路径并且从不追加 `exc_info` / `stack_info`，因此同线程内任何 `logger.exception(...)` 都不会把服务器路径或内部堆栈写入用户可下载日志（不修改共享 `LogRecord`，不影响其它 handler）
 
 ### v1.0 (2026-07-01)

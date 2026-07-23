@@ -262,19 +262,23 @@ def test_merged_cells_intact(e2e) -> None:
 def test_repeated_run_no_duplicates(ig: str, tmp_path: Path) -> None:
     # Cover both template families: IG 3.2 (pre-populated CODELIST) and IG 3.4
     # (empty CODELIST) exercise the delete-existing-SUPP + CODELIST merge dedup
-    # on re-run so a regression in either is caught by the gate.
+    # on re-run so a regression in either is caught by the gate. IG 3.2 keeps
+    # its DEFAULT create_test_sheets=True so the conditional-mapping path (TEST
+    # sheet CRF_* columns) is exercised too; IG 3.4 has no per-domain TEST
+    # sheets, so that path stays disabled there.
     if not TEMPLATES[ig].exists():
         pytest.skip(f"{ig} template not present")
+    create_test_sheets = CREATE_TEST_SHEETS[ig]
     logging.disable(logging.CRITICAL)
     try:
         # Run 1: real template -> out1
-        run1 = _run_pipeline(tmp_path, ig, create_test_sheets=False)
+        run1 = _run_pipeline(tmp_path, ig, create_test_sheets=create_test_sheets)
         # Run 2: feed the generated workbook back in as the template -> out2
         als2 = tmp_path / "als2.xlsx"
         write_synthetic_als(als2)
         out2 = tmp_path / "out2.xlsx"
         mapper = SpecMapper(als_file=als2, template_file=run1.out, als_sheet="Sheet1", log_level="CRITICAL")
-        mapper.process(output_file=out2, highlight=True, create_test_sheets=False)
+        mapper.process(output_file=out2, highlight=True, create_test_sheets=create_test_sheets)
 
         wb = load_workbook(out2)
         try:
@@ -301,6 +305,18 @@ def test_repeated_run_no_duplicates(ig: str, tmp_path: Path) -> None:
                 if str(content.cell(row=r, column=1).value or "").strip().upper() == "SUPPDM"
             ]
             assert len(supp_dm) == 1, "CONTENT SUPPDM row must not duplicate on re-run"
+            # Conditional-mapping path (IG 3.2): the CRF_* columns written into
+            # a TEST sheet must be REUSED on re-run, never appended again.
+            if create_test_sheets:
+                crf_sheets = 0
+                for sheet in wb.sheetnames:
+                    ws = wb[sheet]
+                    headers = [str(ws.cell(row=1, column=c).value or "") for c in range(1, ws.max_column + 1)]
+                    if "CRF_TESTCD" in headers or "CRF_ORRES" in headers:
+                        crf_sheets += 1
+                        assert headers.count("CRF_TESTCD") <= 1, f"duplicate CRF_TESTCD columns in '{sheet}'"
+                        assert headers.count("CRF_ORRES") <= 1, f"duplicate CRF_ORRES columns in '{sheet}'"
+                assert crf_sheets >= 1, "expected the conditional-mapping path to have written CRF_* columns"
         finally:
             wb.close()
     finally:

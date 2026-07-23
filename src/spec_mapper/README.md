@@ -211,19 +211,26 @@ stats = {
 **真实 mutation 计数（no phantom write）**：`written` 反映真实发生的 workbook 变更，而非“调用未抛异常”。
 例如 CODELIST 记录仅在插入新行或填充空白 I/J 单元格时计入 `written`；若该记录的行已存在且 I/J 已填，则为
 no-op，记为 `skipped`（`code="codelist_unchanged"`）。经 `_guard` 的单次写操作以**返回的 mutation 计数**表达真实结果：
-返回 `>0` 记为 `written`，返回 `0` 记为 `skipped`（`code="no_op"`）。
+返回 `N>0` 记为 `record_written(N)`（批量方法如 wrap_text / Source 列 / 固定变量规则贡献全部 N），
+返回 `0` 记为 `skipped`（`code="no_op"`）——`actual.written` 是真实 mutation 数，不是调用次数。
 
 **重复运行幂等**：以第一次输出作为第二次运行的模板时，插入类写操作不会产生重复行——
 `add_supp_to_content_sheet` 对已存在的 `SUPP{domain}` 行就地更新，`add_nonstandard_domain_to_content` /
-`add_external_coding_variables` 跳过已存在项并返回真实插入数，CODELIST 走 merge/dedup。
+`add_external_coding_variables` 跳过已存在项并返回真实插入数，CODELIST 走 merge/dedup，
+`process_conditional_mappings` 按表头名复用已存在的 CRF_* 列（覆写数据并清空陈旧行）而非重复追加。
 
-### 错误分类（recoverable vs 未知/致命）
+### 错误分类（recoverable vs 未知/致命）与逐项原子性
 
-- **可恢复**：专用 `RecoverableWriteError`（已识别的逐项写入前置条件），以及逐项单元格写入时 openpyxl 的
-  `IllegalCharacterError`。它们被降级为结构化 `errors` 并继续处理，工作簿仍会保存。
-- **未知 / 致命**：其它任何异常（含裸 `ValueError`、`KeyError`、`OSError`、`RuntimeError` …）都会向上传播，
-  使 Job 判定为 `failed`——不再用宽泛 `except ValueError` 把真实 bug 掩盖成“可恢复”。单次写操作在调用边界只
-  降级 `RecoverableWriteError`；因为可恢复状态来自返回值而非中途抛出的异常，绝不会保存“计数不实的部分工作簿”。
+- **可恢复 = 预校验，不 = 捕获异常**。逐项写循环（单元格 / SUPP 行 / unmatched 行 / 条件映射 / CODELIST 记录）
+  在执行**任何**破坏性操作（删除既有 SUPP 块、插行、清 hyperlink）之前，先校验目标存在性与非法字符
+  （`contains_illegal_characters`，与 openpyxl 的 `ILLEGAL_CHARACTERS_RE` 同源）。不合法的项记录结构化
+  error（`code="illegal_characters"`）且**零 mutation**；若某域的 SUPP 记录全部不合法，该域完全不被触碰
+  （旧 SUPP 块保留）。因此“可恢复”结果绝不会与半成品行或已被破坏的旧数据并存。
+- **`_guard` 单次写操作**只降级专用 `RecoverableWriteError`；可恢复状态来自返回计数（前置条件不满足返回 0），
+  而非中途抛出的异常。
+- **未知 / 致命**：写入过程中抛出的任何其它异常（含裸 `ValueError`、openpyxl `IllegalCharacterError`、
+  `KeyError`、`OSError`、`RuntimeError` …）一律向上传播，使 Job 判定为 `failed`——绝不保存
+  “计数不实的部分工作簿”，也不会用宽泛 `except` 把真实 bug 掩盖成“可恢复”。
 
 ### warnings / errors 安全约定（GxP / PHI）
 
@@ -241,8 +248,9 @@ Python traceback 或完整异常文本。
 
 Job 状态额外暴露 `spec_attempted` / `spec_written` / `spec_skipped` / `spec_warnings` / `spec_errors` 安全摘要，
 以及结构化问题清单：`spec_issues`（前 N 项，API payload 有上限）与 `spec_issues_total`（真实总数）。
-完整、脱敏的问题清单持久化为文件并可经 `GET /api/jobs/{job_id}/download-issues` 下载——任何被跳过/失败的写入项
-都可查看，不会被静默丢弃；前端明确展示“显示 N / 共 M”并提供完整明细下载。
+完整、脱敏的问题清单持久化为文件（`output_issues`）并可经 `GET /api/jobs/{job_id}/download-issues` 下载。
+若持久化失败（OSError），完整列表回退到 `spec_issues` payload 本身——任何被跳过/失败的写入项在任何情况下都
+可查看，不会被静默丢弃；前端明确展示“显示 N / 共 M”，且仅在 `output_issues` 真实存在时渲染下载链接（绝无死链）。
 
 可下载日志由专用 formatter 输出：脱敏绝对路径，且从不追加 `exc_info` / `stack_info`，因此同线程内任何
 `logger.exception(...)` 都不会把服务器路径或内部堆栈写入用户可下载日志。
@@ -413,10 +421,10 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 - 新增基于真实 IG 3.2 / IG 3.4 模板的端到端测试（cell update、SUPP、QNAM/QVAL、CODELIST merge/insert、公式与超链接保持/生成、样式、生成高亮、合并单元格、重复运行去重、可恢复失败、致命失败）
 
 **A5 复审加固**
-- CODELIST 与经 `_guard` 的写操作按真实 mutation 计数：已满足的 CODELIST 记录记为 `skipped`（`codelist_unchanged`），消除 phantom write
-- 插入路径重复运行幂等：`add_supp_to_content_sheet` 就地更新已存在 `SUPP{domain}`；`add_nonstandard_domain_to_content` / `add_external_coding_variables` 跳过已存在项并返回真实插入数；端到端断言 CONTENT/SUPP/CODELIST 重跑不产生重复行（IG 3.2 与 IG 3.4）
-- 新增专用 `RecoverableWriteError`：调用边界只降级该类型（逐项写循环另容忍 openpyxl `IllegalCharacterError`），裸 `ValueError` 等未知异常一律 `failed`；可恢复状态来自返回计数而非中途抛异常，避免保存计数不实的部分工作簿
-- 结构化问题清单不再静默截断：新增 `spec_issues_total` 与完整清单文件 + `GET /api/jobs/{job_id}/download-issues`；前端展示“显示 N / 共 M”并提供完整下载
+- CODELIST 与经 `_guard` 的写操作按真实 mutation 计数：已满足的 CODELIST 记录记为 `skipped`（`codelist_unchanged`），消除 phantom write；`_guard` 对批量方法记 `record_written(N)`，`actual.written` 反映真实 mutation 数
+- 插入路径重复运行幂等：`add_supp_to_content_sheet` 就地更新已存在 `SUPP{domain}`；`add_nonstandard_domain_to_content` / `add_external_coding_variables` 跳过已存在项并返回真实插入数；`process_conditional_mappings` 复用已存在 CRF_* 列并清理陈旧行；端到端断言 CONTENT/SUPP/CODELIST/条件列重跑不产生重复（IG 3.2 与 IG 3.4）
+- 新增专用 `RecoverableWriteError` + 逐项预校验原子性：`_guard` 只降级该类型；逐项写循环在任何破坏性操作前预校验非法字符与目标存在性（`illegal_characters` 结构化 error、零 mutation；某域 SUPP 全部不合法时该域不被触碰）；写入中抛出的任何异常（含裸 `ValueError` / `IllegalCharacterError`）一律 `failed`，绝不保存计数不实或半成品的部分工作簿
+- 结构化问题清单不再静默截断：新增 `spec_issues_total` 与完整清单文件 + `GET /api/jobs/{job_id}/download-issues`；持久化失败时完整列表回退到 payload；前端展示“显示 N / 共 M”，仅在文件存在时渲染下载链接
 - 可下载日志改用专用 formatter：脱敏绝对路径并从不追加 `exc_info` / `stack_info`，`logger.exception(...)` 不会泄漏 traceback / 服务器路径（不修改共享 `LogRecord`）
 
 ### v0.2.0 (2026-03-11)

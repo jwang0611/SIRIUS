@@ -307,3 +307,38 @@ def test_truncated_issues_are_downloadable(spec_workspace: Path, monkeypatch) ->
     payload = _json.loads(resp.content)
     assert isinstance(payload, list)
     assert len(payload) == job.spec_issues_total
+
+
+def test_issue_persistence_failure_falls_back_to_full_payload(spec_workspace: Path, monkeypatch) -> None:
+    """If the full issue file cannot be written, the COMPLETE list must fall
+    back into the job payload (nothing invisible) and no dead download link is
+    advertised (output_issues stays unset)."""
+    import pathlib
+
+    from src.web import tasks as tasks_mod
+
+    monkeypatch.setattr(tasks_mod, "_SPEC_ISSUE_CAP", 1)
+
+    def boom(self, *a, **k):
+        raise RecoverableWriteError("recoverable")
+
+    monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
+
+    real_write_text = pathlib.Path.write_text
+
+    def failing_write_text(self, *args, **kwargs):
+        if str(self).endswith(".issues.json"):
+            raise OSError("disk full")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "write_text", failing_write_text)
+
+    job = job_manager.get_job(_run_job())
+    assert job.state == "completed_with_errors"
+    # No file -> no download path exposed (the UI hides the link).
+    assert job.output_issues is None
+    # Fallback: the FULL list is in the payload, so items beyond the cap are
+    # still visible despite the persistence failure.
+    assert job.spec_issues_total > 1
+    assert len(job.spec_issues) == job.spec_issues_total
+    assert job.to_dict()["output_issues"] is None

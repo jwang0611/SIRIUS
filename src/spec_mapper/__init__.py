@@ -31,7 +31,6 @@ from .core import ExcelReader, ExcelWriter, Mapper
 from .helpers import insert_supp_rows, process_conditional_mappings
 from .models import ALSRecord, CellUpdate, ConditionalRecord, SUPPRecord, TemplateRecord
 from .models.write_result import (
-    RECOVERABLE_WRITE_ERRORS,
     STAGE_CONTENT_DOMAINS,
     STAGE_EXTERNAL_CODING,
     STAGE_FIXED_VARIABLE_RULES,
@@ -43,6 +42,7 @@ from .models.write_result import (
     StageWriteResult,
     WriteIssue,
     WriteResult,
+    contains_illegal_characters,
 )
 from .utils import ConfigLoader
 
@@ -653,10 +653,13 @@ class SpecMapper:
     ) -> int | None:
         """Run a single workbook-mutating call and record its real outcome.
 
-        The wrapped method returns the number of workbook mutations it made, so
-        this records ``written`` only when the call actually changed the
-        workbook (>0). A no-op call (target missing / nothing to do) is recorded
-        as ``skipped`` — never as a phantom write.
+        The wrapped method returns the number of workbook mutations it made and
+        that full count is recorded — a batch method that touched 47 cells
+        contributes 47 to both ``attempted`` and ``written``, so
+        ``actual.written`` reflects real mutations, not call sites. A no-op
+        call (target missing / nothing to do) is recorded as one ``skipped``
+        attempt — never as a phantom write. A failed call is recorded as one
+        errored attempt.
 
         A single-call op is atomic from the caller's view: it either returns a
         mutation count (its recoverable preconditions are handled internally by
@@ -688,7 +691,9 @@ class SpecMapper:
 
         mutated = ret if isinstance(ret, int) else (1 if ret else 0)
         if mutated > 0:
-            stage_res.record_written()
+            # Record the REAL mutation count: batch methods (wrap_text, source
+            # columns, fixed rules, ...) may mutate N > 1 cells in one call.
+            stage_res.record_written(mutated)
         else:
             # Exception-free but no mutation: surface as a skip, not a write.
             stage_res.record_skipped(WriteIssue(code="no_op", stage=stage, operation=operation, sheet=guard_sheet))
@@ -707,7 +712,11 @@ class SpecMapper:
         Returns:
             A :class:`StageWriteResult`; each unmatched record counts as one
             attempt and is ``written`` after its row is inserted and filled.
-            Records whose target domain sheet is missing are ``skipped``.
+            Records whose target domain sheet is missing are ``skipped``;
+            records whose values would be rejected by openpyxl are recorded as
+            ``illegal_characters`` errors *before* any workbook mutation, so a
+            recoverable outcome never leaves a half-written row. Any exception
+            raised mid-insert is unknown/fatal and propagates.
         """
         from openpyxl.styles import PatternFill
 
@@ -746,48 +755,48 @@ class SpecMapper:
 
             written_in_domain = 0
             for rec in records:
-                current_row = insert_row + written_in_domain
-                copy_from_row = insert_row - 1 if insert_row > 14 else 14
-                try:
-                    writer.insert_row(
-                        sheet_name=domain, row_index=current_row, amount=1, copy_format_from_row=copy_from_row
-                    )
-
-                    # A: Variable Name
-                    ws.cell(row=current_row, column=1).value = rec["variable"]
-                    ws.cell(row=current_row, column=1).fill = blue_fill
-
-                    # B: Variable Label - leave empty for user to define
-                    ws.cell(row=current_row, column=2).value = None
-                    ws.cell(row=current_row, column=2).fill = blue_fill
-
-                    # F: Source
-                    ws.cell(row=current_row, column=6).value = rec.get("source", "CRF")
-                    ws.cell(row=current_row, column=6).fill = blue_fill
-
-                    # H: Transformation definition
-                    ws.cell(row=current_row, column=8).value = rec.get("transformation", "")
-                    ws.cell(row=current_row, column=8).fill = blue_fill
-
-                    # I: Variable Type
-                    ws.cell(row=current_row, column=9).value = "SDTM"
-                    ws.cell(row=current_row, column=9).fill = blue_fill
-
-                    # J: Variable Order
-                    ws.cell(row=current_row, column=10).value = "=ROW()-13"
-                except RECOVERABLE_WRITE_ERRORS as exc:
+                # Pre-validate BEFORE inserting anything: an invalid value must
+                # not leave a half-filled inserted row behind.
+                if contains_illegal_characters(rec.get("variable"), rec.get("source"), rec.get("transformation")):
                     result.record_error(
                         WriteIssue(
-                            code="unmatched_row_insert_failed",
+                            code="illegal_characters",
                             stage=STAGE_UNMATCHED_ROWS,
                             operation="insert_unmatched_row",
                             sheet=domain,
-                            row=current_row,
-                            detail=type(exc).__name__,
                         )
                     )
-                    self.logger.warning("Failed to insert unmatched row in '%s' (%s)", domain, type(exc).__name__)
+                    self.logger.warning("Skipped unmatched row in '%s': value contains illegal characters", domain)
                     continue
+
+                current_row = insert_row + written_in_domain
+                copy_from_row = insert_row - 1 if insert_row > 14 else 14
+                writer.insert_row(
+                    sheet_name=domain, row_index=current_row, amount=1, copy_format_from_row=copy_from_row
+                )
+
+                # A: Variable Name
+                ws.cell(row=current_row, column=1).value = rec["variable"]
+                ws.cell(row=current_row, column=1).fill = blue_fill
+
+                # B: Variable Label - leave empty for user to define
+                ws.cell(row=current_row, column=2).value = None
+                ws.cell(row=current_row, column=2).fill = blue_fill
+
+                # F: Source
+                ws.cell(row=current_row, column=6).value = rec.get("source", "CRF")
+                ws.cell(row=current_row, column=6).fill = blue_fill
+
+                # H: Transformation definition
+                ws.cell(row=current_row, column=8).value = rec.get("transformation", "")
+                ws.cell(row=current_row, column=8).fill = blue_fill
+
+                # I: Variable Type
+                ws.cell(row=current_row, column=9).value = "SDTM"
+                ws.cell(row=current_row, column=9).fill = blue_fill
+
+                # J: Variable Order
+                ws.cell(row=current_row, column=10).value = "=ROW()-13"
 
                 written_in_domain += 1
                 result.record_written()
