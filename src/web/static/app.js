@@ -1303,6 +1303,17 @@ runSpecMapperBtn?.addEventListener("click", async () => {
   }
 });
 
+// Escape untrusted-ish text before inserting into innerHTML.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[ch]);
+}
+
 // Poll Spec Mapper job
 function pollSpecJob(jobId) {
   if (specPollTimer) clearInterval(specPollTimer);
@@ -1322,26 +1333,77 @@ function pollSpecJob(jobId) {
       if (specProgressPct) specProgressPct.textContent = `${percentage}%`;
       if (specProgressText) specProgressText.textContent = job.message || "处理中...";
 
-      if (job.state === "completed") {
+      if (job.state === "completed" || job.state === "completed_with_errors") {
         clearInterval(specPollTimer);
-        if (specProgressPct) specProgressPct.textContent = "✓ 完成";
+        const needsReview = job.state === "completed_with_errors";
+        if (specProgressPct) specProgressPct.textContent = needsReview ? "⚠️ 需复核" : "✓ 完成";
 
         if (job.output_excel && specDownloadArea) {
+          const attempted = Number(job.spec_attempted) || 0;
+          const written = Number(job.spec_written) || 0;
+          const skipped = Number(job.spec_skipped) || 0;
+          const warnings = Number(job.spec_warnings) || 0;
+          const errors = Number(job.spec_errors) || 0;
+          const summary = `<p class="spec-write-summary">尝试 ${attempted} · 写入 ${written} · 跳过 ${skipped} · 警告 ${warnings} · 错误 ${errors}</p>`;
+
+          // Locatable, safe detail so the user can see *which* items failed/skipped.
+          const issues = Array.isArray(job.spec_issues) ? job.spec_issues : [];
+          const issuesTotal = Number(job.spec_issues_total) || issues.length;
+          let issuesHtml = "";
+          if (needsReview && issues.length) {
+            const rows = issues.map((it) => {
+              const loc = [it.sheet, it.row != null ? `行 ${it.row}` : "", it.column != null ? `列 ${it.column}` : ""]
+                .filter(Boolean)
+                .join(" ");
+              const where = escapeHtml(`${it.stage || ""} / ${it.operation || ""}${loc ? " @ " + loc : ""}`);
+              return `<li><code>${escapeHtml(it.code || "issue")}</code> — ${where}</li>`;
+            }).join("");
+            // Honest truncation: show how many are displayed vs. the true
+            // total. The full-detail download link is rendered ONLY when the
+            // backend actually persisted the file (output_issues) — never a
+            // dead link. If persistence failed, the backend falls back to
+            // including the complete list in spec_issues, so nothing is lost.
+            const truncated = issuesTotal > issues.length;
+            const hasIssuesFile = Boolean(job.output_issues);
+            const truncNote = truncated
+              ? `<li>… 其余 ${issuesTotal - issues.length} 项已省略，请下载完整明细查看</li>`
+              : "";
+            const summaryLabel = truncated
+              ? `问题明细（显示 ${issues.length} / 共 ${issuesTotal}）`
+              : `问题明细（${issuesTotal}）`;
+            const downloadIssues = hasIssuesFile
+              ? `<p><a href="api/jobs/${jobId}/download-issues" class="download-btn download-btn-sm">📄 下载完整问题明细 (JSON，共 ${issuesTotal} 项)</a></p>`
+              : "";
+            issuesHtml = `<details class="spec-issues"><summary>${summaryLabel}</summary><ul>${rows}${truncNote}</ul>${downloadIssues}</details>`;
+          }
+
+          // completed_with_errors still yields a downloadable workbook for manual review.
           let downloadButtons = `
             <a href="api/jobs/${jobId}/download?format=excel" class="download-btn">📥 下载 Spec Excel</a>
           `;
           downloadButtons += `
             <button onclick="window.location.reload()" class="download-btn">🔄 刷新页面</button>
           `;
+          const heading = needsReview ? "⚠️ Spec 已生成，请先人工复核" : "✅ Spec 生成成功！";
+          const reviewNote = needsReview
+            ? `<p>部分写入未成功或被跳过，已生成的 Excel 仍可下载供人工复核。</p>`
+            : "";
           specDownloadArea.innerHTML = `
             <div class="success-message">
-              <h3>✅ Spec 生成成功！</h3>
+              <h3>${heading}</h3>
+              ${reviewNote}
+              ${summary}
+              ${issuesHtml}
               <div class="download-buttons">${downloadButtons}</div>
             </div>
           `;
         }
 
-        showToast({ type: "success", title: "Spec 生成成功", message: "SDTM 规范文档已生成完成" });
+        if (needsReview) {
+          showToast({ type: "warning", title: "Spec 已生成，需复核", message: "部分写入未成功，请下载后人工复核" });
+        } else {
+          showToast({ type: "success", title: "Spec 生成成功", message: "SDTM 规范文档已生成完成" });
+        }
       } else if (job.state === "failed") {
         clearInterval(specPollTimer);
         if (specProgressPct) specProgressPct.textContent = "✗ 失败";

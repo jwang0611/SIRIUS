@@ -5,5 +5,17 @@ from .codelist_record import CodelistRecord
 from .conditional_record import ConditionalRecord
 from .supp_record import SUPPRecord
 from .template_record import CellUpdate, TemplateRecord
+from .write_result import RecoverableWriteError, StageWriteResult, WriteIssue, WriteResult
 
-__all__ = ["ALSRecord", "CellUpdate", "CodelistRecord", "ConditionalRecord", "SUPPRecord", "TemplateRecord"]
+__all__ = [
+    "ALSRecord",
+    "CellUpdate",
+    "CodelistRecord",
+    "ConditionalRecord",
+    "RecoverableWriteError",
+    "SUPPRecord",
+    "StageWriteResult",
+    "TemplateRecord",
+    "WriteIssue",
+    "WriteResult",
+]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from threading import Lock
 from typing import Any
@@ -27,10 +27,25 @@ class JobStatus:
     output_excel: str | None = None
     output_json: str | None = None
     output_log: str | None = None  # Path to log file
+    output_issues: str | None = None  # Path to full structured write-issue JSON
     cancelled: bool = False  # Flag to signal task should stop
     json_file: str | None = None  # Store input file for resume
     failed_variables: int = 0
     consistency_errors: int = 0
+    # Spec Mapper write observability (actual workbook write outcome).
+    spec_attempted: int = 0  # planned write operations that were attempted
+    spec_written: int = 0  # operations that actually mutated the workbook
+    spec_skipped: int = 0  # operations safely not performed
+    spec_warnings: int = 0  # recoverable, advisory issues
+    spec_errors: int = 0  # recoverable per-item write failures
+    # Safe, structured, locatable issues (capped) so the UI can show *which*
+    # items failed/skipped, not just counts. Each item: code/stage/operation/
+    # sheet/row/column — never paths, clinical values, or tracebacks.
+    spec_issues: list[dict[str, Any]] = field(default_factory=list)
+    # Total number of structured issues (may exceed len(spec_issues) when the
+    # in-payload list is capped). The full list is downloadable via output_issues
+    # so the UI can honestly show truncation instead of dropping items silently.
+    spec_issues_total: int = 0
 
     def to_dict(self) -> dict[str, str | int | float | bool | None]:
         data = asdict(self)

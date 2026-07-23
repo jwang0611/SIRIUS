@@ -9,6 +9,13 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from ..models.template_record import CellUpdate
+from ..models.write_result import (
+    STAGE_CELL_UPDATES,
+    STAGE_CODELIST_RECORDS,
+    StageWriteResult,
+    WriteIssue,
+    contains_illegal_characters,
+)
 from .excel import format_utils as _fmt
 
 logger = logging.getLogger(__name__)
@@ -43,7 +50,7 @@ class ExcelWriter:
         if not self.file_path.exists():
             raise FileNotFoundError(f"Excel file not found: {self.file_path}")
 
-        logger.info(f"Loading workbook from {self.file_path}")
+        logger.info(f"Loading workbook '{self.file_path.name}'")
         # Load with formatting preserved (data_only=False to keep formulas)
         # keep_vba=False to avoid compatibility issues
         self.workbook: Workbook = load_workbook(
@@ -146,40 +153,96 @@ class ExcelWriter:
 
         logger.debug(f"Updated {sheet_name}!{cell.coordinate}: '{old_value}' -> '{value}'")
 
-    def update_cells(self, updates: list[CellUpdate], highlight: bool = False, clear_existing: bool = False) -> None:
+    def update_cells(
+        self, updates: list[CellUpdate], highlight: bool = False, clear_existing: bool = False
+    ) -> StageWriteResult:
         """Update multiple cells at once.
+
+        Each cell is attempted independently. Recognized recoverable
+        preconditions (missing sheet, values openpyxl would reject) are checked
+        BEFORE the cell is touched and recorded as structured errors, so a
+        recoverable outcome never leaves the cell partially modified (e.g. a
+        cleared hyperlink without the new value). Any exception raised during
+        the actual write is unknown/fatal and propagates.
 
         Args:
             updates: List of CellUpdate objects describing the changes
             highlight: If True, apply yellow background and italic font to all updates
             clear_existing: If True, clear existing values before writing new ones
+
+        Returns:
+            A :class:`StageWriteResult` where ``written`` counts only cells whose
+            workbook mutation actually succeeded.
         """
         logger.info(f"Applying {len(updates)} cell updates")
+        result = StageWriteResult(stage=STAGE_CELL_UPDATES)
 
         for update in updates:
-            try:
-                value = update.value
-                # Keep Source column labels language-aware even for generic
-                # mapper updates (e.g. assignment mappings that set F="指定").
-                if update.col == 6 and isinstance(value, str):
-                    mapped = self._src_label(value)
-                    if mapped is not None:
-                        value = mapped
-                self.update_cell_value(
+            value = update.value
+            # Keep Source column labels language-aware even for generic
+            # mapper updates (e.g. assignment mappings that set F="指定").
+            if update.col == 6 and isinstance(value, str):
+                mapped = self._src_label(value)
+                if mapped is not None:
+                    value = mapped
+            # Recognized recoverable precondition: the target sheet is absent.
+            # Record it explicitly rather than relying on a broad ValueError
+            # catch (which would also mask genuine bugs).
+            if update.sheet_name not in self.workbook.sheetnames:
+                result.record_error(
+                    WriteIssue(
+                        code="cell_write_failed",
+                        stage=STAGE_CELL_UPDATES,
+                        operation="update_cell",
+                        sheet=update.sheet_name,
+                        row=update.row,
+                        column=update.col,
+                        detail="sheet_not_found",
+                    )
+                )
+                logger.warning(
+                    "Skipped cell update at %s!R%sC%s (sheet not found)",
                     update.sheet_name,
                     update.row,
                     update.col,
-                    value,
-                    highlight=highlight,
-                    clear_existing=clear_existing,
                 )
-                if update.reason:
-                    logger.debug(f"  Reason: {update.reason}")
-            except Exception as e:
-                logger.error(f"Failed to update cell at {update.sheet_name}!R{update.row}C{update.col}: {e}")
                 continue
+            # Recognized recoverable precondition: openpyxl would reject the
+            # value. Checked BEFORE update_cell_value so the cell is never
+            # partially modified (its hyperlink is cleared before the value is
+            # assigned in there).
+            if contains_illegal_characters(value):
+                result.record_error(
+                    WriteIssue(
+                        code="illegal_characters",
+                        stage=STAGE_CELL_UPDATES,
+                        operation="update_cell",
+                        sheet=update.sheet_name,
+                        row=update.row,
+                        column=update.col,
+                    )
+                )
+                logger.warning(
+                    "Skipped cell update at %s!R%sC%s (illegal characters)",
+                    update.sheet_name,
+                    update.row,
+                    update.col,
+                )
+                continue
+            self.update_cell_value(
+                update.sheet_name,
+                update.row,
+                update.col,
+                value,
+                highlight=highlight,
+                clear_existing=clear_existing,
+            )
+            result.record_written()
+            if update.reason:
+                logger.debug(f"  Reason: {update.reason}")
 
-        logger.info("All cell updates completed")
+        logger.info("Cell updates: %s/%s written, %s error(s)", result.written, result.attempted, len(result.errors))
+        return result
 
     def insert_row(
         self, sheet_name: str, row_index: int, amount: int = 1, copy_format_from_row: int | None = None
@@ -251,16 +314,19 @@ class ExcelWriter:
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Saving workbook to {output_path}")
+        logger.info(f"Saving workbook '{output_path.name}'")
         try:
             self.workbook.save(output_path)
-            logger.info(f"Successfully saved workbook to {output_path}")
+            logger.info(f"Successfully saved workbook '{output_path.name}'")
         except Exception as e:
-            logger.error(f"Failed to save workbook: {e}")
-            raise OSError(f"Failed to save workbook to {output_path}: {e}") from e
+            logger.error("Failed to save workbook '%s' (%s)", output_path.name, type(e).__name__)
+            raise OSError(f"Failed to save workbook '{output_path.name}'") from e
 
-    def highlight_modified_sheet_tabs(self, color: str = "FFFF00") -> None:
-        """Highlight tabs of sheets that have been modified."""
+    def highlight_modified_sheet_tabs(self, color: str = "FFFF00") -> int:
+        """Highlight tabs of sheets that have been modified.
+
+        Returns the number of tabs highlighted (0 = nothing to do).
+        """
         highlighted = _fmt.highlight_sheet_tabs(
             self.workbook,
             modified_sheets=self.modified_sheets,
@@ -271,22 +337,23 @@ class ExcelWriter:
             logger.info(f"Highlighted {highlighted} sheet tab(s) with color #{color}")
         else:
             logger.debug("No modified sheets to highlight")
+        return highlighted
 
-    def set_active_sheet(self, sheet_name: str) -> None:
+    def set_active_sheet(self, sheet_name: str) -> int:
         """Set the active sheet (the one shown when opening the file).
 
         Args:
             sheet_name: Name of the sheet to set as active
 
-        Raises:
-            ValueError: If sheet name doesn't exist
+        Returns:
+            1 if the active sheet was set, 0 if the sheet does not exist.
         """
         if sheet_name not in self.workbook.sheetnames:
             logger.warning(
                 f"Cannot set active sheet '{sheet_name}': sheet not found. "
                 f"Available sheets: {', '.join(self.workbook.sheetnames)}"
             )
-            return
+            return 0
 
         # Get the sheet index
         sheet_index = self.workbook.sheetnames.index(sheet_name)
@@ -295,6 +362,7 @@ class ExcelWriter:
         self.workbook.active = sheet_index
 
         logger.info(f"Set active sheet to '{sheet_name}' (index: {sheet_index})")
+        return 1
 
     def close(self) -> None:
         """Close the workbook.
@@ -480,7 +548,7 @@ class ExcelWriter:
 
     def add_supp_to_content_sheet(
         self, domain: str, content_sheet_name: str = "CONTENT", reference_row: int = 52, highlight: bool = True
-    ) -> None:
+    ) -> int:
         """Add SUPP information to the CONTENT sheet for a given domain.
 
         This method:
@@ -498,8 +566,16 @@ class ExcelWriter:
             reference_row: Row number to copy formatting from (default: 52)
             highlight: Whether to apply yellow highlight to filled cells (default: True)
 
+        Idempotent: if ``SUPP{domain}`` already exists in the CONTENT sheet the
+        existing row is updated in place, so re-running the pipeline on a
+        previously-generated workbook never appends a duplicate CONTENT row.
+
+        Returns:
+            1 if the SUPP row was inserted or refreshed, 0 if the domain row was
+            not found in the CONTENT sheet.
+
         Raises:
-            ValueError: If CONTENT sheet or domain not found
+            ValueError: If the CONTENT sheet does not exist.
 
         Examples:
             >>> writer.add_supp_to_content_sheet("AE")  # Adds SUPPAE below AE row
@@ -521,26 +597,44 @@ class ExcelWriter:
             logger.warning(
                 f"Domain '{domain}' not found in column A of '{content_sheet_name}'. Cannot add SUPP information."
             )
-            return
+            return 0
 
         logger.info(f"Found domain '{domain}' at row {domain_row} in '{content_sheet_name}'")
 
-        # Find the last domain/SUPP row to insert at the bottom (avoid disturbing header)
-        last_domain_row = None
-        for row_idx in range(ws.max_row, 0, -1):
+        # Idempotency: if SUPP{domain} is already present (e.g. re-running the
+        # pipeline on a previously-generated workbook), update that row in place
+        # instead of appending a duplicate CONTENT row.
+        supp_key = f"SUPP{domain}".upper()
+        existing_supp_row = None
+        for row_idx in range(1, ws.max_row + 1):
             cell_value = ws.cell(row=row_idx, column=1).value
-            if cell_value:
-                cell_str = str(cell_value).strip()
-                # Check if it's a valid domain name (2-char or SUPP*)
-                if (len(cell_str) == 2 and cell_str.isalpha()) or cell_str.startswith("SUPP"):
-                    last_domain_row = row_idx
-                    break
+            if cell_value and str(cell_value).strip().upper() == supp_key:
+                existing_supp_row = row_idx
+                break
 
-        # Insert new row at the bottom (after the last domain/SUPP)
-        insert_row_idx = (last_domain_row or domain_row) + 1
-        self.insert_row(
-            sheet_name=content_sheet_name, row_index=insert_row_idx, amount=1, copy_format_from_row=reference_row
-        )
+        if existing_supp_row is not None:
+            insert_row_idx = existing_supp_row
+            logger.info(
+                f"'{supp_key}' already present in '{content_sheet_name}' at row {insert_row_idx}; "
+                "updating in place (no duplicate row)"
+            )
+        else:
+            # Find the last domain/SUPP row to insert at the bottom (avoid disturbing header)
+            last_domain_row = None
+            for row_idx in range(ws.max_row, 0, -1):
+                cell_value = ws.cell(row=row_idx, column=1).value
+                if cell_value:
+                    cell_str = str(cell_value).strip()
+                    # Check if it's a valid domain name (2-char or SUPP*)
+                    if (len(cell_str) == 2 and cell_str.isalpha()) or cell_str.startswith("SUPP"):
+                        last_domain_row = row_idx
+                        break
+
+            # Insert new row at the bottom (after the last domain/SUPP)
+            insert_row_idx = (last_domain_row or domain_row) + 1
+            self.insert_row(
+                sheet_name=content_sheet_name, row_index=insert_row_idx, amount=1, copy_format_from_row=reference_row
+            )
 
         # Prepare SUPP data
         supp_domain = f"SUPP{domain}"
@@ -604,8 +698,9 @@ class ExcelWriter:
             f"Added {supp_domain} information to '{content_sheet_name}' at row {insert_row_idx}"
             f"{' with yellow highlight' if highlight else ''}"
         )
+        return 1
 
-    def fix_content_sheet_hyperlinks(self, content_sheet_name: str = "CONTENT") -> None:
+    def fix_content_sheet_hyperlinks(self, content_sheet_name: str = "CONTENT") -> int:
         """Fix all hyperlinks in CONTENT sheet.
 
         After inserting SUPP rows, hyperlinks in CONTENT sheet may be misaligned.
@@ -664,6 +759,7 @@ class ExcelWriter:
 
         if fixed_count > 0:
             logger.info(f"Fixed {fixed_count} hyperlink(s) in '{content_sheet_name}' sheet")
+        return fixed_count
 
     def apply_fixed_variable_rules(
         self,
@@ -674,7 +770,7 @@ class ExcelWriter:
         source_column: int = 6,
         transformation_column: int = 8,
         highlight: bool = True,
-    ) -> None:
+    ) -> int:
         """Apply fixed variable rules from configuration.
 
         This method applies predefined transformation rules for specific SDTM variables
@@ -844,6 +940,7 @@ class ExcelWriter:
         if updated_count > 0:
             self.modified_sheets.add(sheet_name)
             logger.info(f"Applied {updated_count} fixed variable rule(s) in '{sheet_name}'")
+        return updated_count
 
     def update_variable_order_column(
         self, sheet_name: str, start_row: int = 14, order_column: int = 10, type_column: int = 9
@@ -898,7 +995,7 @@ class ExcelWriter:
         domain_column: int = 1,
         start_row: int = 2,
         highlight: bool = True,
-    ) -> None:
+    ) -> int:
         """Update F column (source references) in CONTENT sheet.
 
         Only domains present in *domain_sources* (derived from the ALS file)
@@ -925,7 +1022,7 @@ class ExcelWriter:
         """
         if not domain_sources:
             logger.info("No domain_sources provided, skipping CONTENT F column update")
-            return
+            return 0
 
         if content_sheet_name not in self.workbook.sheetnames:
             raise ValueError(f"Sheet '{content_sheet_name}' not found in workbook")
@@ -1000,6 +1097,7 @@ class ExcelWriter:
             logger.debug(f"Copied F column from '{parent}' to '{domain_str}' at row {row_idx}")
 
         logger.info(f"Updated {updated_count} F column value(s) in '{content_sheet_name}'")
+        return updated_count
 
     def update_domain_source_column(
         self,
@@ -1009,7 +1107,7 @@ class ExcelWriter:
         transformation_column: int = 8,
         variable_name_column: int = 1,
         highlight: bool = True,
-    ) -> None:
+    ) -> int:
         """Update F column (Source) based on transformation definition.
 
         Rules (applied only to rows that have a non-empty transformation):
@@ -1066,10 +1164,11 @@ class ExcelWriter:
         if updated_count > 0:
             self.modified_sheets.add(sheet_name)
             logger.info(f"Updated {updated_count} F column value(s) in '{sheet_name}'")
+        return updated_count
 
     def add_nonstandard_domain_to_content(
         self, domain: str, content_sheet_name: str = "CONTENT", reference_row: int = 52
-    ) -> None:
+    ) -> int:
         """Add a non-standard domain to the CONTENT sheet with yellow highlight.
 
         This method adds a new row at the end of the domain list for domains
@@ -1091,6 +1190,18 @@ class ExcelWriter:
 
         ws: Worksheet = self.workbook[content_sheet_name]
 
+        # Idempotency: skip if this non-standard domain is already present in the
+        # CONTENT sheet (e.g. on a re-run), so no duplicate row is appended.
+        target_domain = domain.upper()
+        for row_idx in range(1, ws.max_row + 1):
+            existing = ws.cell(row=row_idx, column=1).value
+            if existing and str(existing).strip().upper() == target_domain:
+                logger.info(
+                    f"Non-standard domain '{target_domain}' already in '{content_sheet_name}' "
+                    f"at row {row_idx}; skipping duplicate insert"
+                )
+                return 0
+
         # Find the last domain row (before any footer/notes)
         last_domain_row = None
         for row_idx in range(ws.max_row, 0, -1):
@@ -1104,7 +1215,7 @@ class ExcelWriter:
 
         if last_domain_row is None:
             logger.warning(f"Could not find last domain row in '{content_sheet_name}'")
-            return
+            return 0
 
         # Insert new row after the last domain
         insert_row_idx = last_domain_row + 1
@@ -1132,8 +1243,9 @@ class ExcelWriter:
             f"Added non-standard domain '{domain.upper()}' to '{content_sheet_name}' "
             f"at row {insert_row_idx} with yellow highlight"
         )
+        return 1
 
-    def add_content_link_to_domain(self, sheet_name: str, highlight: bool = True) -> None:
+    def add_content_link_to_domain(self, sheet_name: str, highlight: bool = True) -> int:
         """Replace existing CONTENT hyperlink with formula in a domain sheet.
 
         This finds the existing "CONTENT" cell and replaces it with:
@@ -1165,7 +1277,7 @@ class ExcelWriter:
 
         if content_row is None:
             logger.warning(f"No existing CONTENT link found in '{sheet_name}', skipping")
-            return
+            return 0
 
         # Formula: =IFERROR(HYPERLINK("#CONTENT!$A"&MATCH(LEFT(A1,IF(A15="DOMAIN",2,6)),CONTENT!A:A,0),"CONTENT"),"CONTENT")
         # Use IFERROR to handle cases where MATCH doesn't find a result
@@ -1183,6 +1295,7 @@ class ExcelWriter:
 
         self.modified_sheets.add(sheet_name)
         logger.info(f"Replaced CONTENT link with formula in '{sheet_name}' at row {content_row}")
+        return 1
 
     def update_domain_sort_key_formula(
         self,
@@ -1191,7 +1304,7 @@ class ExcelWriter:
         sort_key_row: int = 10,
         sort_key_col: int = 4,
         highlight: bool = True,
-    ) -> None:
+    ) -> int:
         """Set cell D10 in a domain sheet to a formula that looks up the
         sorting variables from the CONTENT sheet's H column.
 
@@ -1207,7 +1320,7 @@ class ExcelWriter:
             highlight: Apply yellow background
         """
         if sheet_name not in self.workbook.sheetnames:
-            return
+            return 0
         ws = self.workbook[sheet_name]
         domain = sheet_name.upper()
         formula = f'=IFERROR(INDEX({content_sheet_name}!$H:$H,MATCH("{domain}",{content_sheet_name}!$A:$A,0)),"")'
@@ -1217,10 +1330,11 @@ class ExcelWriter:
             cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
         self.modified_sheets.add(sheet_name)
         logger.debug(f"Set D{sort_key_row} sort-key formula in '{sheet_name}'")
+        return 1
 
     def add_external_coding_variables(
         self, sheet_name: str, variables: list, variable_type: str = "SUPP", highlight: bool = True
-    ) -> None:
+    ) -> int:
         """Add external coding file related variables to a domain sheet.
 
         Each variable dict should have keys:
@@ -1238,6 +1352,12 @@ class ExcelWriter:
             variables: List of variable dictionaries
             variable_type: Type for I column ("SUPP" or "SDTM", default: "SUPP")
             highlight: If True, apply yellow background (default: True)
+
+        Idempotent: variables whose name already exists in the sheet are skipped,
+        so re-running the pipeline never appends duplicate rows.
+
+        Returns:
+            The number of variables actually inserted (0 if all already existed).
 
         Raises:
             ValueError: If sheet doesn't exist
@@ -1257,10 +1377,23 @@ class ExcelWriter:
                     last_row = row_idx
                     break
 
+        # Idempotency: don't re-insert a variable that already exists in the
+        # sheet (e.g. on a re-run), which would otherwise append duplicate rows.
+        existing_names: set[str] = set()
+        for row_idx in range(14, ws.max_row + 1):
+            name_val = ws.cell(row=row_idx, column=1).value
+            if name_val:
+                existing_names.add(str(name_val).strip().upper())
+
         # Insert rows for each variable
         insert_row = last_row + 1
+        inserted = 0
 
         for var in variables:
+            var_name = str(var.get("name", "")).strip().upper()
+            if var_name and var_name in existing_names:
+                logger.debug(f"External coding variable '{var_name}' already present in '{sheet_name}', skipping")
+                continue
             # Copy format from previous row
             copy_from_row = insert_row - 1 if insert_row > 14 else 14
             self.insert_row(sheet_name=sheet_name, row_index=insert_row, amount=1, copy_format_from_row=copy_from_row)
@@ -1342,14 +1475,18 @@ class ExcelWriter:
             # J: Variable Order (formula)
             ws.cell(row=insert_row, column=10).value = "=ROW()-13"
 
+            existing_names.add(var_name)
             insert_row += 1
+            inserted += 1
 
-        self.modified_sheets.add(sheet_name)
-        logger.info(f"Added {len(variables)} external coding variables to '{sheet_name}'")
+        if inserted:
+            self.modified_sheets.add(sheet_name)
+        logger.info(f"Added {inserted}/{len(variables)} external coding variables to '{sheet_name}'")
+        return inserted
 
     def update_existing_variables(
         self, sheet_name: str, variables: list, start_row: int = 14, highlight: bool = True
-    ) -> None:
+    ) -> int:
         """Update existing variables in a domain sheet with external coding info.
 
         Each variable dict should have keys:
@@ -1462,8 +1599,9 @@ class ExcelWriter:
         if updated_count > 0:
             self.modified_sheets.add(sheet_name)
             logger.info(f"Updated {updated_count} variables in '{sheet_name}'")
+        return updated_count
 
-    def set_column_wrap_text(self, sheet_name: str, column: int = 8, start_row: int = 14) -> None:
+    def set_column_wrap_text(self, sheet_name: str, column: int = 8, start_row: int = 14) -> int:
         """Set wrap_text=True for a column in a domain sheet.
 
         This enables automatic line wrapping for cells in the specified column,
@@ -1487,10 +1625,11 @@ class ExcelWriter:
         updated_count = _fmt.set_column_wrap_text(ws, column=column, start_row=start_row)
 
         logger.info(f"Set wrap_text for {updated_count} cells in column {column} of '{sheet_name}'")
+        return updated_count
 
     def write_codelist_records(
         self, codelist_records: list, sheet_name: str = "CODELIST", start_row: int = 3, highlight: bool = True
-    ) -> None:
+    ) -> StageWriteResult:
         """Write CODELIST records to CODELIST sheet.
 
         Merges with existing template content:
@@ -1513,14 +1652,32 @@ class ExcelWriter:
             sheet_name: Name of CODELIST sheet (default: "CODELIST")
             start_row: First data row (default: 3, after two header rows)
             highlight: If True, apply yellow background (default: True)
+
+        Returns:
+            A :class:`StageWriteResult`; each input record counts as one attempt
+            and is ``written`` only when it actually mutated the workbook (a new
+            row was inserted, or a previously-blank I/J cell was filled). A
+            record whose row already exists with I/J populated is a no-op and is
+            recorded as ``skipped`` (``codelist_unchanged``) — never as a write.
         """
-        if sheet_name not in self.workbook.sheetnames:
-            logger.warning(f"Sheet '{sheet_name}' not found in workbook, skipping CODELIST write")
-            return
+        result = StageWriteResult(stage=STAGE_CODELIST_RECORDS)
 
         if not codelist_records:
             logger.info("No CODELIST records to write")
-            return
+            return result
+
+        if sheet_name not in self.workbook.sheetnames:
+            logger.warning(f"Sheet '{sheet_name}' not found in workbook, skipping CODELIST write")
+            for _rec in codelist_records:
+                result.record_skipped(
+                    WriteIssue(
+                        code="sheet_not_found",
+                        stage=STAGE_CODELIST_RECORDS,
+                        operation="write_codelist",
+                        sheet=sheet_name,
+                    )
+                )
+            return result
 
         ws: Worksheet = self.workbook[sheet_name]
 
@@ -1562,53 +1719,86 @@ class ExcelWriter:
 
         for domain, recs in by_domain.items():
             for rec in recs:
-                key = (rec.domain.upper(), rec.testcd_var.upper(), rec.testcd_value.upper())
-
-                if key in existing_keys:
-                    # Row already exists — only fill I/J if currently empty
-                    exist_row = existing_keys[key]
-                    for col, value in [(9, rec.source_variable), (10, rec.metadata_variable)]:
-                        if not value:
-                            continue
-                        cell = ws.cell(row=exist_row, column=col)
-                        if not cell.value:
-                            cell.value = value
-                            if highlight:
-                                cell.fill = yellow
-                            updated_count += 1
+                # Pre-validate BEFORE mutating: an invalid value must not leave
+                # a half-filled inserted row (or a lone I without J) behind.
+                if contains_illegal_characters(*rec.to_row_data().values()):
+                    result.record_error(
+                        WriteIssue(
+                            code="illegal_characters",
+                            stage=STAGE_CODELIST_RECORDS,
+                            operation="write_codelist",
+                            sheet=sheet_name,
+                        )
+                    )
+                    logger.warning("Skipped CODELIST record for domain '%s': value contains illegal characters", domain)
                 else:
-                    # New entry — insert a row after the domain's last row
-                    if domain in domain_last_row:
-                        target_row = domain_last_row[domain] + 1
+                    key = (rec.domain.upper(), rec.testcd_var.upper(), rec.testcd_value.upper())
+                    rec_mutations = 0
+
+                    if key in existing_keys:
+                        # Row already exists — only fill I/J if currently empty
+                        exist_row = existing_keys[key]
+                        for col, value in [(9, rec.source_variable), (10, rec.metadata_variable)]:
+                            if not value:
+                                continue
+                            cell = ws.cell(row=exist_row, column=col)
+                            if not cell.value:
+                                cell.value = value
+                                if highlight:
+                                    cell.fill = yellow
+                                updated_count += 1
+                                rec_mutations += 1
                     else:
-                        target_row = global_last_row + 1
+                        # New entry — insert a row after the domain's last row
+                        if domain in domain_last_row:
+                            target_row = domain_last_row[domain] + 1
+                        else:
+                            target_row = global_last_row + 1
 
-                    # Insert a blank row so existing content below is not overwritten
-                    ws.insert_rows(target_row)
+                        # Insert a blank row so existing content below is not overwritten
+                        ws.insert_rows(target_row)
 
-                    # Shift all tracked row indices that are >= target_row
-                    existing_keys = {k: (v + 1 if v >= target_row else v) for k, v in existing_keys.items()}
-                    domain_last_row = {d: (r + 1 if r >= target_row else r) for d, r in domain_last_row.items()}
-                    if global_last_row >= target_row:
-                        global_last_row += 1
+                        # Shift all tracked row indices that are >= target_row
+                        existing_keys = {k: (v + 1 if v >= target_row else v) for k, v in existing_keys.items()}
+                        domain_last_row = {d: (r + 1 if r >= target_row else r) for d, r in domain_last_row.items()}
+                        if global_last_row >= target_row:
+                            global_last_row += 1
 
-                    row_data = rec.to_row_data()
-                    for col, value in row_data.items():
-                        if value:
-                            cell = ws.cell(row=target_row, column=col)
-                            cell.value = value
-                            if highlight:
-                                cell.fill = yellow
+                        row_data = rec.to_row_data()
+                        for col, value in row_data.items():
+                            if value:
+                                cell = ws.cell(row=target_row, column=col)
+                                cell.value = value
+                                if highlight:
+                                    cell.fill = yellow
 
-                    # Update bookkeeping
-                    existing_keys[key] = target_row
-                    domain_last_row[domain] = target_row
-                    if target_row > global_last_row:
-                        global_last_row = target_row
-                    inserted_count += 1
+                        # Update bookkeeping
+                        existing_keys[key] = target_row
+                        domain_last_row[domain] = target_row
+                        if target_row > global_last_row:
+                            global_last_row = target_row
+                        inserted_count += 1
+                        rec_mutations += 1
+
+                    # Count as written only when this record actually mutated the
+                    # workbook (inserted a new row or filled a previously-blank
+                    # cell). An entry whose row already existed with I/J populated
+                    # is a genuine no-op and must not inflate ``written``.
+                    if rec_mutations > 0:
+                        result.record_written()
+                    else:
+                        result.record_skipped(
+                            WriteIssue(
+                                code="codelist_unchanged",
+                                stage=STAGE_CODELIST_RECORDS,
+                                operation="write_codelist",
+                                sheet=sheet_name,
+                            )
+                        )
 
         self.modified_sheets.add(sheet_name)
         logger.info(
             f"CODELIST: updated {updated_count} existing cell(s), "
             f"inserted {inserted_count} new row(s) in '{sheet_name}'"
         )
+        return result

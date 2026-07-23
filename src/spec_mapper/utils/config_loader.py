@@ -79,7 +79,9 @@ class ConfigLoader:
             config_path = Path(config_path)
 
         if not config_path.exists():
-            logger.warning(f"Config file not found: {config_path}, using defaults")
+            # Log only the file name (never the absolute path): this may run
+            # inside a user-downloadable job log.
+            logger.warning(f"Config file not found: {config_path.name}, using defaults")
             self._load_defaults()
             return
 
@@ -96,13 +98,14 @@ class ConfigLoader:
                     with open(base_path, encoding="utf-8") as bf:
                         base_config = yaml.safe_load(bf) or {}
                     self._config = _deep_merge(base_config, self._config)
-                    logger.info(f"Configuration loaded from {config_path} (extends {base_name})")
+                    logger.info(f"Configuration loaded from {config_path.name} (extends {base_name})")
                 else:
-                    logger.warning(f"_extends base not found: {base_path}; using {config_path} alone")
+                    logger.warning(f"_extends base not found: {base_path.name}; using {config_path.name} alone")
             else:
-                logger.info(f"Configuration loaded from {config_path}")
+                logger.info(f"Configuration loaded from {config_path.name}")
         except Exception as e:
-            logger.error(f"Failed to load config from {config_path}: {e}")
+            # Never log the raw exception text (may embed the absolute path).
+            logger.error("Failed to load config '%s' (%s)", config_path.name, type(e).__name__)
             self._load_defaults()
 
     def _load_defaults(self) -> None:

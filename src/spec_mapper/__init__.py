@@ -30,6 +30,20 @@ from typing import Any
 from .core import ExcelReader, ExcelWriter, Mapper
 from .helpers import insert_supp_rows, process_conditional_mappings
 from .models import ALSRecord, CellUpdate, ConditionalRecord, SUPPRecord, TemplateRecord
+from .models.write_result import (
+    STAGE_CONTENT_DOMAINS,
+    STAGE_EXTERNAL_CODING,
+    STAGE_FIXED_VARIABLE_RULES,
+    STAGE_FORMULAS_AND_LINKS,
+    STAGE_SOURCE_COLUMNS,
+    STAGE_STYLES,
+    STAGE_UNMATCHED_ROWS,
+    RecoverableWriteError,
+    StageWriteResult,
+    WriteIssue,
+    WriteResult,
+    contains_illegal_characters,
+)
 from .utils import ConfigLoader
 
 
@@ -245,14 +259,14 @@ class SpecMapper:
         try:
             # Step 1: Read ALS file
             report_progress("正在读取 ALS 文件...", 0)
-            self.logger.info(f"Reading ALS file: {self.als_file}")
+            self.logger.info(f"Reading ALS file '{self.als_file.name}'")
             als_reader = ExcelReader(self.als_file, self.config)
             als_records = als_reader.read_als_records(self.als_sheet)
             self.logger.info(f"✓ Read {len(als_records)} ALS records")
 
             # Step 2: Read template file
             report_progress("正在读取 SDTM Spec 模板...", 1)
-            self.logger.info(f"Reading template file: {self.template_file}")
+            self.logger.info(f"Reading template file '{self.template_file.name}'")
             template_reader = ExcelReader(self.template_file, self.config)
             template_records = template_reader.read_template_records()
             self.logger.info(f"✓ Read {len(template_records)} template records")
@@ -270,15 +284,29 @@ class SpecMapper:
                 als_records, template_records, create_test_sheets=create_test_sheets
             )
 
-            # Collect statistics
+            # Collect statistics.
+            # NOTE: the top-level count fields below are *planned* counts derived
+            # from the mapping step. The number of operations that actually wrote
+            # to the workbook lives under stats["actual"] / stats["write_result"]
+            # and is populated after the write phase completes.
+            planned = {
+                "cell_updates": len(updates),
+                "supp_rows": len(supp_records),
+                "unmatched_rows": len(unmatched_records),
+                "conditional_mappings": len(conditional_records),
+                "codelist_records": len(codelist_records),
+            }
             stats: dict[str, Any] = {
                 "als_records": len(als_records),
                 "template_records": len(template_records),
+                # Legacy planned-count fields (kept for backward compatibility).
                 "updates": len(updates),
                 "supp_records": len(supp_records),
                 "conditional_records": len(conditional_records),
                 "codelist_records": len(codelist_records),
                 "unmatched_records": len(unmatched_records),
+                # Explicit planned vs actual split (actual filled in after writes).
+                "planned": planned,
             }
 
             self.logger.info(
@@ -291,6 +319,9 @@ class SpecMapper:
             # Dry run check
             if dry_run:
                 self.logger.info("DRY RUN: No changes will be saved")
+                empty = WriteResult()
+                stats["actual"] = empty.summary()
+                stats["write_result"] = empty.to_dict()
                 stats["output_file"] = str(output_path) + " (dry run)"
                 report_progress("Dry run 完成", total_stages)
                 return stats
@@ -307,46 +338,60 @@ class SpecMapper:
 
             # Step 4: Write output
             report_progress("正在写入工作簿...", 3)
-            self.logger.info(f"Writing output to: {output_path}")
+            self.logger.info(f"Writing output workbook '{output_path.name}'")
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Copy template to output
+            # Copy template to output. A failure here is fatal: there is no
+            # workbook to review, so it must propagate and mark the job failed.
             shutil.copy2(self.template_file, output_path)
 
-            # Initialize writer
+            # Initialize writer. Opening the workbook is fatal on failure.
             writer = ExcelWriter(output_path)
             # Render Source (F) labels in the template's language (English for IG 3.4)
             writer.source_label_overrides = self.config.get("source_label_overrides", {}) or {}
 
+            # Structured, per-stage record of what was actually written. Every
+            # recoverable, item-level write problem is captured here instead of
+            # being silently swallowed.
+            write_result = WriteResult()
+
             # Insert SUPP rows if any
             domains_with_supp = set()
             if supp_records:
-                insert_supp_rows(writer, supp_records, highlight)
+                write_result.merge_stage(insert_supp_rows(writer, supp_records, highlight))
                 # Track which domains have SUPP records
                 for supp_rec in supp_records:
                     domains_with_supp.add(supp_rec.sheet_name)
-                self.logger.info(f"✓ Inserted SUPP rows for domains: {', '.join(sorted(domains_with_supp))}")
+                self.logger.info(f"✓ Processed SUPP rows for domains: {', '.join(sorted(domains_with_supp))}")
 
             # Insert unmatched SDTM variable rows (blue highlight)
             if unmatched_records:
-                self._insert_unmatched_rows(writer, unmatched_records)
-                self.logger.info(f"✓ Inserted {len(unmatched_records)} unmatched SDTM variable rows")
+                write_result.merge_stage(self._insert_unmatched_rows(writer, unmatched_records))
+                self.logger.info(f"✓ Processed {len(unmatched_records)} unmatched SDTM variable rows")
 
             # Update existing cells
-            writer.update_cells(updates, highlight=highlight, clear_existing=clear_existing)
+            if updates:
+                write_result.merge_stage(
+                    writer.update_cells(updates, highlight=highlight, clear_existing=clear_existing)
+                )
 
             # Process conditional mappings if any
             if conditional_records:
-                process_conditional_mappings(writer, conditional_records)
+                write_result.merge_stage(process_conditional_mappings(writer, conditional_records))
 
             # Update F column (Source) for ALS domain sheets based on transformation definitions
             for domain in sorted(als_domains):
                 if domain in writer.workbook.sheetnames:
-                    try:
-                        writer.update_domain_source_column(domain, highlight=highlight)
-                        self.logger.info(f"✓ Updated F column (Source) in {domain} sheet")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to update F column in {domain}: {e}")
+                    self._guard(
+                        write_result,
+                        STAGE_SOURCE_COLUMNS,
+                        "update_domain_source_column",
+                        writer.update_domain_source_column,
+                        domain,
+                        highlight=highlight,
+                        guard_sheet=domain,
+                        guard_code="source_update_failed",
+                    )
 
             # Apply fixed variable rules (USUBJID, STUDYID, xxSEQ, VISIT, VISITNUM, DOMAIN)
             # Only apply to domains that actually appear in the ALS2SDTM file
@@ -354,11 +399,17 @@ class SpecMapper:
             if fixed_variables:
                 for sheet_name in writer.workbook.sheetnames:
                     if len(sheet_name) == 2 and sheet_name.isalpha() and sheet_name.upper() in als_domains:
-                        try:
-                            writer.apply_fixed_variable_rules(sheet_name, fixed_variables, highlight=highlight)
-                            self.logger.info(f"✓ Applied fixed variable rules in {sheet_name} sheet")
-                        except Exception as e:
-                            self.logger.warning(f"Failed to apply fixed variable rules in {sheet_name}: {e}")
+                        self._guard(
+                            write_result,
+                            STAGE_FIXED_VARIABLE_RULES,
+                            "apply_fixed_variable_rules",
+                            writer.apply_fixed_variable_rules,
+                            sheet_name,
+                            fixed_variables,
+                            highlight=highlight,
+                            guard_sheet=sheet_name,
+                            guard_code="fixed_rule_failed",
+                        )
 
             # Add SUPP information to CONTENT sheet for domains with SUPP
             # Important: Insert from bottom to top to avoid row number shifting issues
@@ -367,18 +418,28 @@ class SpecMapper:
             if domains_with_supp:
                 # Sort in reverse order to insert from bottom to top
                 for domain in sorted(domains_with_supp, reverse=True):
-                    try:
-                        writer.add_supp_to_content_sheet(domain, content_sheet_name, highlight=highlight)
-                        self.logger.info(f"✓ Added SUPP{domain} to {content_sheet_name} sheet")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to add SUPP{domain} to {content_sheet_name}: {e}")
+                    self._guard(
+                        write_result,
+                        STAGE_FORMULAS_AND_LINKS,
+                        "add_supp_to_content_sheet",
+                        writer.add_supp_to_content_sheet,
+                        domain,
+                        content_sheet_name,
+                        highlight=highlight,
+                        guard_sheet=content_sheet_name,
+                        guard_code="content_update_failed",
+                    )
 
                 # Fix all hyperlinks in CONTENT sheet after all insertions
-                try:
-                    writer.fix_content_sheet_hyperlinks(content_sheet_name)
-                    self.logger.info(f"✓ Fixed hyperlinks in {content_sheet_name} sheet")
-                except Exception as e:
-                    self.logger.warning(f"Failed to fix hyperlinks in {content_sheet_name}: {e}")
+                self._guard(
+                    write_result,
+                    STAGE_FORMULAS_AND_LINKS,
+                    "fix_content_sheet_hyperlinks",
+                    writer.fix_content_sheet_hyperlinks,
+                    content_sheet_name,
+                    guard_sheet=content_sheet_name,
+                    guard_code="hyperlink_fix_failed",
+                )
 
             # Build domain -> source table mapping from ALS records
             from collections import defaultdict
@@ -395,15 +456,17 @@ class SpecMapper:
                                 domain_sources[d_stripped].add(tbl)
 
             # Update CONTENT sheet F column with ALS-derived sources
-            try:
-                writer.update_content_f_column(
-                    content_sheet_name,
-                    domain_sources=dict(domain_sources),
-                    highlight=highlight,
-                )
-                self.logger.info(f"✓ Updated F column in {content_sheet_name} sheet")
-            except Exception as e:
-                self.logger.warning(f"Failed to update F column in {content_sheet_name}: {e}")
+            self._guard(
+                write_result,
+                STAGE_SOURCE_COLUMNS,
+                "update_content_f_column",
+                writer.update_content_f_column,
+                content_sheet_name,
+                domain_sources=dict(domain_sources),
+                highlight=highlight,
+                guard_sheet=content_sheet_name,
+                guard_code="source_update_failed",
+            )
 
             # Detect non-standard domains (in ALS but not in template)
             template_domains = {rec.sheet_name for rec in template_records}
@@ -416,11 +479,16 @@ class SpecMapper:
                     # Skip invalid domain names
                     if not domain or len(domain) != 2 or not domain.isalpha():
                         continue
-                    try:
-                        writer.add_nonstandard_domain_to_content(domain, content_sheet_name)
-                        self.logger.info(f"✓ Added non-standard domain '{domain}' to {content_sheet_name}")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to add non-standard domain '{domain}': {e}")
+                    self._guard(
+                        write_result,
+                        STAGE_CONTENT_DOMAINS,
+                        "add_nonstandard_domain_to_content",
+                        writer.add_nonstandard_domain_to_content,
+                        domain,
+                        content_sheet_name,
+                        guard_sheet=content_sheet_name,
+                        guard_code="content_update_failed",
+                    )
 
             # Apply external coding variables (MedDRA, WhoDrug) only for ALS domains
             external_coding = self.config.get("external_coding_variables", {})
@@ -444,84 +512,194 @@ class SpecMapper:
                     if not variables:
                         continue
 
-                    try:
-                        if op_type == "update":
-                            # Update existing variables (like AE MedDRA SDTM variables)
-                            writer.update_existing_variables(
-                                sheet_name=domain, variables=variables, highlight=highlight
-                            )
-                            self.logger.info(f"✓ Updated {len(variables)} external coding variables in {domain}")
-                        else:
-                            # Insert new SUPP variables (like CM, MH, PR, AE AEDVER)
-                            writer.add_external_coding_variables(
-                                sheet_name=domain, variables=variables, variable_type=var_type, highlight=highlight
-                            )
-                            self.logger.info(
-                                f"✓ Added {len(variables)} external coding {var_type} variables to {domain}"
-                            )
-                    except Exception as e:
-                        self.logger.warning(f"Failed to apply external coding variables to {domain}: {e}")
+                    if op_type == "update":
+                        # Update existing variables (like AE MedDRA SDTM variables)
+                        self._guard(
+                            write_result,
+                            STAGE_EXTERNAL_CODING,
+                            "update_existing_variables",
+                            writer.update_existing_variables,
+                            guard_sheet=domain,
+                            guard_code="external_coding_failed",
+                            sheet_name=domain,
+                            variables=variables,
+                            highlight=highlight,
+                        )
+                    else:
+                        # Insert new SUPP variables (like CM, MH, PR, AE AEDVER)
+                        self._guard(
+                            write_result,
+                            STAGE_EXTERNAL_CODING,
+                            "add_external_coding_variables",
+                            writer.add_external_coding_variables,
+                            guard_sheet=domain,
+                            guard_code="external_coding_failed",
+                            sheet_name=domain,
+                            variables=variables,
+                            variable_type=var_type,
+                            highlight=highlight,
+                        )
 
             # Write CODELIST records (TESTCD values from conditional mappings)
             if codelist_records:
-                try:
-                    writer.write_codelist_records(codelist_records, highlight=highlight)
-                    self.logger.info(f"✓ Wrote {len(codelist_records)} CODELIST entries")
-                except Exception as e:
-                    self.logger.warning(f"Failed to write CODELIST records: {e}")
+                write_result.merge_stage(writer.write_codelist_records(codelist_records, highlight=highlight))
 
             # Add CONTENT link formula and sort-key formula only to ALS domain sheets
             for sheet_name in writer.workbook.sheetnames:
                 if len(sheet_name) == 2 and sheet_name.isalpha() and sheet_name.upper() in als_domains:
-                    try:
-                        writer.add_content_link_to_domain(sheet_name, highlight=highlight)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to add CONTENT link to {sheet_name}: {e}")
-                    try:
-                        writer.update_domain_sort_key_formula(sheet_name, content_sheet_name, highlight=highlight)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to update sort-key formula in {sheet_name}: {e}")
+                    self._guard(
+                        write_result,
+                        STAGE_FORMULAS_AND_LINKS,
+                        "add_content_link_to_domain",
+                        writer.add_content_link_to_domain,
+                        sheet_name,
+                        highlight=highlight,
+                        guard_sheet=sheet_name,
+                        guard_code="formula_write_failed",
+                    )
+                    self._guard(
+                        write_result,
+                        STAGE_FORMULAS_AND_LINKS,
+                        "update_domain_sort_key_formula",
+                        writer.update_domain_sort_key_formula,
+                        sheet_name,
+                        content_sheet_name,
+                        highlight=highlight,
+                        guard_sheet=sheet_name,
+                        guard_code="formula_write_failed",
+                    )
             self.logger.info("✓ Updated CONTENT links and sort-key formulas in ALS domain sheets")
 
             # Set wrap_text for H column (transformation definition) only in ALS domain sheets
             for sheet_name in writer.workbook.sheetnames:
                 if len(sheet_name) == 2 and sheet_name.isalpha() and sheet_name.upper() in als_domains:
-                    try:
-                        writer.set_column_wrap_text(sheet_name, column=8)
-                        self.logger.debug(f"✓ Set wrap_text for H column in {sheet_name} sheet")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to set wrap_text in {sheet_name}: {e}")
+                    self._guard(
+                        write_result,
+                        STAGE_STYLES,
+                        "set_column_wrap_text",
+                        writer.set_column_wrap_text,
+                        sheet_name,
+                        guard_sheet=sheet_name,
+                        guard_code="style_update_failed",
+                        column=8,
+                    )
             self.logger.info("✓ Set wrap_text for H column in ALS domain sheets")
 
             # Highlight sheet tabs if enabled
             sheet_highlighting = self.config.get("sheet_highlighting", {})
             if sheet_highlighting.get("enabled", True):
                 tab_color = sheet_highlighting.get("color", "FFFF00")
-                writer.highlight_modified_sheet_tabs(tab_color)
-                self.logger.info("✓ Highlighted modified sheet tabs")
+                self._guard(
+                    write_result,
+                    STAGE_STYLES,
+                    "highlight_modified_sheet_tabs",
+                    writer.highlight_modified_sheet_tabs,
+                    tab_color,
+                    guard_code="style_update_failed",
+                )
 
             # Set active sheet (default to CONTENT)
             default_sheet = self.config.get("default_active_sheet", "CONTENT")
             if default_sheet:
-                writer.set_active_sheet(default_sheet)
-                self.logger.info(f"✓ Set active sheet to '{default_sheet}'")
+                self._guard(
+                    write_result,
+                    STAGE_STYLES,
+                    "set_active_sheet",
+                    writer.set_active_sheet,
+                    default_sheet,
+                    guard_sheet=default_sheet,
+                    guard_code="style_update_failed",
+                )
 
-            # Save and close
+            # Save and close. A save failure is fatal: the artifact is unusable,
+            # so it must propagate and mark the job failed.
             report_progress("正在保存工作簿...", 4)
             writer.save()
             writer.close()
 
-            self.logger.info(f"✓ Successfully saved to {output_path}")
+            self.logger.info(f"✓ Successfully saved workbook '{output_path.name}'")
+            stats["actual"] = write_result.summary()
+            stats["write_result"] = write_result.to_dict()
             stats["output_file"] = str(output_path)
             report_progress("工作簿生成完成", total_stages)
+
+            self.logger.info(
+                "✓ Write summary: %s/%s written, %s skipped, %s warning(s), %s error(s)",
+                write_result.written,
+                write_result.attempted,
+                write_result.skipped,
+                write_result.warning_count,
+                write_result.error_count,
+            )
 
             return stats
 
         except Exception as e:
-            self.logger.error(f"Processing failed: {e}", exc_info=True)
+            # Only the exception *class* is logged — never the message or a
+            # traceback — because the Spec job log is user-downloadable.
+            self.logger.error("Processing failed (%s)", type(e).__name__)
             raise
 
-    def _insert_unmatched_rows(self, writer: ExcelWriter, unmatched_records: list[dict]) -> None:
+    def _guard(
+        self,
+        result: WriteResult,
+        stage: str,
+        operation: str,
+        fn: Callable[..., int | None],
+        *args: Any,
+        guard_sheet: str | None = None,
+        guard_code: str = "write_failed",
+        **kwargs: Any,
+    ) -> int | None:
+        """Run a single workbook-mutating call and record its real outcome.
+
+        The wrapped method returns the number of workbook mutations it made and
+        that full count is recorded — a batch method that touched 47 cells
+        contributes 47 to both ``attempted`` and ``written``, so
+        ``actual.written`` reflects real mutations, not call sites. A no-op
+        call (target missing / nothing to do) is recorded as one ``skipped``
+        attempt — never as a phantom write. A failed call is recorded as one
+        errored attempt.
+
+        A single-call op is atomic from the caller's view: it either returns a
+        mutation count (its recoverable preconditions are handled internally by
+        returning ``0``) or raises. Only a dedicated
+        :class:`RecoverableWriteError` is caught here and recorded as a
+        structured error; every other exception — including a bare
+        ``ValueError`` — is treated as unknown/fatal and propagates so the job
+        is marked ``failed`` (the workbook is never saved as a success). This
+        avoids masking a genuine bug behind a broad "recoverable" catch, and
+        because recoverable status comes from the return value rather than a
+        mid-mutation exception, a partially-mutated workbook is never saved with
+        an inaccurate count.
+        """
+        stage_res = result.stage(stage)
+        try:
+            ret = fn(*args, **kwargs)
+        except RecoverableWriteError as exc:
+            stage_res.record_error(
+                WriteIssue(
+                    code=guard_code,
+                    stage=stage,
+                    operation=operation,
+                    sheet=guard_sheet,
+                    detail=type(exc).__name__,
+                )
+            )
+            self.logger.warning("Write op '%s' failed on sheet '%s' (%s)", operation, guard_sheet, type(exc).__name__)
+            return None
+
+        mutated = ret if isinstance(ret, int) else (1 if ret else 0)
+        if mutated > 0:
+            # Record the REAL mutation count: batch methods (wrap_text, source
+            # columns, fixed rules, ...) may mutate N > 1 cells in one call.
+            stage_res.record_written(mutated)
+        else:
+            # Exception-free but no mutation: surface as a skip, not a write.
+            stage_res.record_skipped(WriteIssue(code="no_op", stage=stage, operation=operation, sheet=guard_sheet))
+        return ret
+
+    def _insert_unmatched_rows(self, writer: ExcelWriter, unmatched_records: list[dict]) -> StageWriteResult:
         """Insert rows for SDTM variables that exist in ALS but not in template.
 
         These rows are inserted into the corresponding domain sheet with blue
@@ -530,9 +708,19 @@ class SpecMapper:
         Args:
             writer: ExcelWriter instance
             unmatched_records: List of dicts with domain, variable, transformation, source, variable_label
+
+        Returns:
+            A :class:`StageWriteResult`; each unmatched record counts as one
+            attempt and is ``written`` after its row is inserted and filled.
+            Records whose target domain sheet is missing are ``skipped``;
+            records whose values would be rejected by openpyxl are recorded as
+            ``illegal_characters`` errors *before* any workbook mutation, so a
+            recoverable outcome never leaves a half-written row. Any exception
+            raised mid-insert is unknown/fatal and propagates.
         """
         from openpyxl.styles import PatternFill
 
+        result = StageWriteResult(stage=STAGE_UNMATCHED_ROWS)
         blue_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
 
         # Group by domain
@@ -546,6 +734,15 @@ class SpecMapper:
         for domain, records in sorted(by_domain.items()):
             if domain not in writer.workbook.sheetnames:
                 self.logger.warning(f"Domain sheet '{domain}' not found, skipping {len(records)} unmatched rows")
+                for _rec in records:
+                    result.record_skipped(
+                        WriteIssue(
+                            code="domain_not_found",
+                            stage=STAGE_UNMATCHED_ROWS,
+                            operation="insert_unmatched_row",
+                            sheet=domain,
+                        )
+                    )
                 continue
 
             ws = writer.get_worksheet(domain)
@@ -556,8 +753,23 @@ class SpecMapper:
             )
             insert_row = (last_sdtm_row or 14) + 1
 
-            for i, rec in enumerate(records):
-                current_row = insert_row + i
+            written_in_domain = 0
+            for rec in records:
+                # Pre-validate BEFORE inserting anything: an invalid value must
+                # not leave a half-filled inserted row behind.
+                if contains_illegal_characters(rec.get("variable"), rec.get("source"), rec.get("transformation")):
+                    result.record_error(
+                        WriteIssue(
+                            code="illegal_characters",
+                            stage=STAGE_UNMATCHED_ROWS,
+                            operation="insert_unmatched_row",
+                            sheet=domain,
+                        )
+                    )
+                    self.logger.warning("Skipped unmatched row in '%s': value contains illegal characters", domain)
+                    continue
+
+                current_row = insert_row + written_in_domain
                 copy_from_row = insert_row - 1 if insert_row > 14 else 14
                 writer.insert_row(
                     sheet_name=domain, row_index=current_row, amount=1, copy_format_from_row=copy_from_row
@@ -586,10 +798,15 @@ class SpecMapper:
                 # J: Variable Order
                 ws.cell(row=current_row, column=10).value = "=ROW()-13"
 
+                written_in_domain += 1
+                result.record_written()
                 self.logger.debug(f"Inserted unmatched row: {domain}.{rec['variable']} at row {current_row}")
 
-            writer.modified_sheets.add(domain)
-            self.logger.info(f"Inserted {len(records)} unmatched row(s) in '{domain}' with blue highlight")
+            if written_in_domain:
+                writer.modified_sheets.add(domain)
+                self.logger.info(f"Inserted {written_in_domain} unmatched row(s) in '{domain}' with blue highlight")
+
+        return result
 
 
 def map_als_to_spec(

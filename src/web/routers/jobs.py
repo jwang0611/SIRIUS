@@ -117,6 +117,30 @@ def download_result(request: Request, job_id: str, format: str = Query("excel", 
     return FileResponse(path=target, filename=filename)
 
 
+@router.get("/jobs/{job_id}/download-issues")
+@limiter.limit(RATE_LIMIT_READ)
+def download_issues(request: Request, job_id: str):
+    """下载任务的完整结构化写入问题清单 (JSON)。
+
+    UI 的问题明细可能被截断；此端点提供完整、脱敏的问题列表（仅包含
+    code/stage/operation/sheet/row/column/detail，绝不含路径、临床值或堆栈），
+    以确保任何被跳过/失败的写入项都可被查看，而不是被静默丢弃。
+    """
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if not job.output_issues:
+        raise HTTPException(status_code=404, detail="该任务没有问题明细文件")
+
+    issues_path = Path(job.output_issues)
+    if not issues_path.exists():
+        raise HTTPException(status_code=404, detail="问题明细文件不存在")
+
+    filename = os.path.basename(job.output_issues)
+    return FileResponse(path=job.output_issues, filename=filename, media_type="application/json")
+
+
 @router.get("/jobs/{job_id}/download-log")
 @limiter.limit(RATE_LIMIT_READ)
 def download_log(request: Request, job_id: str):

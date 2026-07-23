@@ -148,10 +148,17 @@ stats = mapper.process(
     dry_run=False
 )
 
-print(f"✓ Processed {stats['updates']} mappings")
-print(f"✓ Inserted {stats['supp_records']} SUPP rows")
-print(f"✓ Created {stats['conditional_records']} conditional sheets")
+# planned（计划数量，旧字段语义不变）
+print(f"✓ Planned {stats['updates']} cell updates, {stats['supp_records']} SUPP rows")
+# actual（真实写入结果）
+actual = stats["actual"]
+print(f"✓ Written {actual['written']}/{actual['attempted']} "
+      f"(skipped={actual['skipped']}, warnings={actual['warnings']}, errors={actual['errors']})")
 ```
+
+> ⚠️ `stats['updates']` / `stats['supp_records']` 等顶层计数是**计划**（planned）数量。
+> 真实成功写入的数量在 `stats['actual']['written']` 和逐阶段的 `stats['write_result']` 中，
+> 详见下方「写入结果可观测性」。
 
 ### 方式 3: 便捷函数
 
@@ -166,6 +173,89 @@ stats = map_als_to_spec(
     output_file="data/spec_output/result.xlsx"
 )
 ```
+
+## 写入结果可观测性
+
+`process()` 会返回一个结构化、可 JSON 序列化的**实际写入结果**，用于区分「计划做多少」与「真正写成功多少」。
+
+### stats 结构
+
+```python
+stats = {
+    # ---- planned（映射计划数量；旧字段，语义不变，向后兼容）----
+    "als_records": 120, "template_records": 1277,
+    "updates": 42, "supp_records": 8, "conditional_records": 3,
+    "codelist_records": 5, "unmatched_records": 1,
+    "planned": {"cell_updates": 42, "supp_rows": 8, "unmatched_rows": 1,
+                "conditional_mappings": 3, "codelist_records": 5},
+
+    # ---- actual（真实写入结果的安全摘要）----
+    "actual": {"attempted": 96, "written": 95, "skipped": 1,
+               "warnings": 2, "errors": 0},
+
+    # ---- write_result（逐阶段明细，见下）----
+    "write_result": {"summary": {...}, "stages": {...}, "warnings": [...], "errors": [...]},
+    "output_file": "data/spec_output/result.xlsx",
+}
+```
+
+### 阶段（stage）
+
+写操作按类型归入以下阶段，每个阶段独立记录 `attempted` / `written` / `skipped` / `warnings` / `errors`：
+
+`cell_updates`、`supp_rows`、`unmatched_rows`、`conditional_mappings`、`codelist_records`、
+`fixed_variable_rules`、`formulas_and_links`、`source_columns`、`external_coding`、`content_domains`、`styles`。
+
+不变式：每个阶段 `attempted == written + skipped + len(errors)`。`written` **只在**对应 workbook mutation 成功后递增。
+
+**真实 mutation 计数（no phantom write）**：`written` 反映真实发生的 workbook 变更，而非“调用未抛异常”。
+例如 CODELIST 记录仅在插入新行或填充空白 I/J 单元格时计入 `written`；若该记录的行已存在且 I/J 已填，则为
+no-op，记为 `skipped`（`code="codelist_unchanged"`）。经 `_guard` 的单次写操作以**返回的 mutation 计数**表达真实结果：
+返回 `N>0` 记为 `record_written(N)`（批量方法如 wrap_text / Source 列 / 固定变量规则贡献全部 N），
+返回 `0` 记为 `skipped`（`code="no_op"`）——`actual.written` 是真实 mutation 数，不是调用次数。
+
+**重复运行幂等**：以第一次输出作为第二次运行的模板时，插入类写操作不会产生重复行——
+`add_supp_to_content_sheet` 对已存在的 `SUPP{domain}` 行就地更新，`add_nonstandard_domain_to_content` /
+`add_external_coding_variables` 跳过已存在项并返回真实插入数，CODELIST 走 merge/dedup，
+`process_conditional_mappings` 按**完整列组**匹配复用（连续表头组合，如 `CRF_TESTCD+CRF_ORRES`），
+覆写数据并清空陈旧行而非重复追加；列组按整体匹配而非单个表头名，因此同一 TEST sheet 同时存在
+TESTCD 与 TEST 两组条件时，两组各自的 `CRF_ORRES` 列及数据都保留、互不覆盖（与原追加式布局一致）。
+
+### 错误分类（recoverable vs 未知/致命）与逐项原子性
+
+- **可恢复 = 预校验，不 = 捕获异常**。逐项写循环（单元格 / SUPP 行 / unmatched 行 / 条件映射 / CODELIST 记录）
+  在执行**任何**破坏性操作（删除既有 SUPP 块、插行、清 hyperlink）之前，先校验目标存在性与非法字符
+  （`contains_illegal_characters`，与 openpyxl 的 `ILLEGAL_CHARACTERS_RE` 同源）。不合法的项记录结构化
+  error（`code="illegal_characters"`）且**零 mutation**；若某域的 SUPP 记录全部不合法，该域完全不被触碰
+  （旧 SUPP 块保留）。因此“可恢复”结果绝不会与半成品行或已被破坏的旧数据并存。
+- **`_guard` 单次写操作**只降级专用 `RecoverableWriteError`；可恢复状态来自返回计数（前置条件不满足返回 0），
+  而非中途抛出的异常。
+- **未知 / 致命**：写入过程中抛出的任何其它异常（含裸 `ValueError`、openpyxl `IllegalCharacterError`、
+  `KeyError`、`OSError`、`RuntimeError` …）一律向上传播，使 Job 判定为 `failed`——绝不保存
+  “计数不实的部分工作簿”，也不会用宽泛 `except` 把真实 bug 掩盖成“可恢复”。
+
+### warnings / errors 安全约定（GxP / PHI）
+
+`WriteIssue` 只包含安全字段：`code`、`stage`、`operation` 和 workbook 定位（`sheet` / `row` / `column`），
+`detail` 仅为异常**类名**（如 `"RecoverableWriteError"`）。**不包含**绝对路径、原始临床值、API key/token、
+Python traceback 或完整异常文本。
+
+### 任务终态判定（Web 后台任务）
+
+| 场景 | 终态 | 产物 |
+| --- | --- | --- |
+| 所有计划写入成功（`written == attempted`，无 error） | `completed` | Excel 可下载 |
+| workbook 已保存，但存在写入失败或跳过（`written < attempted` 或有 error） | `completed_with_errors` | Excel **仍可下载**供人工复核 |
+| workbook 无法打开 / 保存 / 产物不可用 | `failed` | 无产物 |
+
+Job 状态额外暴露 `spec_attempted` / `spec_written` / `spec_skipped` / `spec_warnings` / `spec_errors` 安全摘要，
+以及结构化问题清单：`spec_issues`（前 N 项，API payload 有上限）与 `spec_issues_total`（真实总数）。
+完整、脱敏的问题清单持久化为文件（`output_issues`）并可经 `GET /api/jobs/{job_id}/download-issues` 下载。
+若持久化失败（OSError），完整列表回退到 `spec_issues` payload 本身——任何被跳过/失败的写入项在任何情况下都
+可查看，不会被静默丢弃；前端明确展示“显示 N / 共 M”，且仅在 `output_issues` 真实存在时渲染下载链接（绝无死链）。
+
+可下载日志由专用 formatter 输出：脱敏绝对路径，且从不追加 `exc_info` / `stack_info`，因此同线程内任何
+`logger.exception(...)` 都不会把服务器路径或内部堆栈写入用户可下载日志。
 
 ## 命令行参数
 
@@ -321,6 +411,23 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 ```
 
 ## 版本历史
+
+### v0.3.0 (Unreleased)
+
+**实际写入统计、错误可观测性与真实模板端到端保护（Issue #12 A5）**
+- 新增结构化写入结果模型 `WriteResult` / `StageWriteResult` / `WriteIssue`（`models/write_result.py`）
+- `process()` 返回值同时包含 `planned` 与 `actual`，`actual.written` 来自真实成功写入，不再用 `len(updates)` 代表成功写入数
+- 逐项可恢复的写入问题记录到结构化 `warnings` / `errors` 并继续处理，不再静默吞掉；结构化对象不泄漏路径、原始临床值、token 或 traceback
+- 后台任务据实际写入结果判定 `completed` / `completed_with_errors` / `failed`；`completed_with_errors` 产物仍可下载
+- Spec Job API / 任务 message / 可下载日志改为仅记录文件名，不再记录绝对路径或异常 traceback
+- 新增基于真实 IG 3.2 / IG 3.4 模板的端到端测试（cell update、SUPP、QNAM/QVAL、CODELIST merge/insert、公式与超链接保持/生成、样式、生成高亮、合并单元格、重复运行去重、可恢复失败、致命失败）
+
+**A5 复审加固**
+- CODELIST 与经 `_guard` 的写操作按真实 mutation 计数：已满足的 CODELIST 记录记为 `skipped`（`codelist_unchanged`），消除 phantom write；`_guard` 对批量方法记 `record_written(N)`，`actual.written` 反映真实 mutation 数
+- 插入路径重复运行幂等：`add_supp_to_content_sheet` 就地更新已存在 `SUPP{domain}`；`add_nonstandard_domain_to_content` / `add_external_coding_variables` 跳过已存在项并返回真实插入数；`process_conditional_mappings` 按完整列组匹配复用并清理陈旧行（TESTCD/TEST 混合条件的两组 `CRF_ORRES` 互不覆盖）；端到端断言 CONTENT/SUPP/CODELIST/条件列重跑不产生重复（IG 3.2 与 IG 3.4）
+- 新增专用 `RecoverableWriteError` + 逐项预校验原子性：`_guard` 只降级该类型；逐项写循环在任何破坏性操作前预校验非法字符与目标存在性（`illegal_characters` 结构化 error、零 mutation；某域 SUPP 全部不合法时该域不被触碰）；写入中抛出的任何异常（含裸 `ValueError` / `IllegalCharacterError`）一律 `failed`，绝不保存计数不实或半成品的部分工作簿
+- 结构化问题清单不再静默截断：新增 `spec_issues_total` 与完整清单文件 + `GET /api/jobs/{job_id}/download-issues`；持久化失败时完整列表回退到 payload；前端展示“显示 N / 共 M”，仅在文件存在时渲染下载链接
+- 可下载日志改用专用 formatter：脱敏绝对路径并从不追加 `exc_info` / `stack_info`，`logger.exception(...)` 不会泄漏 traceback / 服务器路径（不修改共享 `LogRecord`）
 
 ### v0.2.0 (2026-03-11)
 

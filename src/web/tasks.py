@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -458,6 +460,93 @@ def start_recommendations_job(
 
 # ==================== Spec Mapper Task ====================
 
+# Maximum number of structured write issues surfaced on the job (keeps the
+# API payload bounded; the full detail stays in the workbook + server logs).
+_SPEC_ISSUE_CAP = 50
+
+# Absolute (or 2+ segment) filesystem paths, redacted from the downloadable log.
+_ABS_PATH_RE = re.compile(r"(?:[A-Za-z]:\\[^\s'\"]*|(?:/[^\s'\"/]+){2,})")
+
+
+class _SpecJobLogFilter(logging.Filter):
+    """Scope a Spec-job file handler to its own worker thread.
+
+    The handler is attached to the root logger (so it can capture spec_mapper,
+    ConfigLoader and openpyxl records), so without this filter a concurrent job
+    or another session running on a different thread would bleed into this job's
+    downloadable log. Path redaction and traceback suppression live in
+    :class:`_SpecJobLogFormatter`; this filter only decides membership and never
+    mutates the shared ``LogRecord`` (other root handlers receive it too).
+    """
+
+    def __init__(self, thread_id: int) -> None:
+        super().__init__()
+        self._thread_id = thread_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.thread == self._thread_id
+
+
+class _SpecJobLogFormatter(logging.Formatter):
+    """Formatter for the user-downloadable per-job log.
+
+    Operates only on this handler's own output — it reads the record but never
+    writes back to it, so the shared ``LogRecord`` other root handlers receive
+    keeps its original message and ``exc_info``. Two safety guarantees:
+
+    * absolute / multi-segment filesystem paths in the message are redacted; and
+    * exception tracebacks and stack info are NEVER appended. The stdlib
+      ``Formatter.format`` would otherwise tack ``record.exc_info`` /
+      ``record.stack_info`` onto the line *after* any filter runs, so a stray
+      ``logger.exception(...)`` or ``exc_info=True`` on this worker thread would
+      leak server paths and internal stacks into the downloadable log.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        # getMessage() is pure (returns msg % args) and does not mutate record.
+        message = _ABS_PATH_RE.sub("<path>", record.getMessage())
+        asctime = self.formatTime(record, self.datefmt)
+        # Deliberately ignore exc_info / exc_text / stack_info: no traceback.
+        return f"{asctime} - {record.name} - {record.levelname} - {message}"
+
+
+def _all_spec_issues(stats: dict) -> list[dict]:
+    """All safe, structured write issues (errors first, then warnings).
+
+    Each item exposes only code/stage/operation/sheet/row/column/detail — never
+    a path, clinical value, or traceback — so the full list is safe to persist
+    and download.
+    """
+    write_result = stats.get("write_result") or {}
+    errors = write_result.get("errors") or []
+    warnings = write_result.get("warnings") or []
+    return errors + warnings
+
+
+# Concurrency-safe root-logger level management: keep the root logger at DEBUG
+# while ANY spec job is capturing and restore only when the last one finishes,
+# so overlapping jobs never suppress each other's capture.
+_spec_log_lock = threading.Lock()
+_spec_log_active = 0
+_spec_log_saved_level = logging.NOTSET
+
+
+def _acquire_root_debug(root_logger: logging.Logger) -> None:
+    global _spec_log_active, _spec_log_saved_level
+    with _spec_log_lock:
+        if _spec_log_active == 0:
+            _spec_log_saved_level = root_logger.level
+            root_logger.setLevel(logging.DEBUG)
+        _spec_log_active += 1
+
+
+def _release_root_debug(root_logger: logging.Logger) -> None:
+    global _spec_log_active
+    with _spec_log_lock:
+        _spec_log_active = max(0, _spec_log_active - 1)
+        if _spec_log_active == 0:
+            root_logger.setLevel(_spec_log_saved_level)
+
 
 def _run_spec_mapper_job(
     job_id: str,
@@ -491,31 +580,29 @@ def _run_spec_mapper_job(
         if not template_path.exists():
             raise FileNotFoundError(f"模板文件不存在: {template_file}")
 
-        # 导入必要的模块
-        import logging
-
         from src.spec_mapper import SpecMapper
 
-        # 设置日志文件处理器
+        # 设置日志文件处理器（仅捕获本 job 所在线程、并脱敏绝对路径）
         log_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
         log_handler.setLevel(logging.DEBUG)
-        log_formatter = logging.Formatter(
-            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        log_handler.setFormatter(log_formatter)
+        # The formatter redacts absolute paths and never appends tracebacks, so
+        # neither server paths nor internal stacks reach the downloadable log.
+        log_handler.setFormatter(_SpecJobLogFormatter(datefmt="%Y-%m-%d %H:%M:%S"))
+        # Isolate this job's log from other concurrent jobs/sessions (thread scope).
+        log_handler.addFilter(_SpecJobLogFilter(threading.get_ident()))
 
-        # 获取 root logger 并添加文件处理器
+        # 获取 root logger 并添加文件处理器（并发安全地提升到 DEBUG）
         root_logger = logging.getLogger()
-        original_level = root_logger.level
-        root_logger.setLevel(logging.DEBUG)  # 捕获所有级别
+        _acquire_root_debug(root_logger)
         root_logger.addHandler(log_handler)
 
         try:
+            # Log only file *names*, never absolute/relative server paths, since
+            # this log is user-downloadable via the download-log endpoint.
             logging.info(f"[Spec Mapper Job {job_id}] Started")
-            logging.info(f"ALS File: {als_path}")
-            logging.info(f"Template File: {template_path}")
-            logging.info(f"Output Path: {output_path}")
-            logging.info(f"Log Path: {log_path}")
+            logging.info(f"ALS file: {als_path.name}")
+            logging.info(f"Template file: {template_path.name}")
+            logging.info(f"Output file: {output_path.name}")
 
             # 初始化 SpecMapper
             mapper = SpecMapper(als_file=als_path, template_file=template_path, als_sheet=als_sheet, log_level="INFO")
@@ -539,8 +626,40 @@ def _run_spec_mapper_job(
                 )
                 return
 
-            updates_count = stats.get("updates", 0)
-            total_als_records = stats.get("als_records", 0)
+            total_als_records = int(stats.get("als_records", 0))
+            # Actual (not planned) workbook write outcome.
+            actual = stats.get("actual") or {}
+            attempted = int(actual.get("attempted", 0))
+            written = int(actual.get("written", 0))
+            skipped = int(actual.get("skipped", 0))
+            warn_count = int(actual.get("warnings", 0))
+            err_count = int(actual.get("errors", 0))
+
+            # Full, safe structured issue list. The API payload is normally
+            # capped for size while the COMPLETE list is persisted to a
+            # downloadable JSON. If that persistence fails, fall back to
+            # exposing the FULL list in the job payload instead — items beyond
+            # the cap must never become invisible (A5), and the UI only renders
+            # the download link when the file actually exists (output_issues).
+            all_issues = _all_spec_issues(stats)
+            issues_total = len(all_issues)
+            payload_issues = all_issues[:_SPEC_ISSUE_CAP]
+            issues_json_path: Path | None = None
+            if all_issues:
+                candidate = log_dir / f"{output_name}.issues.json"
+                try:
+                    candidate.write_text(json.dumps(all_issues, ensure_ascii=False, indent=2), encoding="utf-8")
+                    issues_json_path = candidate
+                except OSError as exc:
+                    issues_json_path = None
+                    payload_issues = all_issues
+                    logging.warning(
+                        "Could not persist the full issue list (%s); exposing all %d issues in the job payload",
+                        type(exc).__name__,
+                        issues_total,
+                    )
+                if session_id and issues_json_path and issues_json_path.exists():
+                    session_manager.add_file(session_id, str(issues_json_path))
 
             # 记录输出文件归属于当前 session
             if session_id and output_path.exists():
@@ -550,29 +669,63 @@ def _run_spec_mapper_job(
             if session_id and log_path.exists():
                 session_manager.add_file(session_id, str(log_path))
 
-            # 完成
+            # Defensive: save() reported success but the artifact is missing.
+            # Treat as a fatal failure rather than reporting (partial) success.
+            if not output_path.exists():
+                raise RuntimeError("generated workbook is unavailable")
+
+            # Decide the terminal state from the *actual* write result:
+            #   * some planned writes failed or were skipped -> completed_with_errors
+            #     (the workbook is still saved and downloadable for manual review)
+            #   * every planned write succeeded              -> completed
+            if written < attempted or err_count > 0:
+                state = "completed_with_errors"
+                message = (
+                    f"⚠️ Spec 已生成但需人工复核：成功写入 {written}/{attempted} 项，"
+                    f"跳过 {skipped}，警告 {warn_count}，错误 {err_count}"
+                )
+            else:
+                state = "completed"
+                message = f"✓ 完成！处理 {total_als_records} 条记录，成功写入 {written}/{attempted} 项操作"
+
             job_manager.update_job(
                 job_id,
-                state="completed",
-                message=f"✓ 完成！处理了 {total_als_records} 条记录，生成了 {updates_count} 个更新",
+                state=state,
+                message=message,
                 processed=5,
                 total=5,
                 output_excel=str(output_path),
                 output_log=str(log_path),
+                spec_attempted=attempted,
+                spec_written=written,
+                spec_skipped=skipped,
+                spec_warnings=warn_count,
+                spec_errors=err_count,
+                spec_issues=payload_issues,
+                spec_issues_total=issues_total,
+                output_issues=str(issues_json_path) if issues_json_path else None,
             )
         finally:
-            # 移除日志处理器并恢复原始日志级别
+            # 记录结束标记（在移除 handler 前，确保写入本 job 日志），随后移除
+            # 处理器并并发安全地恢复原始日志级别。
+            logging.info(f"[Spec Mapper Job {job_id}] Finished")
             root_logger.removeHandler(log_handler)
             log_handler.close()
-            root_logger.setLevel(original_level)
-
-            logging.info(f"[Spec Mapper Job {job_id}] Completed")
-            logging.info(f"Log file saved to: {log_path}")
+            _release_root_debug(root_logger)
 
     except Exception as exc:
+        # Never surface raw exception text (may embed paths/tracebacks) in the
+        # user-facing job message; report a safe, typed summary instead.
         current = job_manager.get_job(job_id)
         if current and current.state != "cancelled":
-            job_manager.update_job(job_id, state="failed", message=f"错误: {exc!s}")
+            if isinstance(exc, FileNotFoundError):
+                safe_message = "Spec 生成失败：ALS2SDTM 文件或模板文件不存在。"
+            else:
+                safe_message = (
+                    f"Spec 生成失败：无法生成工作簿（{type(exc).__name__}）。"
+                    "请检查 ALS2SDTM 文件、模板与 sheet 名称后重试。"
+                )
+            job_manager.update_job(job_id, state="failed", message=safe_message)
 
 
 def start_spec_mapper_job(

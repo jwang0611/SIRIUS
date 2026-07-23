@@ -463,7 +463,7 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - [x] A2 / A3 / A4 / A6：外部调用重试、错误状态可见、Spec 真实阶段进度、配置与文档校准（PR #11）。
 - [x] 一致性清理：Spec Mapper 默认 sheet 统一为 `Sheet1`（显式参数 > `ALS_DEFAULT_SHEET` > 配置）、删除未调用的旧并行路径，并为 `when` / `if` / `|` / `/` / `//` DSL 增加专属单测。
 - [ ] A1：等待维护者提供合规、去标识化且与 KB/规则不相交的 held-out metadata 数据；在此之前不调整 prompt、阈值或默认模型。
-- [ ] A5：Spec 实际写入统计、结构化 warnings/errors 与两个真实模板族的端到端保护。
+- [x] A5：Spec 实际写入统计、结构化 warnings/errors 与两个真实模板族的端到端保护（见下方更新日志）。
 - [ ] A7：运行时/开发依赖拆分、精确 lockfile 和 CI 安装/类型/覆盖率门禁。
 
 ### Phase 1: 快速收益 -- 已完成
@@ -507,6 +507,25 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - [ ] **端到端自动化** — 映射 → Spec → 代码 → 执行 → P21 验证
 
 ## 📋 更新日志
+
+### Unreleased
+
+**Spec Mapper — 实际写入统计与错误可观测性（Issue #12 A5）**
+- 新增结构化、可序列化的写入结果（`src/spec_mapper/models/write_result.py`）：`WriteResult` / `StageWriteResult` / `WriteIssue`，按阶段（`cell_updates` / `supp_rows` / `unmatched_rows` / `conditional_mappings` / `codelist_records` / `fixed_variable_rules` / `formulas_and_links` / `source_columns` / `external_coding` / `content_domains` / `styles`）记录 `attempted` / `written` / `skipped` / `warnings` / `errors`
+- `SpecMapper.process()` 的 `stats` 同时返回 **planned**（映射计划数量，旧字段 `updates` / `supp_records` … 语义不变）与 **actual**（真实写入结果）；`written` 仅在对应 workbook mutation 成功后递增，不再用 `len(updates)` 代表成功写入数
+- 逐项可恢复的写入问题记录到结构化 `warnings` / `errors` 并继续处理，不再被静默吞掉；`warnings` / `errors` 仅含安全的 `code` / `stage` / `operation` 与 workbook 定位信息，不含绝对路径、原始临床值、token 或 traceback
+- 后台任务按实际写入结果判定终态：全部计划写入成功 → `completed`；workbook 已保存但存在写入失败/跳过 → `completed_with_errors`（生成的 Excel 仍可下载供人工复核）；workbook 无法打开/保存 → `failed`
+- Spec Job API / 任务 message / 可下载日志不再记录 ALS、模板、输出、日志的绝对路径或异常 traceback；Job 状态新增 `spec_attempted` / `spec_written` / `spec_skipped` / `spec_warnings` / `spec_errors` 安全摘要字段
+- Spec 前端 `pollSpecJob()` 识别 `completed_with_errors`，展示 attempted/written/skipped/warning/error 摘要，并在需人工复核时保留 Excel 下载按钮
+- 新增基于仓库真实模板（IG 3.2 / IG 3.4）的端到端测试，覆盖 cell update、SUPP 插行、QNAM/QVAL、CODELIST merge/insert、公式与超链接的保持/生成、样式保持、生成单元格高亮、合并单元格完整性、重复运行去重，以及可恢复写入失败（`completed_with_errors`）与致命保存失败（`failed`）
+
+**A5 复审加固（写入计数真实性、错误分类、可观测性完整）**
+- CODELIST 与 CONTENT/域插入路径的“真实 mutation”计数：CODELIST 记录仅在插入新行或填充空白 I/J 单元格时计入 `written`，已完全满足的记录记为 `skipped`（`codelist_unchanged`），不再产生 phantom write
+- 重复运行幂等性：`add_supp_to_content_sheet` 对已存在的 `SUPP{domain}` 行就地更新而非追加；`add_nonstandard_domain_to_content` 与 `add_external_coding_variables` 对已存在项跳过插入并返回真实插入数；`process_conditional_mappings` 按**完整列组**（如 `CRF_TESTCD+CRF_ORRES` 或 `CRF_TEST+CRF_ORRES` 的连续表头组合）匹配复用（覆写数据并清理陈旧行）而非每次追加；列组按整体匹配，因此同一 TEST sheet 同时存在 TESTCD 与 TEST 两组条件时各自的 `CRF_ORRES` 数据互不覆盖——以第一次输出作为第二次模板重跑时，CONTENT / SUPP / CODELIST / TEST sheet 条件列均不产生重复（IG 3.2 与 IG 3.4 均有断言）
+- 错误分类收窄 + 逐项原子性：新增专用 `RecoverableWriteError`，单次写操作边界（`_guard`）只降级该类型；逐项写循环（SUPP 行 / unmatched 行 / 条件映射 / CODELIST / 单元格）在**任何破坏性操作之前**预校验非法字符（与 openpyxl `ILLEGAL_CHARACTERS_RE` 同源）与目标存在性，不合法的项记录结构化 error（`illegal_characters`）且零 mutation——可恢复结果绝不与半成品行或已删除的旧 SUPP 块并存；写入过程中抛出的任何异常（含裸 `ValueError`、`IllegalCharacterError`）均为未知/致命并传播使 Job `failed`，不会保存计数不实的部分工作簿
+- `_guard` 按真实批量计数记账：批量方法（wrap_text、Source 列、固定变量规则等）返回 N>1 时记 `record_written(N)`，`actual.written` 反映真实 mutation 数而非调用次数
+- 问题明细不再静默截断：Job 新增 `spec_issues_total` 与完整问题清单文件（`output_issues`），新增 `GET /api/jobs/{job_id}/download-issues` 下载完整、脱敏的结构化清单；前端明确展示“显示 N / 共 M”，且仅在清单文件真实存在时渲染下载链接；若清单持久化失败（OSError），完整列表回退到 Job payload（`spec_issues`）——任何情况下超出 cap 的项都不会不可见
+- 可下载日志的 traceback 防泄漏：日志改由专用 formatter 输出，脱敏绝对路径并且从不追加 `exc_info` / `stack_info`，因此同线程内任何 `logger.exception(...)` 都不会把服务器路径或内部堆栈写入用户可下载日志（不修改共享 `LogRecord`，不影响其它 handler）
 
 ### v1.0 (2026-07-01)
 
