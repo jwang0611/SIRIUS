@@ -28,12 +28,32 @@ from typing import Any
 
 from openpyxl.utils.exceptions import IllegalCharacterError
 
-# Exceptions treated as *recoverable*, per-item write problems: the code's own
-# guard rails (bad sheet / row / column raise ValueError) and openpyxl rejecting
-# a cell value. Anything else (AttributeError, TypeError, KeyError, OSError,
-# RuntimeError, ...) is an unknown/fatal error and must NOT be swallowed into a
-# recoverable warning — it propagates so the job is marked ``failed``.
-RECOVERABLE_WRITE_ERRORS: tuple[type[Exception], ...] = (ValueError, IllegalCharacterError)
+
+class RecoverableWriteError(Exception):
+    """A *recognized*, per-item recoverable write precondition.
+
+    Raise this (never a bare ``ValueError``) when a specific, known write
+    precondition fails for one item and the run should continue: the offending
+    item is recorded as a structured error while the rest of the workbook is
+    still written and saved.
+
+    Only this dedicated type — plus openpyxl's :class:`IllegalCharacterError`
+    at the actual cell-write boundary — is downgraded to a structured write
+    error. Every other exception (``ValueError``, ``AttributeError``,
+    ``TypeError``, ``KeyError``, ``OSError``, ``RuntimeError``, ...) is treated
+    as unknown/fatal and propagates so the job is marked ``failed`` — a broad
+    ``except ValueError`` at a call boundary would otherwise mask genuine bugs
+    behind a "recoverable" label.
+    """
+
+
+# Per-item write loops (single cell / single CODELIST record / single inserted
+# row) catch this narrow pair: our own recognized recoverable precondition and
+# openpyxl rejecting a specific cell value. Because each item is accounted for
+# the instant it succeeds, a failure on item *N* never loses the writes already
+# recorded for items ``1..N-1``. The single-call ``_guard`` boundary is even
+# narrower — it catches ``RecoverableWriteError`` alone.
+RECOVERABLE_WRITE_ERRORS: tuple[type[Exception], ...] = (RecoverableWriteError, IllegalCharacterError)
 
 # --- stage name constants (operation groups tracked by SpecMapper.process) ----
 STAGE_CELL_UPDATES = "cell_updates"

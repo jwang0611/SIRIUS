@@ -469,15 +469,14 @@ _ABS_PATH_RE = re.compile(r"(?:[A-Za-z]:\\[^\s'\"]*|(?:/[^\s'\"/]+){2,})")
 
 
 class _SpecJobLogFilter(logging.Filter):
-    """Scope a Spec-job file handler to its own worker thread and redact paths.
+    """Scope a Spec-job file handler to its own worker thread.
 
     The handler is attached to the root logger (so it can capture spec_mapper,
-    ConfigLoader and openpyxl records), but this filter:
-
-    * drops records emitted from any other thread, so concurrent jobs / other
-      sessions never bleed into this job's downloadable log; and
-    * redacts absolute (or multi-segment) filesystem paths from every message,
-      so server paths / package locations cannot leak regardless of source.
+    ConfigLoader and openpyxl records), so without this filter a concurrent job
+    or another session running on a different thread would bleed into this job's
+    downloadable log. Path redaction and traceback suppression live in
+    :class:`_SpecJobLogFormatter`; this filter only decides membership and never
+    mutates the shared ``LogRecord`` (other root handlers receive it too).
     """
 
     def __init__(self, thread_id: int) -> None:
@@ -485,26 +484,43 @@ class _SpecJobLogFilter(logging.Filter):
         self._thread_id = thread_id
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.thread != self._thread_id:
-            return False
-        try:
-            message = record.getMessage()
-        except Exception:
-            return True
-        if "/" in message or "\\" in message:
-            redacted = _ABS_PATH_RE.sub("<path>", message)
-            if redacted != message:
-                record.msg = redacted
-                record.args = ()
-        return True
+        return record.thread == self._thread_id
 
 
-def _collect_spec_issues(stats: dict) -> list[dict]:
-    """Extract safe, structured, capped write issues (errors first) from stats."""
+class _SpecJobLogFormatter(logging.Formatter):
+    """Formatter for the user-downloadable per-job log.
+
+    Operates only on this handler's own output — it reads the record but never
+    writes back to it, so the shared ``LogRecord`` other root handlers receive
+    keeps its original message and ``exc_info``. Two safety guarantees:
+
+    * absolute / multi-segment filesystem paths in the message are redacted; and
+    * exception tracebacks and stack info are NEVER appended. The stdlib
+      ``Formatter.format`` would otherwise tack ``record.exc_info`` /
+      ``record.stack_info`` onto the line *after* any filter runs, so a stray
+      ``logger.exception(...)`` or ``exc_info=True`` on this worker thread would
+      leak server paths and internal stacks into the downloadable log.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        # getMessage() is pure (returns msg % args) and does not mutate record.
+        message = _ABS_PATH_RE.sub("<path>", record.getMessage())
+        asctime = self.formatTime(record, self.datefmt)
+        # Deliberately ignore exc_info / exc_text / stack_info: no traceback.
+        return f"{asctime} - {record.name} - {record.levelname} - {message}"
+
+
+def _all_spec_issues(stats: dict) -> list[dict]:
+    """All safe, structured write issues (errors first, then warnings).
+
+    Each item exposes only code/stage/operation/sheet/row/column/detail — never
+    a path, clinical value, or traceback — so the full list is safe to persist
+    and download.
+    """
     write_result = stats.get("write_result") or {}
     errors = write_result.get("errors") or []
     warnings = write_result.get("warnings") or []
-    return (errors + warnings)[:_SPEC_ISSUE_CAP]
+    return errors + warnings
 
 
 # Concurrency-safe root-logger level management: keep the root logger at DEBUG
@@ -569,12 +585,10 @@ def _run_spec_mapper_job(
         # 设置日志文件处理器（仅捕获本 job 所在线程、并脱敏绝对路径）
         log_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
         log_handler.setLevel(logging.DEBUG)
-        log_formatter = logging.Formatter(
-            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        log_handler.setFormatter(log_formatter)
-        # Isolate this job's log from other concurrent jobs/sessions (thread
-        # scope) and redact any absolute paths that slip through from any module.
+        # The formatter redacts absolute paths and never appends tracebacks, so
+        # neither server paths nor internal stacks reach the downloadable log.
+        log_handler.setFormatter(_SpecJobLogFormatter(datefmt="%Y-%m-%d %H:%M:%S"))
+        # Isolate this job's log from other concurrent jobs/sessions (thread scope).
         log_handler.addFilter(_SpecJobLogFilter(threading.get_ident()))
 
         # 获取 root logger 并添加文件处理器（并发安全地提升到 DEBUG）
@@ -621,6 +635,22 @@ def _run_spec_mapper_job(
             warn_count = int(actual.get("warnings", 0))
             err_count = int(actual.get("errors", 0))
 
+            # Full, safe structured issue list. The API payload is capped for
+            # size, but the COMPLETE list is persisted to a downloadable JSON so
+            # no skipped/failed item is ever silently dropped (A5 observability).
+            all_issues = _all_spec_issues(stats)
+            issues_total = len(all_issues)
+            issues_json_path: Path | None = None
+            if all_issues:
+                candidate = log_dir / f"{output_name}.issues.json"
+                try:
+                    candidate.write_text(json.dumps(all_issues, ensure_ascii=False, indent=2), encoding="utf-8")
+                    issues_json_path = candidate
+                except OSError:
+                    issues_json_path = None
+                if session_id and issues_json_path and issues_json_path.exists():
+                    session_manager.add_file(session_id, str(issues_json_path))
+
             # 记录输出文件归属于当前 session
             if session_id and output_path.exists():
                 session_manager.add_file(session_id, str(output_path))
@@ -661,7 +691,9 @@ def _run_spec_mapper_job(
                 spec_skipped=skipped,
                 spec_warnings=warn_count,
                 spec_errors=err_count,
-                spec_issues=_collect_spec_issues(stats),
+                spec_issues=all_issues[:_SPEC_ISSUE_CAP],
+                spec_issues_total=issues_total,
+                output_issues=str(issues_json_path) if issues_json_path else None,
             )
         finally:
             # 记录结束标记（在移除 handler 前，确保写入本 job 日志），随后移除

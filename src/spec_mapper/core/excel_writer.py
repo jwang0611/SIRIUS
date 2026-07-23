@@ -181,6 +181,28 @@ class ExcelWriter:
                 mapped = self._src_label(value)
                 if mapped is not None:
                     value = mapped
+            # Recognized recoverable precondition: the target sheet is absent.
+            # Record it explicitly rather than relying on a broad ValueError
+            # catch (which would also mask genuine bugs).
+            if update.sheet_name not in self.workbook.sheetnames:
+                result.record_error(
+                    WriteIssue(
+                        code="cell_write_failed",
+                        stage=STAGE_CELL_UPDATES,
+                        operation="update_cell",
+                        sheet=update.sheet_name,
+                        row=update.row,
+                        column=update.col,
+                        detail="sheet_not_found",
+                    )
+                )
+                logger.warning(
+                    "Skipped cell update at %s!R%sC%s (sheet not found)",
+                    update.sheet_name,
+                    update.row,
+                    update.col,
+                )
+                continue
             try:
                 self.update_cell_value(
                     update.sheet_name,
@@ -539,8 +561,16 @@ class ExcelWriter:
             reference_row: Row number to copy formatting from (default: 52)
             highlight: Whether to apply yellow highlight to filled cells (default: True)
 
+        Idempotent: if ``SUPP{domain}`` already exists in the CONTENT sheet the
+        existing row is updated in place, so re-running the pipeline on a
+        previously-generated workbook never appends a duplicate CONTENT row.
+
+        Returns:
+            1 if the SUPP row was inserted or refreshed, 0 if the domain row was
+            not found in the CONTENT sheet.
+
         Raises:
-            ValueError: If CONTENT sheet or domain not found
+            ValueError: If the CONTENT sheet does not exist.
 
         Examples:
             >>> writer.add_supp_to_content_sheet("AE")  # Adds SUPPAE below AE row
@@ -566,22 +596,40 @@ class ExcelWriter:
 
         logger.info(f"Found domain '{domain}' at row {domain_row} in '{content_sheet_name}'")
 
-        # Find the last domain/SUPP row to insert at the bottom (avoid disturbing header)
-        last_domain_row = None
-        for row_idx in range(ws.max_row, 0, -1):
+        # Idempotency: if SUPP{domain} is already present (e.g. re-running the
+        # pipeline on a previously-generated workbook), update that row in place
+        # instead of appending a duplicate CONTENT row.
+        supp_key = f"SUPP{domain}".upper()
+        existing_supp_row = None
+        for row_idx in range(1, ws.max_row + 1):
             cell_value = ws.cell(row=row_idx, column=1).value
-            if cell_value:
-                cell_str = str(cell_value).strip()
-                # Check if it's a valid domain name (2-char or SUPP*)
-                if (len(cell_str) == 2 and cell_str.isalpha()) or cell_str.startswith("SUPP"):
-                    last_domain_row = row_idx
-                    break
+            if cell_value and str(cell_value).strip().upper() == supp_key:
+                existing_supp_row = row_idx
+                break
 
-        # Insert new row at the bottom (after the last domain/SUPP)
-        insert_row_idx = (last_domain_row or domain_row) + 1
-        self.insert_row(
-            sheet_name=content_sheet_name, row_index=insert_row_idx, amount=1, copy_format_from_row=reference_row
-        )
+        if existing_supp_row is not None:
+            insert_row_idx = existing_supp_row
+            logger.info(
+                f"'{supp_key}' already present in '{content_sheet_name}' at row {insert_row_idx}; "
+                "updating in place (no duplicate row)"
+            )
+        else:
+            # Find the last domain/SUPP row to insert at the bottom (avoid disturbing header)
+            last_domain_row = None
+            for row_idx in range(ws.max_row, 0, -1):
+                cell_value = ws.cell(row=row_idx, column=1).value
+                if cell_value:
+                    cell_str = str(cell_value).strip()
+                    # Check if it's a valid domain name (2-char or SUPP*)
+                    if (len(cell_str) == 2 and cell_str.isalpha()) or cell_str.startswith("SUPP"):
+                        last_domain_row = row_idx
+                        break
+
+            # Insert new row at the bottom (after the last domain/SUPP)
+            insert_row_idx = (last_domain_row or domain_row) + 1
+            self.insert_row(
+                sheet_name=content_sheet_name, row_index=insert_row_idx, amount=1, copy_format_from_row=reference_row
+            )
 
         # Prepare SUPP data
         supp_domain = f"SUPP{domain}"
@@ -1137,6 +1185,18 @@ class ExcelWriter:
 
         ws: Worksheet = self.workbook[content_sheet_name]
 
+        # Idempotency: skip if this non-standard domain is already present in the
+        # CONTENT sheet (e.g. on a re-run), so no duplicate row is appended.
+        target_domain = domain.upper()
+        for row_idx in range(1, ws.max_row + 1):
+            existing = ws.cell(row=row_idx, column=1).value
+            if existing and str(existing).strip().upper() == target_domain:
+                logger.info(
+                    f"Non-standard domain '{target_domain}' already in '{content_sheet_name}' "
+                    f"at row {row_idx}; skipping duplicate insert"
+                )
+                return 0
+
         # Find the last domain row (before any footer/notes)
         last_domain_row = None
         for row_idx in range(ws.max_row, 0, -1):
@@ -1288,6 +1348,12 @@ class ExcelWriter:
             variable_type: Type for I column ("SUPP" or "SDTM", default: "SUPP")
             highlight: If True, apply yellow background (default: True)
 
+        Idempotent: variables whose name already exists in the sheet are skipped,
+        so re-running the pipeline never appends duplicate rows.
+
+        Returns:
+            The number of variables actually inserted (0 if all already existed).
+
         Raises:
             ValueError: If sheet doesn't exist
         """
@@ -1306,10 +1372,23 @@ class ExcelWriter:
                     last_row = row_idx
                     break
 
+        # Idempotency: don't re-insert a variable that already exists in the
+        # sheet (e.g. on a re-run), which would otherwise append duplicate rows.
+        existing_names: set[str] = set()
+        for row_idx in range(14, ws.max_row + 1):
+            name_val = ws.cell(row=row_idx, column=1).value
+            if name_val:
+                existing_names.add(str(name_val).strip().upper())
+
         # Insert rows for each variable
         insert_row = last_row + 1
+        inserted = 0
 
         for var in variables:
+            var_name = str(var.get("name", "")).strip().upper()
+            if var_name and var_name in existing_names:
+                logger.debug(f"External coding variable '{var_name}' already present in '{sheet_name}', skipping")
+                continue
             # Copy format from previous row
             copy_from_row = insert_row - 1 if insert_row > 14 else 14
             self.insert_row(sheet_name=sheet_name, row_index=insert_row, amount=1, copy_format_from_row=copy_from_row)
@@ -1391,11 +1470,14 @@ class ExcelWriter:
             # J: Variable Order (formula)
             ws.cell(row=insert_row, column=10).value = "=ROW()-13"
 
+            existing_names.add(var_name)
             insert_row += 1
+            inserted += 1
 
-        self.modified_sheets.add(sheet_name)
-        logger.info(f"Added {len(variables)} external coding variables to '{sheet_name}'")
-        return len(variables)
+        if inserted:
+            self.modified_sheets.add(sheet_name)
+        logger.info(f"Added {inserted}/{len(variables)} external coding variables to '{sheet_name}'")
+        return inserted
 
     def update_existing_variables(
         self, sheet_name: str, variables: list, start_row: int = 14, highlight: bool = True
@@ -1568,8 +1650,10 @@ class ExcelWriter:
 
         Returns:
             A :class:`StageWriteResult`; each input record counts as one attempt
-            and is ``written`` when its row was inserted or its target cells were
-            populated (an already-satisfied entry counts as written).
+            and is ``written`` only when it actually mutated the workbook (a new
+            row was inserted, or a previously-blank I/J cell was filled). A
+            record whose row already exists with I/J populated is a no-op and is
+            recorded as ``skipped`` (``codelist_unchanged``) — never as a write.
         """
         result = StageWriteResult(stage=STAGE_CODELIST_RECORDS)
 
@@ -1632,6 +1716,7 @@ class ExcelWriter:
             for rec in recs:
                 try:
                     key = (rec.domain.upper(), rec.testcd_var.upper(), rec.testcd_value.upper())
+                    rec_mutations = 0
 
                     if key in existing_keys:
                         # Row already exists — only fill I/J if currently empty
@@ -1645,8 +1730,7 @@ class ExcelWriter:
                                 if highlight:
                                     cell.fill = yellow
                                 updated_count += 1
-                        # An already-present entry is satisfied; count as written.
-                        result.record_written()
+                                rec_mutations += 1
                     else:
                         # New entry — insert a row after the domain's last row
                         if domain in domain_last_row:
@@ -1677,7 +1761,23 @@ class ExcelWriter:
                         if target_row > global_last_row:
                             global_last_row = target_row
                         inserted_count += 1
+                        rec_mutations += 1
+
+                    # Count as written only when this record actually mutated the
+                    # workbook (inserted a new row or filled a previously-blank
+                    # cell). An entry whose row already existed with I/J populated
+                    # is a genuine no-op and must not inflate ``written``.
+                    if rec_mutations > 0:
                         result.record_written()
+                    else:
+                        result.record_skipped(
+                            WriteIssue(
+                                code="codelist_unchanged",
+                                stage=STAGE_CODELIST_RECORDS,
+                                operation="write_codelist",
+                                sheet=sheet_name,
+                            )
+                        )
                 except RECOVERABLE_WRITE_ERRORS as exc:
                     result.record_error(
                         WriteIssue(

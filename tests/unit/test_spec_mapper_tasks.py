@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from src.spec_mapper.core.excel_writer import ExcelWriter
+from src.spec_mapper.models.write_result import RecoverableWriteError
 from src.web.job_manager import job_manager
 from src.web.tasks import _run_spec_mapper_job
 
@@ -82,9 +83,9 @@ def test_clean_run_marks_completed(spec_workspace: Path) -> None:
 
 
 def test_partial_failure_marks_completed_with_errors(spec_workspace: Path, monkeypatch) -> None:
-    # A *recoverable* (classified) per-op failure -> completed_with_errors.
+    # A *recognized* recoverable per-op failure -> completed_with_errors.
     def boom(self, *a, **k):
-        raise ValueError("injected recoverable failure")
+        raise RecoverableWriteError("injected recoverable failure")
 
     monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
 
@@ -117,7 +118,7 @@ def test_completed_with_errors_exposes_structured_issues(spec_workspace: Path, m
     """The job/API must expose *which* items failed, not just counts."""
 
     def boom(self, *a, **k):
-        raise ValueError("recoverable")
+        raise RecoverableWriteError("recoverable")
 
     monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
     job = job_manager.get_job(_run_job())
@@ -127,14 +128,14 @@ def test_completed_with_errors_exposes_structured_issues(spec_workspace: Path, m
     issue = job.spec_issues[0]
     # Locatable + safe fields only.
     assert set(issue) >= {"code", "stage", "operation"}
-    assert issue["detail"] in (None, "ValueError")
+    assert issue["detail"] in (None, "RecoverableWriteError")
     # Exposed through the job API payload.
     assert job.to_dict()["spec_issues"]
 
 
 def test_completed_with_errors_is_downloadable_via_api(spec_workspace: Path, monkeypatch) -> None:
     def boom(self, *a, **k):
-        raise ValueError("injected recoverable failure")
+        raise RecoverableWriteError("injected recoverable failure")
 
     monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
     job_id = _run_job()
@@ -222,3 +223,87 @@ def test_concurrent_jobs_logs_are_isolated(spec_workspace: Path) -> None:
     a, b = ids["cjob_a"], ids["cjob_b"]
     assert a in log_a and b not in log_a
     assert b in log_b and a not in log_b
+
+
+def test_bare_valueerror_marks_failed(spec_workspace: Path, monkeypatch) -> None:
+    """A bare ValueError (not the dedicated RecoverableWriteError) at the guard
+    boundary is unknown/fatal and must fail the job, not be masked as
+    completed_with_errors."""
+
+    def boom(self, *a, **k):
+        raise ValueError("looks recoverable but is not classified")
+
+    monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
+
+    job = job_manager.get_job(_run_job())
+    assert job.state == "failed"
+    assert job.state not in {"completed", "completed_with_errors"}
+    assert "looks recoverable" not in job.message
+
+
+def test_injected_exception_log_has_no_traceback(spec_workspace: Path, monkeypatch) -> None:
+    """A ``logger.exception(...)`` on the worker thread must not leak a traceback
+    or server path into the user-downloadable log: the job formatter drops
+    exc_info / stack_info entirely."""
+    import logging as _logging
+
+    from src.spec_mapper import SpecMapper
+
+    real_process = SpecMapper.process
+
+    def noisy_process(self, *args, **kwargs):
+        # Emit an exception record whose traceback embeds a fake server path.
+        try:
+            raise RuntimeError("boom at /server/secret/oops.py line 42")
+        except RuntimeError:
+            _logging.getLogger("src.spec_mapper").exception("processing hiccup")
+        return real_process(self, *args, **kwargs)
+
+    monkeypatch.setattr(SpecMapper, "process", noisy_process)
+
+    job = job_manager.get_job(_run_job())
+    assert job.output_log
+    log_text = Path(job.output_log).read_text(encoding="utf-8")
+    # The record itself was captured (message present)…
+    assert "processing hiccup" in log_text
+    # …but its traceback / exception message / server path were NOT appended.
+    assert "Traceback (most recent call last)" not in log_text
+    assert "/server/secret/oops.py" not in log_text
+    assert "boom at" not in log_text
+    # The run itself still finishes normally (the log noise is incidental).
+    assert job.state in {"completed", "completed_with_errors"}
+
+
+def test_truncated_issues_are_downloadable(spec_workspace: Path, monkeypatch) -> None:
+    """When issues exceed the API cap, the job exposes the true total and keeps
+    the complete, safe list downloadable — nothing is silently dropped."""
+    from src.web import tasks as tasks_mod
+
+    # Shrink the cap so the run's real issues deterministically exceed it.
+    monkeypatch.setattr(tasks_mod, "_SPEC_ISSUE_CAP", 1)
+
+    def boom(self, *a, **k):
+        raise RecoverableWriteError("recoverable")
+
+    # add_content_link_to_domain runs once per ALS domain sheet (DM, EG) -> >1 error.
+    monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
+
+    job_id = _run_job()
+    job = job_manager.get_job(job_id)
+    assert job.state == "completed_with_errors"
+    # The in-payload list is capped, but the true total is larger and exposed.
+    assert len(job.spec_issues) == 1
+    assert job.spec_issues_total > len(job.spec_issues)
+    assert job.to_dict()["spec_issues_total"] == job.spec_issues_total
+    # The full, safe list is persisted and downloadable via the API.
+    assert job.output_issues and Path(job.output_issues).exists()
+
+    import json as _json
+
+    from app import app
+
+    resp = TestClient(app).get(f"/api/jobs/{job_id}/download-issues")
+    assert resp.status_code == 200
+    payload = _json.loads(resp.content)
+    assert isinstance(payload, list)
+    assert len(payload) == job.spec_issues_total

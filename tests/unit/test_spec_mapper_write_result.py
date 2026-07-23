@@ -285,6 +285,48 @@ class TestCodelistAccounting:
         # Merge must not append a duplicate row.
         assert _codelist_row_count(out) == before
 
+    def test_fully_satisfied_record_is_not_written(self, tmp_path: Path) -> None:
+        """A record whose row already exists with I and J populated is a genuine
+        no-op: it must be recorded as skipped (codelist_unchanged), never as a
+        phantom write, and must not append a duplicate row."""
+        tpl = tmp_path / "tpl.xlsx"
+        shutil.copy2(V32_TEMPLATE, tpl)
+
+        writer = ExcelWriter(tpl)
+        rec = CodelistRecord(
+            domain="ZZ",
+            testcd_var="ZZTESTCD",
+            testcd_value="ZZVAL",
+            source_variable="SRC",
+            metadata_variable="ZZRAW",
+        )
+        # First write inserts the row and fills I/J -> a real mutation.
+        first = writer.write_codelist_records([rec])
+        assert first.written == 1
+
+        # Re-writing the identical record now finds the row with I and J already
+        # populated: zero cells change -> not written, recorded as unchanged.
+        second = writer.write_codelist_records([rec])
+        assert second.written == 0
+        assert second.skipped == 1
+        assert second.warnings and second.warnings[0].code == "codelist_unchanged"
+
+        out = tmp_path / "out.xlsx"
+        writer.save(out)
+        writer.close()
+
+        wb = load_workbook(out)
+        ws = wb["CODELIST"]
+        hits = [
+            r
+            for r in range(3, ws.max_row + 1)
+            if str(ws.cell(row=r, column=1).value or "").upper() == "ZZ"
+            and str(ws.cell(row=r, column=2).value or "").upper() == "ZZTESTCD"
+            and str(ws.cell(row=r, column=6).value or "").upper() == "ZZVAL"
+        ]
+        wb.close()
+        assert len(hits) == 1  # the no-op second write appended nothing
+
     def test_missing_codelist_sheet_marks_records_skipped(self, tmp_path: Path) -> None:
         wb = Workbook()
         wb.active.title = "DM"
@@ -298,3 +340,60 @@ class TestCodelistAccounting:
         assert result.written == 0
         assert result.skipped == 1
         assert result.warnings[0].code == "sheet_not_found"
+
+
+# ---------------------------------------------------------------------------
+# Idempotency of the other CONTENT / domain insert paths (re-run audit)
+# ---------------------------------------------------------------------------
+class TestInsertPathsIdempotent:
+    """The non-standard-domain and external-coding insert paths must not append
+    duplicate rows when the pipeline is re-run on a previously-generated
+    workbook (companion to the end-to-end SUPP/CODELIST re-run gate)."""
+
+    def _content_workbook(self, tmp_path: Path) -> Path:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "CONTENT"
+        ws.cell(row=1, column=1, value="CONTENT")
+        ws.cell(row=2, column=1, value="AE")  # an existing 2-char domain row
+        path = tmp_path / "content.xlsx"
+        wb.save(path)
+        return path
+
+    def _domain_workbook(self, tmp_path: Path) -> Path:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "AE"
+        ws.cell(row=13, column=1, value="Variable")  # header
+        ws.cell(row=14, column=1, value="AETERM")
+        ws.cell(row=14, column=9, value="SDTM")
+        path = tmp_path / "dom.xlsx"
+        wb.save(path)
+        return path
+
+    def test_nonstandard_domain_added_only_once(self, tmp_path: Path) -> None:
+        writer = ExcelWriter(self._content_workbook(tmp_path))
+        # First insert mutates; the second is a no-op (already present).
+        assert writer.add_nonstandard_domain_to_content("XX", "CONTENT", reference_row=2) == 1
+        assert writer.add_nonstandard_domain_to_content("XX", "CONTENT", reference_row=2) == 0
+
+        ws = writer.workbook["CONTENT"]
+        xx = [r for r in range(1, ws.max_row + 1) if str(ws.cell(row=r, column=1).value or "").strip().upper() == "XX"]
+        writer.close()
+        assert len(xx) == 1
+
+    def test_external_coding_variables_added_only_once(self, tmp_path: Path) -> None:
+        writer = ExcelWriter(self._domain_workbook(tmp_path))
+        variables = [{"name": "AEDVER", "label": "MedDRA Version", "type": "Char", "source": "指定"}]
+        # First call inserts one variable; the second finds it and inserts none.
+        assert writer.add_external_coding_variables("AE", variables, variable_type="SUPP") == 1
+        assert writer.add_external_coding_variables("AE", variables, variable_type="SUPP") == 0
+
+        ws = writer.workbook["AE"]
+        hits = [
+            r
+            for r in range(14, ws.max_row + 1)
+            if str(ws.cell(row=r, column=1).value or "").strip().upper() == "AEDVER"
+        ]
+        writer.close()
+        assert len(hits) == 1

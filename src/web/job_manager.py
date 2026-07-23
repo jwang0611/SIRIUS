@@ -27,6 +27,7 @@ class JobStatus:
     output_excel: str | None = None
     output_json: str | None = None
     output_log: str | None = None  # Path to log file
+    output_issues: str | None = None  # Path to full structured write-issue JSON
     cancelled: bool = False  # Flag to signal task should stop
     json_file: str | None = None  # Store input file for resume
     failed_variables: int = 0
@@ -41,6 +42,10 @@ class JobStatus:
     # items failed/skipped, not just counts. Each item: code/stage/operation/
     # sheet/row/column — never paths, clinical values, or tracebacks.
     spec_issues: list[dict[str, Any]] = field(default_factory=list)
+    # Total number of structured issues (may exceed len(spec_issues) when the
+    # in-payload list is capped). The full list is downloadable via output_issues
+    # so the UI can honestly show truncation instead of dropping items silently.
+    spec_issues_total: int = 0
 
     def to_dict(self) -> dict[str, str | int | float | bool | None]:
         data = asdict(self)

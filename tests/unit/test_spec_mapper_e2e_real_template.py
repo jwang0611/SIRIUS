@@ -30,6 +30,7 @@ from openpyxl import Workbook, load_workbook
 
 from src.spec_mapper import SpecMapper
 from src.spec_mapper.core.excel_writer import ExcelWriter
+from src.spec_mapper.models.write_result import RecoverableWriteError
 
 TEMPLATES = {
     "IG3.2": Path("data/knowledge_base/template_spec/SDTM_template_IG3.2.xlsx"),
@@ -291,6 +292,15 @@ def test_repeated_run_no_duplicates(ig: str, tmp_path: Path) -> None:
                 and str(cl.cell(row=r, column=6).value or "").upper() == "QT"
             ]
             assert len(qt) == 1, "CODELIST row must not duplicate on re-run"
+            # The CONTENT sheet is a separate insert path (add_supp_to_content_sheet)
+            # that must also be idempotent: exactly one SUPPDM row after re-run.
+            content = wb["CONTENT"]
+            supp_dm = [
+                r
+                for r in range(1, content.max_row + 1)
+                if str(content.cell(row=r, column=1).value or "").strip().upper() == "SUPPDM"
+            ]
+            assert len(supp_dm) == 1, "CONTENT SUPPDM row must not duplicate on re-run"
         finally:
             wb.close()
     finally:
@@ -313,10 +323,11 @@ def test_recoverable_write_failure_still_saves(tmp_path: Path, monkeypatch) -> N
         write_synthetic_als(als)
         out = tmp_path / "out.xlsx"
 
-        # Inject a *recoverable* (classified) per-operation failure into a
-        # guarded write step: a ValueError, like the writer's own guard rails.
+        # Inject a *recognized* recoverable per-operation failure into a guarded
+        # write step. It must be the dedicated RecoverableWriteError — a bare
+        # ValueError is (intentionally) no longer treated as recoverable.
         def boom(self, *a, **k):
-            raise ValueError("injected recoverable failure")
+            raise RecoverableWriteError("injected recoverable failure")
 
         monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
 
@@ -333,8 +344,35 @@ def test_recoverable_write_failure_still_saves(tmp_path: Path, monkeypatch) -> N
         # Error payload is structured + safe: only the exception *class* name,
         # never the raw message ("injected ...") or a traceback.
         errors = stats["write_result"]["errors"]
-        assert errors and all(e["detail"] == "ValueError" for e in errors)
+        assert errors and all(e["detail"] == "RecoverableWriteError" for e in errors)
         assert all("injected" not in str(e["detail"]) for e in errors)
+    finally:
+        logging.disable(logging.NOTSET)
+
+
+def test_bare_valueerror_in_guarded_op_is_fatal(tmp_path: Path, monkeypatch) -> None:
+    """A bare ValueError at the guard boundary must NOT be downgraded to a
+    recoverable error — only the dedicated RecoverableWriteError is. This proves
+    the classification is by recognized type, not by broad exception class."""
+    ig = "IG3.2"
+    if not TEMPLATES[ig].exists():
+        pytest.skip("template not present")
+    logging.disable(logging.CRITICAL)
+    try:
+        tpl = tmp_path / "tpl.xlsx"
+        shutil.copy2(TEMPLATES[ig], tpl)
+        als = tmp_path / "als.xlsx"
+        write_synthetic_als(als)
+        out = tmp_path / "out.xlsx"
+
+        def boom(self, *a, **k):
+            raise ValueError("looks recoverable but is not classified")
+
+        monkeypatch.setattr(ExcelWriter, "add_content_link_to_domain", boom)
+
+        mapper = SpecMapper(als_file=als, template_file=tpl, als_sheet="Sheet1", log_level="CRITICAL")
+        with pytest.raises(ValueError):
+            mapper.process(output_file=out, highlight=True)
     finally:
         logging.disable(logging.NOTSET)
 

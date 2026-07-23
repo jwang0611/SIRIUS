@@ -1348,17 +1348,28 @@ function pollSpecJob(jobId) {
 
           // Locatable, safe detail so the user can see *which* items failed/skipped.
           const issues = Array.isArray(job.spec_issues) ? job.spec_issues : [];
+          const issuesTotal = Number(job.spec_issues_total) || issues.length;
           let issuesHtml = "";
           if (needsReview && issues.length) {
-            const rows = issues.slice(0, 20).map((it) => {
+            const rows = issues.map((it) => {
               const loc = [it.sheet, it.row != null ? `行 ${it.row}` : "", it.column != null ? `列 ${it.column}` : ""]
                 .filter(Boolean)
                 .join(" ");
               const where = escapeHtml(`${it.stage || ""} / ${it.operation || ""}${loc ? " @ " + loc : ""}`);
               return `<li><code>${escapeHtml(it.code || "issue")}</code> — ${where}</li>`;
             }).join("");
-            const more = issues.length > 20 ? `<li>… 其余 ${issues.length - 20} 项见任务日志</li>` : "";
-            issuesHtml = `<details class="spec-issues"><summary>问题明细（${issues.length}）</summary><ul>${rows}${more}</ul></details>`;
+            // Honest truncation: the list may be capped, so show how many are
+            // displayed vs. the true total and always offer the full, safe JSON
+            // for download — never claim the remainder is "in the log".
+            const truncated = issuesTotal > issues.length;
+            const truncNote = truncated
+              ? `<li>… 其余 ${issuesTotal - issues.length} 项已省略，请下载完整明细查看</li>`
+              : "";
+            const summaryLabel = truncated
+              ? `问题明细（显示 ${issues.length} / 共 ${issuesTotal}）`
+              : `问题明细（${issuesTotal}）`;
+            const downloadIssues = `<p><a href="api/jobs/${jobId}/download-issues" class="download-btn download-btn-sm">📄 下载完整问题明细 (JSON，共 ${issuesTotal} 项)</a></p>`;
+            issuesHtml = `<details class="spec-issues"><summary>${summaryLabel}</summary><ul>${rows}${truncNote}</ul>${downloadIssues}</details>`;
           }
 
           // completed_with_errors still yields a downloadable workbook for manual review.

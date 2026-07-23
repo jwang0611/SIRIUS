@@ -39,6 +39,7 @@ from .models.write_result import (
     STAGE_SOURCE_COLUMNS,
     STAGE_STYLES,
     STAGE_UNMATCHED_ROWS,
+    RecoverableWriteError,
     StageWriteResult,
     WriteIssue,
     WriteResult,
@@ -657,14 +658,22 @@ class SpecMapper:
         workbook (>0). A no-op call (target missing / nothing to do) is recorded
         as ``skipped`` — never as a phantom write.
 
-        Only *recoverable* write errors (see ``RECOVERABLE_WRITE_ERRORS``) are
-        caught and recorded as structured errors; any other exception is an
-        unknown/fatal error and propagates so the job is marked ``failed``.
+        A single-call op is atomic from the caller's view: it either returns a
+        mutation count (its recoverable preconditions are handled internally by
+        returning ``0``) or raises. Only a dedicated
+        :class:`RecoverableWriteError` is caught here and recorded as a
+        structured error; every other exception — including a bare
+        ``ValueError`` — is treated as unknown/fatal and propagates so the job
+        is marked ``failed`` (the workbook is never saved as a success). This
+        avoids masking a genuine bug behind a broad "recoverable" catch, and
+        because recoverable status comes from the return value rather than a
+        mid-mutation exception, a partially-mutated workbook is never saved with
+        an inaccurate count.
         """
         stage_res = result.stage(stage)
         try:
             ret = fn(*args, **kwargs)
-        except RECOVERABLE_WRITE_ERRORS as exc:
+        except RecoverableWriteError as exc:
             stage_res.record_error(
                 WriteIssue(
                     code=guard_code,
