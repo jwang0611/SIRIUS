@@ -217,7 +217,9 @@ no-op，记为 `skipped`（`code="codelist_unchanged"`）。经 `_guard` 的单�
 **重复运行幂等**：以第一次输出作为第二次运行的模板时，插入类写操作不会产生重复行——
 `add_supp_to_content_sheet` 对已存在的 `SUPP{domain}` 行就地更新，`add_nonstandard_domain_to_content` /
 `add_external_coding_variables` 跳过已存在项并返回真实插入数，CODELIST 走 merge/dedup，
-`process_conditional_mappings` 按表头名复用已存在的 CRF_* 列（覆写数据并清空陈旧行）而非重复追加。
+`process_conditional_mappings` 按**完整列组**匹配复用（连续表头组合，如 `CRF_TESTCD+CRF_ORRES`），
+覆写数据并清空陈旧行而非重复追加；列组按整体匹配而非单个表头名，因此同一 TEST sheet 同时存在
+TESTCD 与 TEST 两组条件时，两组各自的 `CRF_ORRES` 列及数据都保留、互不覆盖（与原追加式布局一致）。
 
 ### 错误分类（recoverable vs 未知/致命）与逐项原子性
 
@@ -422,7 +424,7 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 
 **A5 复审加固**
 - CODELIST 与经 `_guard` 的写操作按真实 mutation 计数：已满足的 CODELIST 记录记为 `skipped`（`codelist_unchanged`），消除 phantom write；`_guard` 对批量方法记 `record_written(N)`，`actual.written` 反映真实 mutation 数
-- 插入路径重复运行幂等：`add_supp_to_content_sheet` 就地更新已存在 `SUPP{domain}`；`add_nonstandard_domain_to_content` / `add_external_coding_variables` 跳过已存在项并返回真实插入数；`process_conditional_mappings` 复用已存在 CRF_* 列并清理陈旧行；端到端断言 CONTENT/SUPP/CODELIST/条件列重跑不产生重复（IG 3.2 与 IG 3.4）
+- 插入路径重复运行幂等：`add_supp_to_content_sheet` 就地更新已存在 `SUPP{domain}`；`add_nonstandard_domain_to_content` / `add_external_coding_variables` 跳过已存在项并返回真实插入数；`process_conditional_mappings` 按完整列组匹配复用并清理陈旧行（TESTCD/TEST 混合条件的两组 `CRF_ORRES` 互不覆盖）；端到端断言 CONTENT/SUPP/CODELIST/条件列重跑不产生重复（IG 3.2 与 IG 3.4）
 - 新增专用 `RecoverableWriteError` + 逐项预校验原子性：`_guard` 只降级该类型；逐项写循环在任何破坏性操作前预校验非法字符与目标存在性（`illegal_characters` 结构化 error、零 mutation；某域 SUPP 全部不合法时该域不被触碰）；写入中抛出的任何异常（含裸 `ValueError` / `IllegalCharacterError`）一律 `failed`，绝不保存计数不实或半成品的部分工作簿
 - 结构化问题清单不再静默截断：新增 `spec_issues_total` 与完整清单文件 + `GET /api/jobs/{job_id}/download-issues`；持久化失败时完整列表回退到 payload；前端展示“显示 N / 共 M”，仅在文件存在时渲染下载链接
 - 可下载日志改用专用 formatter：脱敏绝对路径并从不追加 `exc_info` / `stack_info`，`logger.exception(...)` 不会泄漏 traceback / 服务器路径（不修改共享 `LogRecord`）

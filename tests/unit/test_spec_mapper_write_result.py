@@ -547,6 +547,74 @@ class TestConditionalMappingIdempotent:
         assert ws.cell(row=3, column=col).value is None
         writer.close()
 
+    def _mixed_records(self) -> list[ConditionalRecord]:
+        """A TESTCD group and a TEST group targeting the SAME sheet — both end
+        in CRF_ORRES, so they must be matched as whole groups, never by the
+        individual header name."""
+        return [
+            ConditionalRecord(
+                sheet_name="EGTEST",
+                column_names=["CRF_TESTCD", "CRF_ORRES"],
+                mappings=[("QT", "[RAW]EG.QTCF")],
+            ),
+            ConditionalRecord(
+                sheet_name="EGTEST",
+                column_names=["CRF_TEST", "CRF_ORRES"],
+                mappings=[("QT间期", "[RAW]EG.QTLBL")],
+            ),
+        ]
+
+    def _group_col(self, ws, first_header: str) -> int:
+        headers = [str(ws.cell(row=1, column=c).value or "") for c in range(1, ws.max_column + 1)]
+        return headers.index(first_header) + 1
+
+    def test_mixed_testcd_and_test_groups_first_run_keeps_both(self, tmp_path: Path) -> None:
+        """First run with BOTH condition groups on one sheet: each group gets
+        its own column pair (two separate CRF_ORRES columns), neither
+        overwriting the other."""
+        writer = ExcelWriter(self._test_sheet_workbook(tmp_path))
+        result = process_conditional_mappings(writer, self._mixed_records())
+        assert result.written == 2
+
+        ws = writer.workbook["EGTEST"]
+        headers = [str(ws.cell(row=1, column=c).value or "") for c in range(1, ws.max_column + 1)]
+        assert headers.count("CRF_TESTCD") == 1
+        assert headers.count("CRF_TEST") == 1
+        # One ORRES column PER group — the original append-only layout.
+        assert headers.count("CRF_ORRES") == 2
+
+        testcd_col = self._group_col(ws, "CRF_TESTCD")
+        test_col = self._group_col(ws, "CRF_TEST")
+        # Each group's ORRES data is its own; nothing was overwritten.
+        assert ws.cell(row=2, column=testcd_col).value == "QT"
+        assert ws.cell(row=2, column=testcd_col + 1).value == "[RAW]EG.QTCF"
+        assert ws.cell(row=2, column=test_col).value == "QT间期"
+        assert ws.cell(row=2, column=test_col + 1).value == "[RAW]EG.QTLBL"
+        writer.close()
+
+    def test_mixed_groups_rerun_reuses_each_group_without_data_loss(self, tmp_path: Path) -> None:
+        """Re-running the mixed groups must reuse each group's own columns:
+        no third/fourth CRF_ORRES appended, and BOTH groups' data preserved."""
+        writer = ExcelWriter(self._test_sheet_workbook(tmp_path))
+        assert process_conditional_mappings(writer, self._mixed_records()).written == 2
+        # Re-run (simulates using the first output as the next template).
+        assert process_conditional_mappings(writer, self._mixed_records()).written == 2
+
+        ws = writer.workbook["EGTEST"]
+        headers = [str(ws.cell(row=1, column=c).value or "") for c in range(1, ws.max_column + 1)]
+        # Layout identical to the first run: one pair per group, no duplicates.
+        assert headers.count("CRF_TESTCD") == 1
+        assert headers.count("CRF_TEST") == 1
+        assert headers.count("CRF_ORRES") == 2
+
+        testcd_col = self._group_col(ws, "CRF_TESTCD")
+        test_col = self._group_col(ws, "CRF_TEST")
+        assert ws.cell(row=2, column=testcd_col).value == "QT"
+        assert ws.cell(row=2, column=testcd_col + 1).value == "[RAW]EG.QTCF"
+        assert ws.cell(row=2, column=test_col).value == "QT间期"
+        assert ws.cell(row=2, column=test_col + 1).value == "[RAW]EG.QTLBL"
+        writer.close()
+
 
 # ---------------------------------------------------------------------------
 # _guard records full batch mutation counts

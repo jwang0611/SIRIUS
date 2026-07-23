@@ -292,6 +292,25 @@ def insert_supp_rows(writer: ExcelWriter, supp_records: list[SUPPRecord], highli
     return result
 
 
+def _find_conditional_column_group(ws: Any, column_names: list[str]) -> int | None:
+    """Locate an existing conditional COLUMN GROUP in a TEST sheet.
+
+    Returns the 1-based start column of a contiguous run of row-1 headers that
+    matches ``column_names`` exactly (e.g. ``CRF_TESTCD`` immediately followed
+    by ``CRF_ORRES``), or ``None`` when the group is not present. Matching the
+    whole group — never a single header name — is what keeps the TESTCD and
+    TEST groups of the same sheet distinct even though both end in
+    ``CRF_ORRES``.
+    """
+    n = len(column_names)
+    if n == 0:
+        return None
+    for start in range(1, ws.max_column - n + 2):
+        if all(str(ws.cell(row=1, column=start + i).value or "").strip() == column_names[i] for i in range(n)):
+            return start
+    return None
+
+
 def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[ConditionalRecord]) -> StageWriteResult:
     """Process conditional mapping records by adding columns to target sheets.
 
@@ -312,10 +331,14 @@ def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[
         values openpyxl would reject are recorded as ``illegal_characters``
         errors BEFORE any cell is touched.
 
-    Idempotent: a column whose header already exists in row 1 (e.g. from a
-    previous run whose output is re-used as the template) is reused in place —
+    Idempotent per COLUMN GROUP: when the record's ``column_names`` already
+    exist as an exact contiguous header run in row 1 (e.g. from a previous run
+    whose output is re-used as the template), that group is reused in place —
     its data rows are overwritten and stale rows below the new data cleared —
-    instead of appending a duplicate column pair on every run.
+    instead of appending a duplicate group on every run. Groups are matched as
+    a unit, so a sheet holding both a TESTCD group (``CRF_TESTCD, CRF_ORRES``)
+    and a TEST group (``CRF_TEST, CRF_ORRES``) keeps both ``CRF_ORRES`` columns
+    with their own data (same layout as the original append-only behaviour).
 
     Examples:
         Sheet FATEST:
@@ -371,31 +394,29 @@ def process_conditional_mappings(writer: ExcelWriter, conditional_records: list[
         template_cell = ws.cell(row=1, column=1)
         template_font: Any = template_cell.font
 
-        # Existing headers in row 1 (for idempotent reuse) and the last
-        # non-empty header column (for appending genuinely new columns).
-        header_to_col: dict[str, int] = {}
+        # Idempotent reuse works on the whole COLUMN GROUP, never on a single
+        # header name: a sheet can legitimately hold both a TESTCD group
+        # (CRF_TESTCD + CRF_ORRES) and a TEST group (CRF_TEST + CRF_ORRES), so
+        # CRF_ORRES is not globally unique. Reusing by individual header would
+        # make the second group overwrite the first group's ORRES data. A group
+        # is reused only when the record's column_names appear as an exact
+        # contiguous run of row-1 headers (which is how every run writes them);
+        # otherwise the whole group is appended after the last header, exactly
+        # like the pre-idempotency behaviour.
         last_col = 1
         for col in range(1, ws.max_column + 1):
-            cell_value = ws.cell(row=1, column=col).value
-            if cell_value:
-                header_to_col[str(cell_value).strip()] = col
+            if ws.cell(row=1, column=col).value:
                 last_col = col
 
-        # Resolve each column: reuse an existing header column, else append.
-        next_free = last_col + 1
-        col_indices: list[int] = []
-        reused = 0
-        for col_name in record.column_names:
-            existing = header_to_col.get(col_name)
-            if existing is not None:
-                col_indices.append(existing)
-                reused += 1
-            else:
-                col_indices.append(next_free)
-                next_free += 1
-        if reused:
-            logger.info(f"  Reusing {reused} existing column(s) in '{sheet_name}' (repeated run); no duplicates added")
+        group_start = _find_conditional_column_group(ws, record.column_names)
+        if group_start is not None:
+            col_indices = list(range(group_start, group_start + len(record.column_names)))
+            logger.info(
+                f"  Reusing existing column group ({', '.join(record.column_names)}) at position "
+                f"{group_start} in '{sheet_name}' (repeated run); no duplicates added"
+            )
         else:
+            col_indices = list(range(last_col + 1, last_col + 1 + len(record.column_names)))
             logger.info(f"  Adding {len(record.column_names)} column(s) starting at position {last_col + 1}")
 
         # Write headers for all columns
