@@ -44,6 +44,15 @@ async def upload_file(
 
     safe_filename = sanitize_filename(file.filename or "")
 
+    # Isolate raw_acrf per session by prefixing the session key onto the filename.
+    # Outputs still land in the shared data/processed & data/output that the
+    # file-listing and recommendation endpoints already read, but two sessions
+    # uploading the same filename can no longer overwrite or clean up each
+    # other's files (the derived files are tracked per session for cleanup).
+    if category == "raw_acrf" and x_session_id:
+        session_manager.get_or_create(x_session_id)
+        safe_filename = f"{session_manager.session_dir_key(x_session_id)}__{safe_filename}"
+
     # 对于 example_raw 和 als_example_raw 类别，使用 session 专属目录
     if category in ("example_raw", "als_example_raw") and x_session_id:
         session_manager.get_or_create(x_session_id)
@@ -51,15 +60,6 @@ async def upload_file(
         destination = target_dir / safe_filename
         save_upload(file, destination)
         session_manager.add_kb_file(x_session_id, str(destination))
-    elif category == "raw_acrf" and x_session_id:
-        # Isolate the uploaded PDF per session so two sessions uploading the
-        # same filename cannot overwrite or clean up each other's input.
-        session_manager.get_or_create(x_session_id)
-        target_dir = Path("data/raw/sessions") / session_manager.session_dir_key(x_session_id)
-        target_dir.mkdir(parents=True, exist_ok=True)
-        destination = target_dir / safe_filename
-        save_upload(file, destination)
-        session_manager.add_file(x_session_id, str(destination))
     else:
         target_dir = cast(Path, config["target"])
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -95,46 +95,20 @@ async def upload_file(
             for parquet_file in kb_output_dir.glob(f"{destination.stem}*.parquet"):
                 kb_files.append(str(parquet_file))
                 session_manager.add_kb_file(x_session_id, str(parquet_file))
-        elif category == "raw_acrf":
-            # Session-scoped output dirs when a session id is present, so both
-            # the processed JSON/xlsx and the portable als2sdtm workbook stay
-            # isolated and are tracked/cleaned per session (below).
-            if x_session_id:
-                session_key = session_manager.session_dir_key(x_session_id)
-                processed_dir = Path("data/processed/sessions") / session_key
-                als_output_dir = Path("data/output/sessions") / session_key
-            else:
-                processed_dir = Path("data/processed")
-                als_output_dir = Path("data/output")
-            processed_dir.mkdir(parents=True, exist_ok=True)
-            als_output_dir.mkdir(parents=True, exist_ok=True)
-            output = run_command(
-                [
-                    PYTHON_BIN,
-                    "scripts/extract_acrf_pdf.py",
-                    "--input",
-                    str(destination),
-                    "--output-dir",
-                    str(processed_dir),
-                    "--als2sdtm-dir",
-                    str(als_output_dir),
-                ]
-            )
-            for ext in (".json", ".xlsx"):
-                derived = processed_dir / f"{destination.stem}{ext}"
-                if derived.exists():
-                    derived_files.append(str(derived))
-            als_file = als_output_dir / f"{destination.stem}_ALS2SDTM.xlsx"
-            if als_file.exists():
-                derived_files.append(str(als_file))
         elif callable(cmd):
             output = run_command(cmd(destination))
 
-            if category in ("raw", "raw_taimei"):
+            if category in ("raw", "raw_taimei", "raw_acrf"):
                 for ext in (".json", ".xlsx"):
                     derived = Path("data/processed") / f"{destination.stem}{ext}"
                     if derived.exists():
                         derived_files.append(str(derived))
+            # The aCRF path also emits a portable als2sdtm workbook; surface it so
+            # the API exposes it and the session tracks/cleans it (below).
+            if category == "raw_acrf":
+                als_file = Path("data/output") / f"{destination.stem}_ALS2SDTM.xlsx"
+                if als_file.exists():
+                    derived_files.append(str(als_file))
 
         elif cmd is None:
             output = ""

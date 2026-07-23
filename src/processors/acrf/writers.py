@@ -57,16 +57,17 @@ def write_processed_json(path: Path, records: list[AcrfRecord]) -> None:
 _FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
 
 
-def _neutralize_formula(value: str) -> str:
-    """Force a value to text so it can never be evaluated as a formula.
+def _force_text_on_formula_cells(worksheet: object) -> None:
+    """Store cells that look like formulas as text, preserving the exact string.
 
-    Values beginning with a formula trigger are prefixed with a single quote,
-    which makes openpyxl store an inline string (``data_type='s'``) rather than
-    a formula and stops Excel from evaluating it on open.
+    Setting ``data_type='s'`` keeps the original value (so read-back / converter
+    round-trips are unchanged) while ensuring Excel never evaluates it — unlike a
+    quote-prefix, which would mutate the data.
     """
-    if value[:1] in _FORMULA_TRIGGERS:
-        return "'" + value
-    return value
+    for row in worksheet.iter_rows():  # type: ignore[attr-defined]
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value[:1] in _FORMULA_TRIGGERS:
+                cell.data_type = "s"
 
 
 def write_processed_xlsx(path: Path, records: list[AcrfRecord]) -> None:
@@ -75,16 +76,19 @@ def write_processed_xlsx(path: Path, records: list[AcrfRecord]) -> None:
         [
             {
                 "num": r.num,
-                "metadata_table": _neutralize_formula(r.metadata_table),
-                "metadata_variable": _neutralize_formula(r.metadata_variable),
-                "annotation_table": _neutralize_formula(r.annotation_table),
-                "annotation_variable": _neutralize_formula(r.annotation_variable),
+                "metadata_table": r.metadata_table,
+                "metadata_variable": r.metadata_variable,
+                "annotation_table": r.annotation_table,
+                "annotation_variable": r.annotation_variable,
             }
             for r in records
         ],
         columns=PROCESSED_XLSX_COLUMNS,
     )
-    df.to_excel(path, index=False, engine="openpyxl")
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False)
+        for worksheet in writer.book.worksheets:
+            _force_text_on_formula_cells(worksheet)
 
 
 def write_als2sdtm_xlsx(path: Path, records: list[AcrfRecord]) -> None:
@@ -93,9 +97,11 @@ def write_als2sdtm_xlsx(path: Path, records: list[AcrfRecord]) -> None:
     for r in records:
         row = {}
         for header, attr in ALS2SDTM_COLUMNS:
-            row[header] = _neutralize_formula(getattr(r, attr)) if attr else ""
+            row[header] = getattr(r, attr) if attr else ""
         rows.append(row)
     columns = [header for header, _ in ALS2SDTM_COLUMNS]
     df = pd.DataFrame(rows, columns=columns)
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name=ALS2SDTM_SHEET_NAME)
+        for worksheet in writer.book.worksheets:
+            _force_text_on_formula_cells(worksheet)

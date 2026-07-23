@@ -101,18 +101,22 @@ def test_llm_merges_and_never_overwrites_deterministic(acrf_pdf_builder, tmp_pat
     assert fields == {"Subject ID", "Date of Birth", "Sex", "Age"}  # nothing dropped
 
 
-def test_writers_neutralize_formula_injection(tmp_path: Path):
-    recs = assemble_records(
-        [("Form", ['=HYPERLINK("http://evil","x")', "+1", "-2", "@cmd", "normal"])],
-        AcrfConfig(),
-    )
+def test_writers_neutralize_formula_injection_without_mutating_content(tmp_path: Path):
+    labels = ['=HYPERLINK("http://evil","x")', "+1", "-2", "@cmd", "normal"]
+    recs = assemble_records([("Form", labels)], AcrfConfig())
     xp = tmp_path / "p.xlsx"
     ap = tmp_path / "a.xlsx"
     write_processed_xlsx(xp, recs)
     write_als2sdtm_xlsx(ap, recs)
 
+    # No cell is a formula (injection surface removed)...
     for path in (xp, ap):
         ws = load_workbook(path).active
         for row in ws.iter_rows():
             for cell in row:
                 assert cell.data_type != "f", f"{path.name}!{cell.coordinate} became a formula"
+
+    # ...and the exact original strings survive (no quote-prefix mutation), so
+    # read-back and the converter round-trip stay faithful.
+    assert pd.read_excel(xp)["annotation_variable"].astype(str).tolist() == labels
+    assert pd.read_excel(ap, sheet_name=ALS2SDTM_SHEET_NAME)["变量名"].astype(str).tolist() == labels
