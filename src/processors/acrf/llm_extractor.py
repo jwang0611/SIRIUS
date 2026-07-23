@@ -78,15 +78,20 @@ def extract_fields_llm(
     if not page_text.strip():
         return []
 
+    # The bookmark form name is uploaded document content too, so it must be
+    # masked before it leaves the process, exactly like the page text.
     sent_text = page_text
+    sent_form_name = form_name
     if masker is not None and hasattr(masker, "mask_text"):
         sent_text = masker.mask_text(page_text)
+        sent_form_name = masker.mask_text(form_name)
 
-    prompt = build_prompt(form_name, sent_text, language)
+    prompt = build_prompt(sent_form_name, sent_text, language)
     try:
         response = client.generate_content(prompt, max_output_tokens=max_output_tokens, temperature=0.0)  # type: ignore[attr-defined]
     except Exception as exc:
-        logger.warning("aCRF LLM extraction failed for form %r: %s", form_name, exc)
+        # Log the masked form name only — never the raw (possibly PHI) title.
+        logger.warning("aCRF LLM extraction failed for form %r: %s", sent_form_name, exc)
         return []
 
     labels = parse_label_list(response)

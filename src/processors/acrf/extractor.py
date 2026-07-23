@@ -11,7 +11,7 @@ import logging
 
 from src.processors.acrf import outline as _outline
 from src.processors.acrf import text as _text
-from src.processors.acrf.fields import extract_field_candidates, validate_field_set
+from src.processors.acrf.fields import extract_field_candidates, merge_field_lists, validate_field_set
 from src.processors.acrf.models import AcrfConfig, ExtractionResult, FormSpan, LineBox
 from src.processors.acrf.records import assemble_records
 
@@ -57,7 +57,7 @@ def extract_acrf(
     result.skipped_forms = skipped
 
     boxes_by_page, heights = _text.extract_all_line_boxes(pdf_path)
-    boilerplate = _text.detect_boilerplate(boxes_by_page)
+    boilerplate = _text.detect_boilerplate(boxes_by_page, heights, cfg.header_footer_band)
 
     llm_enabled = bool(use_llm and client is not None)
     if use_llm and client is None:
@@ -80,7 +80,10 @@ def extract_acrf(
         page_height = heights.get(span.page_start)
         fields = extract_field_candidates(line_boxes, boilerplate, cfg, page_height)
 
-        if llm_enabled:
+        # Only call the LLM when the deterministic pass came up short (avoids
+        # sending every form to an external model), and MERGE its labels rather
+        # than overwrite — a model omission must never drop a deterministic field.
+        if llm_enabled and len(fields) < cfg.llm_min_fields:
             from src.processors.acrf.llm_extractor import extract_fields_llm
 
             page_text = _page_text(line_boxes)[:_LLM_PAGE_TEXT_LIMIT]
@@ -92,7 +95,7 @@ def extract_acrf(
                 language=language,
             )
             if llm_fields:
-                fields = llm_fields
+                fields = merge_field_lists(fields, llm_fields)
                 llm_forms += 1
 
         fields, warns = validate_field_set(fields, cfg)

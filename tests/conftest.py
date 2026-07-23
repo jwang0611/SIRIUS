@@ -379,3 +379,9 @@ def sample_acrf_pdf(tmp_path: Path) -> Path:
     path = tmp_path / "acrf_sample.pdf"
     _write_sample_acrf(path, SAMPLE_ACRF_PAGES)
     return path
+
+
+@pytest.fixture
+def acrf_pdf_builder():
+    """Return the pure-Python builder so tests can craft custom sample PDFs."""
+    return _write_sample_acrf

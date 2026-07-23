@@ -140,6 +140,7 @@ class AcrfSettings(BaseModel):
     use_llm: bool = False
     min_fields: int = Field(default=1, ge=0)
     max_fields: int = Field(default=300, ge=1)
+    llm_min_fields: int = Field(default=1, ge=0)
     header_footer_band: float = Field(default=0.08, ge=0.0, le=0.4)
     metadata_variable_mode: str = "label"  # "label" | "synthetic"
 
@@ -288,6 +289,7 @@ class Settings(BaseSettings):
             use_llm=_to_bool(g("ACRF_USE_LLM", "false"), False),
             min_fields=int(g("ACRF_MIN_FIELDS", "1") or 1),
             max_fields=int(g("ACRF_MAX_FIELDS", "300") or 300),
+            llm_min_fields=int(g("ACRF_LLM_MIN_FIELDS", "1") or 1),
             header_footer_band=float(g("ACRF_HEADER_FOOTER_BAND", "0.08") or 0.08),
             metadata_variable_mode=g("ACRF_MDV_MODE", "label") or "label",
         )

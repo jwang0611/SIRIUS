@@ -43,6 +43,20 @@ def test_llm_masks_text_before_sending():
     assert "[REDACTED]" in client.prompt
 
 
+def test_llm_masks_form_name_too():
+    # Bookmark form names are uploaded content and may carry subject ids.
+    class _Masker:
+        def mask_text(self, text: str) -> str:
+            return text.replace("001-002", "[REDACTED]")
+
+    client = _FakeClient("[]")
+    extract_fields_llm("plain page", form_name="Subject 001-002 visit", client=client, masker=_Masker())
+
+    assert client.prompt is not None
+    assert "001-002" not in client.prompt
+    assert "[REDACTED]" in client.prompt
+
+
 def test_llm_client_error_returns_empty():
     class _Boom:
         def generate_content(self, *_a, **_k) -> str:

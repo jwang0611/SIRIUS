@@ -39,12 +39,23 @@ def test_looks_like_field_keeps_labels_drops_noise():
     assert not _looks_like_field("# 检查项目 检查结果")  # table scaffolding
 
 
-def test_detect_boilerplate_flags_repeated_lines_only():
-    boxes = {p: [_lb("QL1706-307", page=p), _lb(f"unique text {p}", page=p, top=200)] for p in range(4)}
-    bp = detect_boilerplate(boxes)
+def test_detect_boilerplate_flags_stable_edge_band_lines_only():
+    heights = dict.fromkeys(range(4), 842.0)
+    # A page banner at a fixed top inside the header edge band on every page.
+    boxes = {p: [_lb("QL1706-307", page=p, top=20.0), _lb(f"unique text {p}", page=p, top=200.0)] for p in range(4)}
+    bp = detect_boilerplate(boxes, heights)
 
     assert "QL1706-307" in bp
     assert not any("unique text" in b for b in bp)
+
+
+def test_detect_boilerplate_ignores_repeated_mid_page_fields():
+    # A real question that recurs mid-page across forms must not be treated as
+    # boilerplate just because it is frequent.
+    heights = dict.fromkeys(range(4), 842.0)
+    boxes = {p: [_lb("Assessment Date", page=p, top=300.0)] for p in range(4)}
+
+    assert detect_boilerplate(boxes, heights) == set()
 
 
 def test_extract_candidates_strips_boilerplate_and_options_and_title():

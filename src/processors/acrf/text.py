@@ -93,27 +93,52 @@ def replacement_char_ratio(line_boxes: list[LineBox]) -> float:
 
 def detect_boilerplate(
     boxes_by_page: dict[int, list[LineBox]],
+    heights: dict[int, float],
+    band_frac: float = 0.08,
     min_pages: int | None = None,
+    pos_tolerance: float = 3.0,
 ) -> set[str]:
-    """Raw line texts that repeat across many pages = header/footer/watermark.
+    """Raw line texts that are genuine header/footer/watermark boilerplate.
 
-    A line is boilerplate when its normalised text appears on at least
-    ``min_pages`` distinct pages (default: ``max(3, ceil(0.5 * n_pages))``).
+    Frequency alone is **not** enough: real questions such as "Assessment Date"
+    or "Comments" recur across many forms and must not be deleted. A line is
+    treated as boilerplate only when it also sits at a **stable vertical
+    position** (top range within ``pos_tolerance`` points) inside the top/bottom
+    **edge band** (``band_frac`` of page height) on every page it appears on.
+
     Returns the **raw** representative text for each such line so callers can
     both drop whole boilerplate lines and strip the header when it is glued to
     a field label on the same visual line (e.g. a study code in a page banner).
     """
     n_pages = len(boxes_by_page)
-    if n_pages <= 1:
+    if n_pages <= 1 or band_frac <= 0:
         return set()
     if min_pages is None:
         min_pages = max(3, math.ceil(0.5 * n_pages))
-    pages_with_text: dict[str, set[int]] = defaultdict(set)
+
+    occurrences: dict[str, list[tuple[int, float, float]]] = defaultdict(list)
     raw_by_key: dict[str, str] = {}
     for page_index, boxes in boxes_by_page.items():
+        page_height = heights.get(page_index, 0.0)
         for lb in boxes:
             key = norm(lb.text)
             if key:
-                pages_with_text[key].add(page_index)
+                occurrences[key].append((page_index, lb.top, page_height))
                 raw_by_key.setdefault(key, lb.text.strip())
-    return {raw_by_key[key] for key, pages in pages_with_text.items() if len(pages) >= min_pages}
+
+    def _in_edge_band(top: float, page_height: float) -> bool:
+        if page_height <= 0:
+            return False
+        band = band_frac * page_height
+        return top < band or top > (page_height - band)
+
+    result: set[str] = set()
+    for key, occ in occurrences.items():
+        if len({page for page, _, _ in occ}) < min_pages:
+            continue
+        tops = [top for _, top, _ in occ]
+        if max(tops) - min(tops) > pos_tolerance:
+            continue  # not a fixed-position header/footer
+        if all(_in_edge_band(top, ph) for _, top, ph in occ):
+            result.add(raw_by_key[key])
+    return result

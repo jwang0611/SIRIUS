@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from openpyxl import load_workbook
 
 from src.processors.acrf import (
     extract_acrf,
@@ -14,6 +15,8 @@ from src.processors.acrf import (
     write_processed_json,
     write_processed_xlsx,
 )
+from src.processors.acrf.models import AcrfConfig
+from src.processors.acrf.records import assemble_records
 from src.processors.acrf.writers import ALS2SDTM_SHEET_NAME
 from src.processors.als_converter import convert_als2sdtm
 
@@ -61,3 +64,55 @@ def test_extract_writes_all_outputs_and_roundtrips(sample_acrf_pdf: Path, tmp_pa
         "SDTM_Variable",
     } <= set(rt[0])
     assert rt[0]["annotation_table"] == "Demographics"
+
+
+def test_repeated_body_field_labels_are_not_dropped(acrf_pdf_builder, tmp_path: Path):
+    pdf = tmp_path / "repeat.pdf"
+    acrf_pdf_builder(
+        pdf,
+        [
+            ("V1", "Visit 1", ["Assessment Date", "Weight"]),
+            ("V2", "Visit 2", ["Assessment Date", "Height"]),
+            ("V3", "Visit 3", ["Assessment Date", "Temperature"]),
+        ],
+    )
+    result = extract_acrf(str(pdf))
+    labels = [r.annotation_variable for r in result.records]
+
+    # "Assessment Date" recurs mid-page across all three forms — a real field,
+    # not header/footer boilerplate — so all three occurrences must survive.
+    assert labels.count("Assessment Date") == 3
+    assert len(result.records) == 6
+
+
+def test_llm_merges_and_never_overwrites_deterministic(acrf_pdf_builder, tmp_path: Path):
+    pdf = tmp_path / "merge.pdf"
+    acrf_pdf_builder(pdf, [("Demographics", "Demographics", ["Subject ID", "Date of Birth", "Sex", "Age"])])
+
+    class _Fake:
+        def generate_content(self, prompt, **_kw):
+            return '["Subject ID"]'  # model returns only a subset of the fields
+
+    # llm_min_fields high enough that the LLM runs for this form.
+    cfg = AcrfConfig(use_llm=True, llm_min_fields=99)
+    result = extract_acrf(str(pdf), cfg=cfg, use_llm=True, client=_Fake())
+
+    fields = {r.annotation_variable for r in result.records}
+    assert fields == {"Subject ID", "Date of Birth", "Sex", "Age"}  # nothing dropped
+
+
+def test_writers_neutralize_formula_injection(tmp_path: Path):
+    recs = assemble_records(
+        [("Form", ['=HYPERLINK("http://evil","x")', "+1", "-2", "@cmd", "normal"])],
+        AcrfConfig(),
+    )
+    xp = tmp_path / "p.xlsx"
+    ap = tmp_path / "a.xlsx"
+    write_processed_xlsx(xp, recs)
+    write_als2sdtm_xlsx(ap, recs)
+
+    for path in (xp, ap):
+        ws = load_workbook(path).active
+        for row in ws.iter_rows():
+            for cell in row:
+                assert cell.data_type != "f", f"{path.name}!{cell.coordinate} became a formula"

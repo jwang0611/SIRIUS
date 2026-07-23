@@ -118,16 +118,23 @@ def _build_client(args: argparse.Namespace):  # type: ignore[no-untyped-def]
     return client
 
 
-def _resolve_config(args: argparse.Namespace) -> AcrfConfig:
-    mode = args.mdv_mode or os.getenv("ACRF_MDV_MODE", "label")
-    base = AcrfConfig()
+def _effective_use_llm(args: argparse.Namespace, settings) -> bool:  # type: ignore[no-untyped-def]
+    """LLM pass is on when the CLI flag OR ACRF_USE_LLM (typed settings) is set."""
+    return bool(args.use_llm or settings.acrf.use_llm)
+
+
+def _resolve_config(args: argparse.Namespace, settings, use_llm: bool) -> AcrfConfig:  # type: ignore[no-untyped-def]
+    """Build the extractor config from typed settings (ACRF_* env) + CLI overrides."""
+    acrf = settings.acrf
+    mode = args.mdv_mode or acrf.metadata_variable_mode
     return AcrfConfig(
-        skip_forms=base.skip_forms,
-        min_fields=int(os.getenv("ACRF_MIN_FIELDS", str(base.min_fields))),
-        max_fields=int(os.getenv("ACRF_MAX_FIELDS", str(base.max_fields))),
-        header_footer_band=float(os.getenv("ACRF_HEADER_FOOTER_BAND", str(base.header_footer_band))),
+        skip_forms=AcrfConfig().skip_forms,
+        min_fields=acrf.min_fields,
+        max_fields=acrf.max_fields,
+        llm_min_fields=acrf.llm_min_fields,
+        header_footer_band=acrf.header_footer_band,
         metadata_variable_mode="synthetic" if mode == "synthetic" else "label",
-        use_llm=bool(args.use_llm),
+        use_llm=use_llm,
     )
 
 
@@ -135,17 +142,21 @@ def main() -> None:
     args = parse_args()
     settings = get_settings()
 
+    # The LLM pass is enabled by either the CLI flag or ACRF_USE_LLM (typed
+    # settings), so the env var is honoured even without --use-llm.
+    use_llm = _effective_use_llm(args, settings)
+
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
     als2sdtm_dir = Path(args.als2sdtm_dir)
-    cfg = _resolve_config(args)
+    cfg = _resolve_config(args, settings, use_llm)
     language = args.language or settings.ai.default_language
 
     pdfs = collect_pdfs(input_path)
     if args.output_name and len(pdfs) != 1:
         raise ValueError("--output-name can only be used with a single input file.")
 
-    client = _build_client(args) if args.use_llm else None
+    client = _build_client(args) if use_llm else None
     masker = DataMasker() if settings.security.data_masking_enabled else None
 
     success_count = 0
@@ -155,7 +166,7 @@ def main() -> None:
             result = extract_acrf(
                 str(pdf),
                 cfg=cfg,
-                use_llm=bool(args.use_llm),
+                use_llm=use_llm,
                 client=client,
                 masker=masker,
                 language=language,
