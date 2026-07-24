@@ -185,8 +185,11 @@ PORT=8080 ./stop.sh
 | 上传类型 | 说明 |
 |---------|------|
 | ALS 原始文件 | CRF 数据定义 Excel，提取后生成 JSON |
-| aCRF/eCRF PDF | 带书签的 eCRF PDF（无 ALS 建库文件时），提取 form/field 后生成 JSON 与 als2sdtm 工作簿（后端类别 `raw_acrf`，CLI 见下文） |
 | ALS2SDTM 示例 | 历史映射文件，转换为 KB 供后续匹配 |
+
+> 仅有带书签的 aCRF/eCRF **PDF**（无 ALS 建库文件）的项目，可用命令行
+> `scripts/extract_acrf_pdf.py` 提取 form/field 并生成 JSON 与 als2sdtm 工作簿
+> （见下文「从 aCRF/eCRF PDF 提取」），再进入上述 AI 推荐流程。
 
 ### Step 2: AI 推荐
 

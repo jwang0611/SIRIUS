@@ -48,14 +48,12 @@ MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024
 ALLOWED_EXTENSIONS = {
     "excel": {".xlsx", ".xls"},
     "json": {".json"},
-    "pdf": {".pdf"},
 }
 
 ALLOWED_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel",
     "application/json",
-    "application/pdf",
     "application/octet-stream",
 }
 
@@ -76,16 +74,6 @@ UPLOAD_CONFIG = {
         "command": lambda path: [
             PYTHON_BIN,
             "scripts/extract_taimei_sheet.py",
-            "--input",
-            str(path),
-        ],
-    },
-    "raw_acrf": {
-        "target": Path("data/raw"),
-        "allowed_extensions": ALLOWED_EXTENSIONS["pdf"],
-        "command": lambda path: [
-            PYTHON_BIN,
-            "scripts/extract_acrf_pdf.py",
             "--input",
             str(path),
         ],
@@ -347,10 +335,6 @@ _INVALID_WORKBOOK_MARKERS = (
     "unsupported format",
     "未找到 ecrf 相关 sheet",
     "缺少必需列",
-    # aCRF/eCRF PDF ingestion
-    "no outline found",
-    "no fields extracted",
-    "unreadable pdf",
 )
 
 
