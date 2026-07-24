@@ -12,6 +12,10 @@ numpy>=1.24.0
 pyarrow>=10.0.0
 python-multipart>=0.0.7
 
+# aCRF/eCRF PDF 提取 (form/field 名称 → als2sdtm)
+pypdf>=4.2.0
+pdfplumber>=0.11.0
+
 # 配置和日志
 pyyaml>=6.0
 psutil>=5.9.0
@@ -30,7 +34,7 @@ slowapi>=0.1.9
 pytest>=7.0.0
 pytest-cov>=4.0.0
 syrupy>=4.6.0
-ruff>=0.1.0
+ruff>=0.1.0,<0.16
 mypy>=1.5.0
 pre-commit>=3.7.0
 

@@ -86,6 +86,7 @@ sirius/
 ├── scripts/                          # 命令行脚本
 │   ├── convert_als2sdtm.py          # ALS 转换
 │   ├── extract_ecrf_sheet.py        # eCRF 提取
+│   ├── extract_acrf_pdf.py          # aCRF/eCRF PDF 提取 (form/field → als2sdtm)
 │   ├── generate_full_spec.py        # Spec 生成
 │   ├── generate_sdtm_recommendations.py  # 推荐生成
 │   └── enhance_sdtm_spec_kb.py      # KB 增强
@@ -186,6 +187,10 @@ PORT=8080 ./stop.sh
 | ALS 原始文件 | CRF 数据定义 Excel，提取后生成 JSON |
 | ALS2SDTM 示例 | 历史映射文件，转换为 KB 供后续匹配 |
 
+> 仅有带书签的 aCRF/eCRF **PDF**（无 ALS 建库文件）的项目，可用命令行
+> `scripts/extract_acrf_pdf.py` 提取 form/field 并生成 JSON 与 als2sdtm 工作簿
+> （见下文「从 aCRF/eCRF PDF 提取」），再进入上述 AI 推荐流程。
+
 ### Step 2: AI 推荐
 
 1. 选择处理后的 JSON 文件
@@ -239,6 +244,29 @@ python scripts/convert_als2sdtm.py \
     --sheet "Mapping" \
     --output-dir data/knowledge_base/structured
 ```
+
+### 从 aCRF/eCRF PDF 提取 form/field（无需 ALS 建库文件）
+
+面向"只有带书签的 eCRF PDF、没有 ALS 建库 Excel"的项目：从 PDF 书签读取 **form name**、
+从页面文本读取 **field name**，产出可直接进入推荐流程的 4 字段 JSON，以及可跨项目复用的
+**als2sdtm 格式**工作簿。
+
+```bash
+# 默认纯确定性提取（离线、无需凭据）
+python scripts/extract_acrf_pdf.py --input your_acrf.pdf --output-name your_project
+
+# 可选：启用 LLM 辅助字段清理（合并换行标签、去选项、识别表格字段；需要 LLM 凭据）
+python scripts/extract_acrf_pdf.py --input your_acrf.pdf --output-name your_project --use-llm
+```
+
+产物：
+- `data/processed/<name>.json`（+ 同名 `.xlsx`）— 直接喂给上面的"生成 SDTM 推荐"
+- `data/output/<name>_ALS2SDTM.xlsx` — als2sdtm 格式工作簿（sheet 名 `eCRF`），
+  可被 `scripts/convert_als2sdtm.py` 零参数再导入，从而在其他项目中复用
+
+> 说明：`metadata_table` 回退为 form name、`metadata_variable` 回退为 field label
+> （同表内重复自动加 `_2/_3`；亦可用 `ACRF_MDV_MODE=synthetic` 改为 `F01_001` 编码），
+> 以满足推荐流程"表名非空、变量在表内唯一"的约束。要求 PDF 含书签目录。
 
 ### 生成完整 Spec
 

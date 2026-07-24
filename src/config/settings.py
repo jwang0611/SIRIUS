@@ -134,6 +134,23 @@ class SpecMapperSettings(BaseModel):
     highlight_mappings: bool = True
 
 
+class AcrfSettings(BaseModel):
+    """aCRF/eCRF PDF ingestion (form/field extraction) controls."""
+
+    use_llm: bool = False
+    min_fields: int = Field(default=1, ge=0)
+    max_fields: int = Field(default=300, ge=1)
+    llm_min_fields: int = Field(default=1, ge=0)
+    header_footer_band: float = Field(default=0.08, ge=0.0, le=0.4)
+    metadata_variable_mode: str = "label"  # "label" | "synthetic"
+
+    @field_validator("metadata_variable_mode")
+    @classmethod
+    def _valid_mode(cls, value: str) -> str:
+        v = (value or "label").strip().lower()
+        return v if v in {"label", "synthetic"} else "label"
+
+
 # ---------------------------------------------------------------------------
 # Root settings
 # ---------------------------------------------------------------------------
@@ -164,6 +181,7 @@ class Settings(BaseSettings):
     web_rate_limits: WebRateLimitSettings = WebRateLimitSettings()
     paths: PathSettings = PathSettings()
     spec_mapper: SpecMapperSettings = SpecMapperSettings()
+    acrf: AcrfSettings = AcrfSettings()
 
     # ------------------------------------------------------------------
     # Pydantic-settings cannot auto-map historical flat env names to
@@ -267,6 +285,15 @@ class Settings(BaseSettings):
             highlight_mappings=_to_bool(g("SPEC_HIGHLIGHT_MAPPINGS", "true"), True),
         )
 
+        acrf = AcrfSettings(
+            use_llm=_to_bool(g("ACRF_USE_LLM", "false"), False),
+            min_fields=int(g("ACRF_MIN_FIELDS", "1") or 1),
+            max_fields=int(g("ACRF_MAX_FIELDS", "300") or 300),
+            llm_min_fields=int(g("ACRF_LLM_MIN_FIELDS", "1") or 1),
+            header_footer_band=float(g("ACRF_HEADER_FOOTER_BAND", "0.08") or 0.08),
+            metadata_variable_mode=g("ACRF_MDV_MODE", "label") or "label",
+        )
+
         return cls(
             ai=ai,
             cascade=cascade,
@@ -277,6 +304,7 @@ class Settings(BaseSettings):
             web_rate_limits=web_rate_limits,
             paths=paths,
             spec_mapper=spec_mapper,
+            acrf=acrf,
             **overrides,
         )
 
@@ -322,6 +350,7 @@ def reload_settings(**overrides: Any) -> Settings:
 
 __all__ = [
     "AIProviderSettings",
+    "AcrfSettings",
     "CascadeSettings",
     "KnowledgeBaseSettings",
     "PathSettings",

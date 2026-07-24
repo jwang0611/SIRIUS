@@ -294,3 +294,94 @@ def golden_loader(fixtures_dir: Path):
         return json.loads(target.read_text(encoding="utf-8"))
 
     return load_or_write
+
+
+# ---------------------------------------------------------------------------
+# aCRF/eCRF sample PDF (built at runtime — tests/fixtures/ is auto-generated)
+# ---------------------------------------------------------------------------
+def _write_sample_acrf(path: Path, pages: List[tuple]) -> None:
+    """Write a minimal multi-page PDF with a bookmark outline (pure stdlib).
+
+    ``pages`` is ``[(bookmark_title, title_line, [field_lines]), ...]``. Each
+    page renders the title in a larger font and the fields below it, and gets
+    one top-level outline entry — enough to exercise outline parsing, field
+    extraction, and the writers without a binary fixture or extra dependency.
+    """
+
+    def esc(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    n = len(pages)
+    pages_id, font_id, outlines_id, catalog_id = 2, 3, 4, 5
+
+    def page_id(i: int) -> int:
+        return 6 + i * 2
+
+    def content_id(i: int) -> int:
+        return 7 + i * 2
+
+    def item_id(i: int) -> int:
+        return 6 + 2 * n + i
+
+    objs: Dict[int, bytes] = {}
+    objs[catalog_id] = (
+        f"<< /Type /Catalog /Pages {pages_id} 0 R /Outlines {outlines_id} 0 R /PageMode /UseOutlines >>".encode()
+    )
+    kids = " ".join(f"{page_id(i)} 0 R" for i in range(n))
+    objs[pages_id] = f"<< /Type /Pages /Kids [{kids}] /Count {n} >>".encode()
+    objs[font_id] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    for i, (_bookmark, title, fields) in enumerate(pages):
+        lines = [(title, 16, 700)]
+        y = 660
+        for field in fields:
+            lines.append((field, 11, y))
+            y -= 40
+        stream = "\n".join(f"BT /F1 {sz} Tf 1 0 0 1 72 {yy} Tm ({esc(t)}) Tj ET" for t, sz, yy in lines).encode()
+        objs[content_id(i)] = b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream)
+        objs[page_id(i)] = (
+            f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id(i)} 0 R >>"
+        ).encode()
+    objs[outlines_id] = f"<< /Type /Outlines /First {item_id(0)} 0 R /Last {item_id(n - 1)} 0 R /Count {n} >>".encode()
+    for i, (bookmark, _title, _fields) in enumerate(pages):
+        parts = [f"/Title ({esc(bookmark)})", f"/Parent {outlines_id} 0 R", f"/Dest [{page_id(i)} 0 R /Fit]"]
+        if i > 0:
+            parts.append(f"/Prev {item_id(i - 1)} 0 R")
+        if i < n - 1:
+            parts.append(f"/Next {item_id(i + 1)} 0 R")
+        objs[item_id(i)] = ("<< " + " ".join(parts) + " >>").encode()
+
+    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets: Dict[int, int] = {}
+    for num in sorted(objs):
+        offsets[num] = len(out)
+        out += f"{num} 0 obj\n".encode() + objs[num] + b"\nendobj\n"
+    xref_off = len(out)
+    max_id = max(objs)
+    out += f"xref\n0 {max_id + 1}\n".encode() + b"0000000000 65535 f \n"
+    for num in range(1, max_id + 1):
+        out += f"{offsets[num]:010d} 00000 n \n".encode() if num in offsets else b"0000000000 65535 f \n"
+    out += f"trailer\n<< /Size {max_id + 1} /Root {catalog_id} 0 R >>\nstartxref\n{xref_off}\n%%EOF".encode()
+    path.write_bytes(bytes(out))
+
+
+# The canonical sample: a skipped Cover page plus two forms with known fields.
+SAMPLE_ACRF_PAGES = [
+    ("Cover", "Cover", []),
+    ("Demographics", "Demographics", ["Subject ID", "Date of Birth", "Sex", "Age"]),
+    ("Vital Signs", "Vital Signs", ["Systolic BP", "Diastolic BP"]),
+]
+
+
+@pytest.fixture
+def sample_acrf_pdf(tmp_path: Path) -> Path:
+    """Path to a freshly-built sample aCRF PDF (Cover + Demographics + Vital Signs)."""
+    path = tmp_path / "acrf_sample.pdf"
+    _write_sample_acrf(path, SAMPLE_ACRF_PAGES)
+    return path
+
+
+@pytest.fixture
+def acrf_pdf_builder():
+    """Return the pure-Python builder so tests can craft custom sample PDFs."""
+    return _write_sample_acrf
