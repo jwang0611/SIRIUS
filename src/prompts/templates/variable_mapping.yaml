@@ -1,4 +1,4 @@
-version: "1.2.0"
+version: "1.1.0"
 
 # The main prompt template for SDTM variable mapping.
 # Placeholders filled at runtime by SDTMPromptGenerator.generate_variable_prompt():
@@ -42,8 +42,6 @@ template: |
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
-  - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
-  - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
 
@@ -63,7 +61,7 @@ language_instructions:
 # Domain-specific pattern hints injected into {domain_specific_patterns}
 domain_specific_patterns:
   oncology: "- 肿瘤: 病灶→TU, 测量→TR, 评估→RS"
-  fa: "- FA: 不含'其他'时使用 sdtm_variable='FAORRES' 并把≤8字符的 FATESTCD 语义缩写放入 testcd（不一定等于 metadata_variable）；含'其他'时使用 sdtm_variable='QVAL'、sdtm_variable_type='supp'、supp_dataset='SUPPFA'、supp_variable='FAOROTH'，并把对应父变量的 FATESTCD 放入 testcd；日期字段也使用 FAORRES + 结构化 testcd（不要用 FADTC）。"
+  fa: "- FA: 不含'其他'→'FAORRES when FATESTCD=XX' (XX为≤8字符的语义缩写,不一定等于metadata_variable); 含'其他'→'QVAL when QNAM=FAOROTH when FATESTCD=XX' (XX=对应父变量的FATESTCD); 日期字段也→FAORRES+FATESTCD（不要用FADTC）"
 
 # Which domains belong to the oncology group (triggers oncology pattern hint)
 oncology_domains: ["TU", "TR", "RS"]
