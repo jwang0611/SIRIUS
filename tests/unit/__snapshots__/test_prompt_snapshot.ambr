@@ -14,6 +14,7 @@
   - All SDTM variable names MUST NOT exceed 8 characters.
   - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
   - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Preserve required non-QNAM/TESTCD when conditions from KB, RAG, or table context in structured conditions=[{variable, value}]. Do NOT invent conditions; use [] when none apply.
   - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
   - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
   - Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM).
@@ -50,17 +51,19 @@
   4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
   5. Is the variable name ≤8 characters? If not, abbreviate to fit.
   6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  7. If KB, RAG, or table context explicitly requires a non-QNAM/TESTCD `when VARIABLE=VALUE` condition, preserve it in the structured `conditions` list. Do NOT invent conditions.
   
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
   - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
   - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
+  - **conditions** contains only required general non-QNAM/TESTCD conditions as objects with `variable` and `value`; use an empty list when none apply. Do NOT invent conditions.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
   **Output (JSON only):**
-  {"table_recommendations": [{"table_name": "Adverse Events", "variable_name": "AETERM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  {"table_recommendations": [{"table_name": "Adverse Events", "variable_name": "AETERM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE", "conditions": []}]}]}
   
   **Examples (select relevant patterns for reference):**
   
@@ -92,6 +95,7 @@
   - All SDTM variable names MUST NOT exceed 8 characters.
   - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
   - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Preserve required non-QNAM/TESTCD when conditions from KB, RAG, or table context in structured conditions=[{variable, value}]. Do NOT invent conditions; use [] when none apply.
   - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
   - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
   - Location/部位/位置 → --LOC (e.g., TULOC, PRLOC, VSLOC, PELOC).
@@ -129,17 +133,19 @@
   4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
   5. Is the variable name ≤8 characters? If not, abbreviate to fit.
   6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  7. If KB, RAG, or table context explicitly requires a non-QNAM/TESTCD `when VARIABLE=VALUE` condition, preserve it in the structured `conditions` list. Do NOT invent conditions.
   
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
   - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
   - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
+  - **conditions** contains only required general non-QNAM/TESTCD conditions as objects with `variable` and `value`; use an empty list when none apply. Do NOT invent conditions.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
   **Output (JSON only):**
-  {"table_recommendations": [{"table_name": "肿瘤病史表", "variable_name": "THLOC", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  {"table_recommendations": [{"table_name": "肿瘤病史表", "variable_name": "THLOC", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE", "conditions": []}]}]}
   
   **Examples (select relevant patterns for reference):**
   
@@ -171,6 +177,7 @@
   - All SDTM variable names MUST NOT exceed 8 characters.
   - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
   - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Preserve required non-QNAM/TESTCD when conditions from KB, RAG, or table context in structured conditions=[{variable, value}]. Do NOT invent conditions; use [] when none apply.
   - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
   - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
   - Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM).
@@ -211,17 +218,19 @@
   4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
   5. Is the variable name ≤8 characters? If not, abbreviate to fit.
   6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  7. If KB, RAG, or table context explicitly requires a non-QNAM/TESTCD `when VARIABLE=VALUE` condition, preserve it in the structured `conditions` list. Do NOT invent conditions.
   
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
   - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
   - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
+  - **conditions** contains only required general non-QNAM/TESTCD conditions as objects with `variable` and `value`; use an empty list when none apply. Do NOT invent conditions.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
   **Output (JSON only):**
-  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AESTDTC", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AESTDTC", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE", "conditions": []}]}]}
   
   **Examples (select relevant patterns for reference):**
   
@@ -254,6 +263,7 @@
   - All SDTM variable names MUST NOT exceed 8 characters.
   - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
   - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Preserve required non-QNAM/TESTCD when conditions from KB, RAG, or table context in structured conditions=[{variable, value}]. Do NOT invent conditions; use [] when none apply.
   - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
   - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
   - Demographics: Age → AGE/AGEU; Sex → SEX; Race → RACE; Ethnicity → ETHNIC; Subject ID → USUBJID/SUBJID.
@@ -285,17 +295,19 @@
   4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
   5. Is the variable name ≤8 characters? If not, abbreviate to fit.
   6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  7. If KB, RAG, or table context explicitly requires a non-QNAM/TESTCD `when VARIABLE=VALUE` condition, preserve it in the structured `conditions` list. Do NOT invent conditions.
   
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
   - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
   - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
+  - **conditions** contains only required general non-QNAM/TESTCD conditions as objects with `variable` and `value`; use an empty list when none apply. Do NOT invent conditions.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
   **Output (JSON only):**
-  {"table_recommendations": [{"table_name": "受试者信息", "variable_name": "SUBJID", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  {"table_recommendations": [{"table_name": "受试者信息", "variable_name": "SUBJID", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE", "conditions": []}]}]}
   
   **Examples (select relevant patterns for reference):**
   
@@ -321,6 +333,7 @@
   - All SDTM variable names MUST NOT exceed 8 characters.
   - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
   - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Preserve required non-QNAM/TESTCD when conditions from KB, RAG, or table context in structured conditions=[{variable, value}]. Do NOT invent conditions; use [] when none apply.
   - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
   - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
   - Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM).
@@ -357,17 +370,19 @@
   4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
   5. Is the variable name ≤8 characters? If not, abbreviate to fit.
   6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  7. If KB, RAG, or table context explicitly requires a non-QNAM/TESTCD `when VARIABLE=VALUE` condition, preserve it in the structured `conditions` list. Do NOT invent conditions.
   
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
   - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
   - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
+  - **conditions** contains only required general non-QNAM/TESTCD conditions as objects with `variable` and `value`; use an empty list when none apply. Do NOT invent conditions.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
   **Output (JSON only):**
-  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AETERM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AETERM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE", "conditions": []}]}]}
   
   **Examples (select relevant patterns for reference):**
   
@@ -399,6 +414,7 @@
   - All SDTM variable names MUST NOT exceed 8 characters.
   - Comment/Remark/备注/说明 → SUPPxx.xxCOM; Other/specify/其他 → SUPPxx.xxOTH; Unrecognized fields → SUPPxx.
   - SUPP variables with same Annotation Variable across tables must have consistent QNAM values.
+  - Preserve required non-QNAM/TESTCD when conditions from KB, RAG, or table context in structured conditions=[{variable, value}]. Do NOT invent conditions; use [] when none apply.
   - Start date → --STDTC; End date → --ENDTC; Single date → --DTC. ISO8601 format required.
   - Ongoing/持续中 status → --ENRF/--ONGO (e.g., MHENRF/CMENRF in SDTM, PRONGO in SUPP).
   - Term/Name/名称 → --TERM or --TRT (e.g., AETERM, CMTRT, PRTRT, EXTRT, MHTERM).
@@ -435,17 +451,19 @@
   4. For findings domains (LB, VS, EG, FA, QS, TR, RS, etc.): what TESTCD best represents this test?
   5. Is the variable name ≤8 characters? If not, abbreviate to fit.
   6. If sibling variables have already been mapped (see Table Context), use the SAME domain and follow consistent naming conventions.
+  7. If KB, RAG, or table context explicitly requires a non-QNAM/TESTCD `when VARIABLE=VALUE` condition, preserve it in the structured `conditions` list. Do NOT invent conditions.
   
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
   - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
   - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
+  - **conditions** contains only required general non-QNAM/TESTCD conditions as objects with `variable` and `value`; use an empty list when none apply. Do NOT invent conditions.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
   **Output (JSON only):**
-  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AECOM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE"}]}]}
+  {"table_recommendations": [{"table_name": "不良事件表", "variable_name": "AECOM", "domain_recommendations": [{"domain": "XX", "sdtm_variable": "VAR", "sdtm_variable_type": "standard/supp", "score": 0.9, "supp_dataset": "SUPPXX", "supp_variable": "QNAM", "testcd": "CODE", "conditions": []}]}]}
   
   **Examples (select relevant patterns for reference):**
   

@@ -110,6 +110,30 @@ def test_rendered_fa_prompt_has_no_composite_sdtm_variable_examples():
     assert '"supp_variable": "FAOROTH"' in prompt
 
 
+def test_rendered_prompt_has_structured_general_condition_contract():
+    generator = _fresh_prompt_generator()
+    prompt = generator.generate_variable_prompt(
+        table_name="Exposure",
+        variable_name="DOSE",
+        variable_data={
+            "metadata_variable": "DOSE",
+            "annotation_table": "Exposure",
+            "annotation_variable": "Dose",
+        },
+        all_table_variables=[
+            {
+                "metadata_variable": "DOSE",
+                "annotation_variable": "Dose",
+            }
+        ],
+        domain_hints=["EC"],
+    )
+
+    assert '"conditions": []' in prompt
+    assert "non-QNAM/TESTCD" in prompt
+    assert "Do NOT invent conditions" in prompt
+
+
 def test_sdtm_processor_production_prompt_path_uses_structured_contract():
     processor = object.__new__(SDTMProcessor)
     processor.data_masker = None
@@ -159,3 +183,27 @@ def test_prompt_ci_rejects_composite_and_unstructured_supp_examples():
     assert ok is False
     assert any("pure SDTM variable" in message for message in messages)
     assert any("supp_dataset" in message for message in messages)
+
+
+def test_prompt_ci_rejects_malformed_general_conditions():
+    ok, messages = check_example_output_contract(
+        {
+            "examples": {
+                "conditional": [
+                    {
+                        "domain": "EC",
+                        "output": "ECDOSE",
+                        "type": "standard",
+                        "conditions": [
+                            {"variable": "ECMOOD", "value": ""},
+                            {"variable": "ECTESTCD", "value": "DOSE"},
+                        ],
+                    }
+                ]
+            }
+        }
+    )
+
+    assert ok is False
+    assert any("condition value" in message for message in messages)
+    assert any("reserved condition variable" in message for message in messages)
