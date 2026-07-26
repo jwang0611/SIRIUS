@@ -548,7 +548,10 @@ class RAGPromptAugmenter:
             source_table = meta.get("annotation_table", "")
             source_var = meta.get("metadata_variable", meta.get("variable", ""))
             sdtm_domain = meta.get("SDTM_Domain", meta.get("domain", ""))
-            sdtm_var = meta.get("SDTM_Variable", meta.get("sdtm_variable", ""))
+            sdtm_var = meta.get(
+                "SDTM_Variable",
+                meta.get("sdtm_variable", meta.get("variable", "")),
+            )
             source_type = "[Project]" if ctx.source == "session" else "[Standard]"
 
             # Build structured entry
