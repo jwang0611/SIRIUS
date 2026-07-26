@@ -83,7 +83,7 @@ def test_shared_config_comparison_reports_model_difference():
     assert comparison["differences"] == ["configuration.model"]
 
 
-def test_shared_config_comparison_reports_runner_difference():
+def test_shared_config_comparison_reports_runner_difference_as_audit_only():
     baseline = {
         "configuration": {},
         "inputs": {},
@@ -100,8 +100,9 @@ def test_shared_config_comparison_reports_runner_difference():
     comparison = compare_shared_configuration(baseline, improved)
 
     assert comparison == {
-        "equal": False,
-        "differences": ["runner.script_sha256"],
+        "equal": True,
+        "differences": [],
+        "audit_differences": ["runner.script_sha256"],
     }
 
 

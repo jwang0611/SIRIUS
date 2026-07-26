@@ -55,6 +55,7 @@ from src.evaluation.ab_analysis import (  # noqa: E402
     paired_cohort_outcomes,
 )
 from src.evaluation.run_manifest import compare_shared_configuration, hash_file  # noqa: E402
+from src.processors.mapping_critic import MappingCritic  # noqa: E402
 from src.processors.sdtm_processor import compute_diff_status  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -243,6 +244,33 @@ def _dedup_rows(rows: list[dict]) -> list[dict]:
     return list(best.values())
 
 
+def _recompute_consistency_issues(rows: list[dict]) -> list[dict]:
+    """Apply the current MappingCritic equally to both A/B output arms."""
+    recommendations = [
+        {
+            **row,
+            "variable_name": row.get("metadata_variable", ""),
+            "annotation_table": row.get("annotation_table", ""),
+            "metadata_table": row.get("metadata_table", ""),
+        }
+        for row in rows
+    ]
+    original_mappings = [
+        {
+            "metadata_table": row.get("metadata_table", ""),
+            "metadata_variable": row.get("metadata_variable", ""),
+        }
+        for row in rows
+    ]
+    return [
+        issue.to_dict()
+        for issue in MappingCritic().criticize(
+            recommendations,
+            original_mappings,
+        )
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------
@@ -374,9 +402,7 @@ def evaluate(
         )
 
     coverage = total / gt_size if gt_size else 0
-    consistency_issues = [
-        issue for row in ai_rows for issue in row.get("consistency_issues", []) if isinstance(issue, dict)
-    ]
+    consistency_issues = _recompute_consistency_issues(ai_rows)
     return {
         "label": label,
         "gt_size": gt_size,

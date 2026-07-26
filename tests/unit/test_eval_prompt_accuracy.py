@@ -350,11 +350,77 @@ def test_evaluate_reports_cohort_cascade_scenario_rows_and_quality(tmp_path):
         "FPH-0002",
         "FPH-0003",
     }
-    assert not any(metrics["quality_issues"].values())
+    assert metrics["quality_issues"] == {
+        "deterministic_validation_errors": 0,
+        "illegal_sdtm_variables": 0,
+        "illegal_supp_qnam": 0,
+        "duplicate_supp_qnam": 0,
+        "parse_failures": 0,
+        "unmapped_outputs": 0,
+        "missing_cascade_provenance": 0,
+        "mapping_critic_errors": 1,
+    }
     assert metrics["cohort_policy"]["KB_DISAGREE"] == {
         "diagnostic_only": True,
         "release_gate": False,
     }
+
+
+def test_evaluate_recomputes_mapping_critic_errors_with_current_rules(tmp_path):
+    records = [
+        _gt_entry(
+            evaluation_id="FPH-0001",
+            metadata_table="CM",
+            metadata_variable="COMMENT_A",
+            annotation_table="Medication",
+            annotation_variable="Comment A",
+            SDTM_Domain="CM",
+            SDTM_Variable="QVAL when QNAM=COMMENT",
+        ),
+        _gt_entry(
+            evaluation_id="FPH-0002",
+            metadata_table="CM",
+            metadata_variable="COMMENT_B",
+            annotation_table="Medication",
+            annotation_variable="Comment B",
+            SDTM_Domain="CM",
+            SDTM_Variable="QVAL when QNAM=COMMENT",
+        ),
+    ]
+    gt_path = tmp_path / "gt.json"
+    gt_path.write_text(json.dumps(records), encoding="utf-8")
+    embedded_error = {
+        "severity": "error",
+        "check_name": "stale_embedded_error",
+        "description": "must not be trusted across code revisions",
+    }
+    another_embedded_error = {
+        **embedded_error,
+        "description": "a second stale error must not be trusted either",
+    }
+    rows = [
+        _ai_row(
+            metadata_table="CM",
+            metadata_variable=variable,
+            annotation_table="Medication",
+            annotation_variable=variable,
+            ai_domain="CM",
+            ai_variable="QVAL WHEN QNAM=COMMENT",
+            domain="CM",
+            sdtm_variable="QVAL",
+            sdtm_variable_type="supp",
+            supp_dataset="SUPPCM",
+            supp_variable="COMMENT",
+            source="LLM",
+            cascade_level=4,
+            consistency_issues=[embedded_error, another_embedded_error],
+        )
+        for variable in ("COMMENT_A", "COMMENT_B")
+    ]
+
+    metrics = evaluate(rows, load_ground_truth(gt_path))
+
+    assert metrics["quality_issues"]["mapping_critic_errors"] == 1
 
 
 def test_nested_processor_output_warns_when_original_mapping_is_missing(tmp_path, caplog):

@@ -134,7 +134,6 @@ def build_run_manifest(
 def _shared_identity(manifest: dict[str, Any]) -> dict[str, Any]:
     inputs = manifest.get("inputs", {})
     return {
-        "runner": manifest.get("runner", {}),
         "configuration": manifest.get("configuration", {}),
         "inputs": {
             name: {
@@ -166,9 +165,19 @@ def compare_shared_configuration(
     baseline: dict[str, Any],
     improved: dict[str, Any],
 ) -> dict[str, Any]:
-    """Compare everything that must be identical between paired runs."""
+    """Compare frozen run inputs and report runner drift as audit-only evidence."""
     differences = _difference_paths(_shared_identity(baseline), _shared_identity(improved))
-    return {"equal": not differences, "differences": differences}
+    audit_differences = _difference_paths(
+        {"runner": baseline.get("runner", {})},
+        {"runner": improved.get("runner", {})},
+    )
+    comparison = {
+        "equal": not differences,
+        "differences": differences,
+    }
+    if audit_differences:
+        comparison["audit_differences"] = audit_differences
+    return comparison
 
 
 def write_manifest(path: Path, manifest: dict[str, Any]) -> None:
