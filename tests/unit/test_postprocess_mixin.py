@@ -274,7 +274,9 @@ class TestNormalizeDomainRecsBasic:
         )
 
         assert out[0]["sdtm_variable"] == "QVAL"
-        assert out[0]["supp_variable"] == "AEXCUSTO"
+        assert out[0]["supp_variable"] != "AEXCUSTO"
+        assert len(out[0]["supp_variable"]) <= 8
+        assert out[0]["supp_variable"].isalnum()
 
     def test_multi_domain_resolution(self):
         host = _Host()

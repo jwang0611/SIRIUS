@@ -12,6 +12,7 @@ side-effects. The mixin now delegates to them, and so does the new
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -236,6 +237,25 @@ def classify_variable_type(
 # ---------------------------------------------------------------------------
 # SUPP contract normalization
 # ---------------------------------------------------------------------------
+def _stable_qnam_token(raw: object) -> str:
+    """Return a legal QNAM token without silently discarding distinguishing text."""
+    text = str(raw or "").strip().upper()
+    if not text:
+        return ""
+
+    compact = _NON_QNAM_CHARS_RE.sub("", text)
+    if compact and not compact[0].isalpha():
+        compact = f"Q{compact}"
+
+    loses_non_ascii = any(ord(char) > 127 and char.isalnum() for char in text)
+    if compact and len(compact) <= 8 and not loses_non_ascii:
+        return compact
+
+    prefix = compact[:4] if compact and compact[0].isalpha() else "Q"
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest().upper()
+    return f"{prefix}{digest[: 8 - len(prefix)]}"
+
+
 def normalize_supp_record(
     rec: dict[str, Any],
     *,
@@ -250,12 +270,7 @@ def normalize_supp_record(
     standard_vars = _get_domain_standard_vars(base_domain)
 
     def candidate_token(raw: object) -> str:
-        token = _NON_QNAM_CHARS_RE.sub("", str(raw or "").strip().upper())
-        if not token:
-            return ""
-        if not token[0].isalpha():
-            token = f"Q{token}"
-        return token[:8]
+        return _stable_qnam_token(raw)
 
     qnam = ""
     candidates = (
@@ -269,9 +284,13 @@ def normalize_supp_record(
             qnam = token
             break
 
+    fallback_token = candidate_token(variable_name)
+    if fallback_token in SUPPQUAL_VARS or fallback_token in standard_vars:
+        fallback_token = _stable_qnam_token(f"SUPP|{variable_name}")
+
     out["sdtm_variable"] = "QVAL"
     out["sdtm_variable_type"] = "supp"
-    out["supp_variable"] = qnam or "COMMENT"
+    out["supp_variable"] = qnam or fallback_token or "COMMENT"
     if base_domain:
         out["supp_dataset"] = f"SUPP{base_domain}"
     elif not out.get("supp_dataset"):

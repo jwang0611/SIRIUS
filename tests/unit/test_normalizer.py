@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from src.processors.normalizer import (
@@ -14,6 +16,7 @@ from src.processors.normalizer import (
     filter_recs_by_domain,
     is_comment_like_variable,
     is_standard_variable_name,
+    normalize_supp_record,
     resolve_multi_domain,
     to_cleaned_dict,
 )
@@ -170,6 +173,32 @@ class TestClassifyVariableType:
 
     def test_unknown_type_with_supp_variable(self):
         assert classify_variable_type({"supp_variable": "AESEV"}, "XX") == "supp"
+
+
+def test_non_ascii_supp_qnams_are_legal_stable_and_distinct():
+    first = normalize_supp_record({"domain": "CM"}, variable_name="备注")
+    repeated = normalize_supp_record({"domain": "CM"}, variable_name="备注")
+    second = normalize_supp_record({"domain": "CM"}, variable_name="其他说明")
+
+    assert first["supp_variable"] == repeated["supp_variable"]
+    assert first["supp_variable"] != second["supp_variable"]
+    assert re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", first["supp_variable"])
+    assert re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", second["supp_variable"])
+
+
+def test_long_supp_qnams_with_shared_prefix_do_not_collide():
+    first = normalize_supp_record(
+        {"domain": "AE", "auto_corrected_to_supp": True},
+        variable_name="ADVERSEEVENTDETAIL1",
+    )
+    second = normalize_supp_record(
+        {"domain": "AE", "auto_corrected_to_supp": True},
+        variable_name="ADVERSEEVENTDETAIL2",
+    )
+
+    assert first["supp_variable"] != second["supp_variable"]
+    assert len(first["supp_variable"]) <= 8
+    assert len(second["supp_variable"]) <= 8
 
 
 class TestDedupeByKey:
