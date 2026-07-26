@@ -390,8 +390,8 @@ __all__ = [
     "filter_recs_by_domain",
     "is_comment_like_variable",
     "is_standard_variable_name",
-    "normalize_conditions",
     "normalize_supp_record",
+    "normalize_conditions",
     "resolve_multi_domain",
     "to_cleaned_dict",
 ]
