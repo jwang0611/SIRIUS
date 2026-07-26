@@ -324,12 +324,8 @@ def evaluate_acceptance(
         improved_value=improved_domain,
         detail="Overall Domain Match count cannot decline at fixed coverage.",
     )
-    baseline_ai_domain = int(
-        baseline_cohorts.get("AI_RECOMMENDATION", {}).get("domain_match", 0)
-    )
-    improved_ai_domain = int(
-        improved_cohorts.get("AI_RECOMMENDATION", {}).get("domain_match", 0)
-    )
+    baseline_ai_domain = int(baseline_cohorts.get("AI_RECOMMENDATION", {}).get("domain_match", 0))
+    improved_ai_domain = int(improved_cohorts.get("AI_RECOMMENDATION", {}).get("domain_match", 0))
     add_gate(
         "AI_RECOMMENDATION_domain_no_regression",
         improved_ai_domain >= baseline_ai_domain,

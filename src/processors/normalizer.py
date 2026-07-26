@@ -265,11 +265,7 @@ def normalize_supp_record(
     )
     for raw in candidates:
         token = candidate_token(raw)
-        if (
-            _QNAM_RE.fullmatch(token)
-            and token not in SUPPQUAL_VARS
-            and token not in standard_vars
-        ):
+        if _QNAM_RE.fullmatch(token) and token not in SUPPQUAL_VARS and token not in standard_vars:
             qnam = token
             break
 

@@ -7,10 +7,7 @@ from src.rag.chunker import Chunk
 
 
 def test_build_embeddings_batches_large_knowledge_base(monkeypatch):
-    chunks = [
-        Chunk(id=str(index), text=f"chunk {index}", meta={"index": index})
-        for index in range(205)
-    ]
+    chunks = [Chunk(id=str(index), text=f"chunk {index}", meta={"index": index}) for index in range(205)]
     observed_batches: list[list[str]] = []
 
     class FakeChunker:

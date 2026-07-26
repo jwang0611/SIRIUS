@@ -193,11 +193,7 @@ def estimate_external_requests(
     ai_rows = sum(1 for row in rows if row.get("evaluation_cohort") == "AI_RECOMMENDATION")
     query_items = len(rows)
     query_requests = math.ceil(query_items / embedding_batch_size)
-    kb_items = (
-        len(Chunker(str(rag_kb_path)).load_all_parquet())
-        if rag_kb_path is not None
-        else 0
-    )
+    kb_items = len(Chunker(str(rag_kb_path)).load_all_parquet()) if rag_kb_path is not None else 0
     kb_requests = math.ceil(kb_items / embedding_batch_size)
     embedding_items = query_items + kb_items
     embedding_requests = query_requests + kb_requests

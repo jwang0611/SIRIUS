@@ -702,8 +702,7 @@ def _manifest(
         },
         "knowledge_base": [{"path": "kb.json", "sha256": "kb"}],
         "prompts": {
-            name: {"version": "1.0.0", "sha256": f"{prompt_sha}-{name}"}
-            for name in ("template", "rules", "examples")
+            name: {"version": "1.0.0", "sha256": f"{prompt_sha}-{name}"} for name in ("template", "rules", "examples")
         },
         "configuration": {
             "provider": "openrouter",

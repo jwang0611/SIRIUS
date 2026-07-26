@@ -140,8 +140,7 @@ def build_embeddings(
         batch_embeddings = client.embed_texts(batch_texts)
         if len(batch_embeddings) != len(batch_texts):
             raise RuntimeError(
-                "Embedding response count mismatch: "
-                f"expected {len(batch_texts)}, got {len(batch_embeddings)}"
+                f"Embedding response count mismatch: expected {len(batch_texts)}, got {len(batch_embeddings)}"
             )
         emb_list.extend(batch_embeddings)
         print(f"Embedding progress: {len(emb_list)}/{len(texts)}")

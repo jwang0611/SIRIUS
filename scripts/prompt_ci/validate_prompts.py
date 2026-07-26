@@ -293,10 +293,7 @@ def check_example_output_contract(exs: dict) -> tuple[bool, list[str]]:
                 ok = False
             if testcd and not _PURE_VAR_RE.fullmatch(testcd):
                 msgs.append(
-                    _err(
-                        f"[examples.{pattern}] testcd '{testcd}' must be a pure "
-                        f"1-{_MAX_VAR_LEN} character code"
-                    )
+                    _err(f"[examples.{pattern}] testcd '{testcd}' must be a pure 1-{_MAX_VAR_LEN} character code")
                 )
                 ok = False
 
@@ -305,36 +302,20 @@ def check_example_output_contract(exs: dict) -> tuple[bool, list[str]]:
                     msgs.append(_err(f"[examples.{pattern}] SUPP output must be QVAL"))
                     ok = False
                 if not supp_dataset.startswith("SUPP") or len(supp_dataset) <= 4:
-                    msgs.append(
-                        _err(
-                            f"[examples.{pattern}] SUPP example requires "
-                            "structured supp_dataset"
-                        )
-                    )
+                    msgs.append(_err(f"[examples.{pattern}] SUPP example requires structured supp_dataset"))
                     ok = False
                 if not _PURE_VAR_RE.fullmatch(supp_variable):
                     msgs.append(
-                        _err(
-                            f"[examples.{pattern}] SUPP example requires a pure "
-                            "structured supp_variable (QNAM)"
-                        )
+                        _err(f"[examples.{pattern}] SUPP example requires a pure structured supp_variable (QNAM)")
                     )
                     ok = False
             elif supp_dataset or supp_variable:
-                msgs.append(
-                    _err(
-                        f"[examples.{pattern}] standard example cannot contain "
-                        "supp_dataset or supp_variable"
-                    )
-                )
+                msgs.append(_err(f"[examples.{pattern}] standard example cannot contain supp_dataset or supp_variable"))
                 ok = False
 
             if ex.get("supp") or ex.get("qnam"):
                 msgs.append(
-                    _err(
-                        f"[examples.{pattern}] legacy SUPP keys are forbidden; "
-                        "use supp_dataset and supp_variable"
-                    )
+                    _err(f"[examples.{pattern}] legacy SUPP keys are forbidden; use supp_dataset and supp_variable")
                 )
                 ok = False
 

@@ -193,9 +193,7 @@ def load_ai_output(path: Path) -> list[dict]:
                             "supp_variable": drec.get("supp_variable", ""),
                             "testcd": drec.get("testcd", ""),
                             "fallback_reason": drec.get("fallback_reason", ""),
-                            "validation_flags": {
-                                key: drec.get(key) for key in _VALIDATION_FLAGS if drec.get(key)
-                            },
+                            "validation_flags": {key: drec.get(key) for key in _VALIDATION_FLAGS if drec.get(key)},
                             "consistency_issues": table_rec.get("consistency_issues", []),
                         }
                     )
@@ -219,9 +217,7 @@ def load_ai_output(path: Path) -> list[dict]:
                         "supp_variable": entry.get("supp_variable", ""),
                         "testcd": entry.get("testcd", ""),
                         "fallback_reason": entry.get("fallback_reason", ""),
-                        "validation_flags": {
-                            key: entry.get(key) for key in _VALIDATION_FLAGS if entry.get(key)
-                        },
+                        "validation_flags": {key: entry.get(key) for key in _VALIDATION_FLAGS if entry.get(key)},
                         "consistency_issues": entry.get("consistency_issues", []),
                     }
                 )
@@ -274,9 +270,7 @@ def evaluate(
         lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
     )
     source_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "match": 0, "domain_match": 0})
-    cascade_stats: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"total": 0, "match": 0, "domain_match": 0}
-    )
+    cascade_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "match": 0, "domain_match": 0})
     cohort_stats: dict[str, dict[str, int]] = defaultdict(
         lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
     )
@@ -381,10 +375,7 @@ def evaluate(
 
     coverage = total / gt_size if gt_size else 0
     consistency_issues = [
-        issue
-        for row in ai_rows
-        for issue in row.get("consistency_issues", [])
-        if isinstance(issue, dict)
+        issue for row in ai_rows for issue in row.get("consistency_issues", []) if isinstance(issue, dict)
     ]
     return {
         "label": label,
@@ -558,8 +549,7 @@ def print_report(metrics: dict, verbose: bool = False) -> None:
     if cs:
         print("  Held-out cohort:")
         print(
-            f"  {'Cohort':<20} {'GT':>5} {'Eval':>5} {'Coverage':>9} "
-            f"{'Exact':>6} {'Rate':>8} {'Domain':>7} {'Rate':>8}"
+            f"  {'Cohort':<20} {'GT':>5} {'Eval':>5} {'Coverage':>9} {'Exact':>6} {'Rate':>8} {'Domain':>7} {'Rate':>8}"
         )
         print(f"  {'-' * 78}")
         for cohort in sorted(cs.keys(), key=lambda c: -cs[c]["gt_size"]):
@@ -575,10 +565,7 @@ def print_report(metrics: dict, verbose: bool = False) -> None:
     scenario_stats = metrics["scenario_stats"]
     if scenario_stats:
         print("  Special scenarios:")
-        print(
-            f"  {'Scenario':<22} {'GT':>5} {'Eval':>5} {'Exact':>6} "
-            f"{'Rate':>8} {'Domain':>7} {'Rate':>8}"
-        )
+        print(f"  {'Scenario':<22} {'GT':>5} {'Eval':>5} {'Exact':>6} {'Rate':>8} {'Domain':>7} {'Rate':>8}")
         print(f"  {'-' * 72}")
         for scenario in sorted(scenario_stats):
             stats = scenario_stats[scenario]
@@ -929,10 +916,7 @@ def _validate_run_evidence(
         errors.append(f"{label} manifest held-out row count does not match --ground-truth")
 
     benchmark_record = inputs.get("benchmark", {})
-    if (
-        not benchmark_record.get("sha256")
-        or benchmark_record.get("row_count") != actual_heldout_rows
-    ):
+    if not benchmark_record.get("sha256") or benchmark_record.get("row_count") != actual_heldout_rows:
         errors.append(f"{label} manifest benchmark identity is incomplete")
 
     knowledge_base = manifest.get("knowledge_base")
@@ -944,10 +928,7 @@ def _validate_run_evidence(
     output_record = manifest.get("outputs", {}).get("json", {})
     recorded_output_path = output_record.get("path")
     try:
-        path_matches = (
-            Path(str(recorded_output_path)).resolve()
-            == output_path.resolve()
-        )
+        path_matches = Path(str(recorded_output_path)).resolve() == output_path.resolve()
     except (OSError, TypeError, ValueError):
         path_matches = False
     if not path_matches:
@@ -980,9 +961,7 @@ def main() -> None:
         parser.error("--report-json and --require-acceptance are available only in A/B mode")
     if args.report_json or args.require_acceptance:
         if not args.baseline_manifest or not args.improved_manifest:
-            parser.error(
-                "A/B reporting requires --baseline-manifest and --improved-manifest"
-            )
+            parser.error("A/B reporting requires --baseline-manifest and --improved-manifest")
     if args.require_acceptance and not args.required_tests_json:
         parser.error("--require-acceptance requires --required-tests-json")
     if args.bootstrap_replicates <= 0:
@@ -1066,11 +1045,7 @@ def main() -> None:
                         heldout_path=args.ground_truth,
                     ),
                 }
-                evidence_errors = [
-                    error
-                    for result in evidence_validation.values()
-                    for error in result["errors"]
-                ]
+                evidence_errors = [error for result in evidence_validation.values() for error in result["errors"]]
                 if evidence_errors:
                     raise ValueError("; ".join(evidence_errors))
                 report = build_ab_report(
@@ -1103,18 +1078,14 @@ def main() -> None:
             if not report["manifest_comparison"]["equal"]:
                 print(
                     "ERROR: Baseline and improved manifests do not share the "
-                    "same experiment configuration: "
-                    + ", ".join(report["manifest_comparison"]["differences"]),
+                    "same experiment configuration: " + ", ".join(report["manifest_comparison"]["differences"]),
                     file=sys.stderr,
                 )
                 raise SystemExit(2)
             if args.require_acceptance and report["decision"] != "ACCEPT":
-                failed = [
-                    gate["name"] for gate in report["gates"] if not gate["passed"]
-                ]
+                failed = [gate["name"] for gate in report["gates"] if not gate["passed"]]
                 print(
-                    "ERROR: Improved run failed acceptance gates: "
-                    + ", ".join(failed),
+                    "ERROR: Improved run failed acceptance gates: " + ", ".join(failed),
                     file=sys.stderr,
                 )
                 raise SystemExit(1)
