@@ -340,19 +340,17 @@ class SDTMPromptGenerator:
         else:
             table, var = "", input_text
 
-        structured = {
-            "domain": domain,
-            "sdtm_variable": output,
-            "sdtm_variable_type": ex.get("type", "standard"),
-        }
-        if ex.get("supp_dataset"):
-            structured["supp_dataset"] = ex["supp_dataset"]
-        if ex.get("supp_variable"):
-            structured["supp_variable"] = ex["supp_variable"]
-        if ex.get("testcd"):
-            structured["testcd"] = ex["testcd"]
+        parts = [f'- "{table}/{var}" → {domain}.{output}']
 
-        return f'- "{table}/{var}" → {json.dumps(structured, ensure_ascii=False)}'
+        # Add testcd if present
+        if ex.get("testcd"):
+            parts[0] += f' (testcd="{ex["testcd"]}")'
+
+        # Add SUPP info if present
+        if ex.get("supp"):
+            parts[0] = f'- "{table}/{var}" → {ex["supp"]}.QVAL (QNAM="{ex.get("qnam", "")}")'
+
+        return parts[0]
 
     def set_standard_catalog(self, catalog: dict[str, Any] | None) -> None:
         """Attach a preprocessed standard catalog."""
