@@ -6,7 +6,7 @@ import json
 import math
 import random
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Any
 
 from src.config.domain_semantic_map import is_valid_domain, strip_supp_prefix
@@ -22,6 +22,7 @@ QUALITY_COUNTER_NAMES = (
     "deterministic_validation_errors",
     "illegal_sdtm_variables",
     "illegal_supp_qnam",
+    "duplicate_supp_qnam",
     "parse_failures",
     "unmapped_outputs",
     "missing_cascade_provenance",
@@ -124,6 +125,26 @@ def _supp_structure_is_illegal(row: dict[str, Any]) -> bool:
     return bool(standard_vars and qnam in standard_vars)
 
 
+def _count_duplicate_supp_qnam(rows: list[dict[str, Any]]) -> int:
+    assignments: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for row in rows:
+        variable = _raw_variable(row)
+        variable_type = str(row.get("sdtm_variable_type", "") or "").lower()
+        if variable_type != "supp" and variable != "QVAL":
+            continue
+
+        dataset = str(row.get("supp_dataset", "") or "").strip().upper()
+        qnam = str(row.get("supp_variable", "") or "").strip().upper()
+        variable_name = str(row.get("metadata_variable") or row.get("variable_name") or "").strip()
+        if not dataset or not qnam or not variable_name:
+            continue
+
+        qnam = qnam.split("=", 1)[0].strip()
+        assignments[(dataset, qnam)].add(variable_name.casefold())
+
+    return sum(len(names) - 1 for names in assignments.values() if len(names) > 1)
+
+
 def count_quality_issues(
     rows: list[dict[str, Any]],
     *,
@@ -148,6 +169,7 @@ def count_quality_issues(
         if row.get("cascade_level") is None:
             counts["missing_cascade_provenance"] += 1
 
+    counts["duplicate_supp_qnam"] = _count_duplicate_supp_qnam(rows)
     unique_critic_errors = {
         json.dumps(issue, ensure_ascii=False, sort_keys=True)
         for issue in consistency_issues or []

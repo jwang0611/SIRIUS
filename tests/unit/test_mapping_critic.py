@@ -171,6 +171,43 @@ class TestDuplicateMappings:
         assert critic._check_duplicate_mappings(recs) == []
 
 
+class TestDuplicateSuppQnam:
+    def test_distinct_raw_variables_with_same_supp_key_are_errors(self, critic):
+        recs = [
+            {
+                "variable_name": "COMMENT_A",
+                "sdtm_variable_type": "supp",
+                "sdtm_variable": "QVAL",
+                "supp_dataset": "SUPPCM",
+                "supp_variable": "COMMENT",
+            },
+            {
+                "variable_name": "COMMENT_B",
+                "sdtm_variable_type": "supp",
+                "sdtm_variable": "QVAL",
+                "supp_dataset": "SUPPCM",
+                "supp_variable": "COMMENT",
+            },
+        ]
+
+        issues = critic._check_duplicate_supp_qnam(recs)
+
+        assert len(issues) == 1
+        assert issues[0].severity == "error"
+        assert issues[0].check_name == "duplicate_supp_qnam"
+
+    def test_repeated_same_raw_variable_is_not_a_collision(self, critic):
+        rec = {
+            "variable_name": "COMMENT_A",
+            "sdtm_variable_type": "supp",
+            "sdtm_variable": "QVAL",
+            "supp_dataset": "SUPPCM",
+            "supp_variable": "COMMENT",
+        }
+
+        assert critic._check_duplicate_supp_qnam([rec, dict(rec)]) == []
+
+
 def test_criticize_combines_all_checks(critic):
     recs = [
         {

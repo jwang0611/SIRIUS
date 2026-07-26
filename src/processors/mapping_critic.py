@@ -17,6 +17,7 @@ Checks include:
 - Score sanity: scores must be in [0,1]; low-confidence records flagged
 - KB expression integrity: KB conditional expressions must not be truncated
 - Variable coverage: every input variable must have a real recommendation
+- SUPP QNAM uniqueness: distinct raw variables must not share a dataset/QNAM key
 - UNMAPPED ratio: batch-level flag when UNMAPPED rate exceeds threshold
 - Low confidence ratio: batch-level flag when low-score rate exceeds threshold
 - SUPP naming convention: QNAM must be uppercase, ≤8 chars, alphanumeric
@@ -109,6 +110,7 @@ class MappingCritic:
         issues.extend(self._check_score_sanity(recommendations))
         issues.extend(self._check_kb_expression_integrity(recommendations))
         issues.extend(self._check_supp_naming(recommendations))
+        issues.extend(self._check_duplicate_supp_qnam(recommendations))
         issues.extend(self._check_unmapped_ratio(recommendations))
         issues.extend(self._check_low_confidence_ratio(recommendations))
         if original_mappings is not None:
@@ -570,6 +572,51 @@ class MappingCritic:
             )
 
         return issues
+
+    def _check_duplicate_supp_qnam(
+        self,
+        recommendations: list[dict[str, Any]],
+    ) -> list[ConsistencyIssue]:
+        """Flag distinct raw variables assigned to the same SUPP dataset/QNAM."""
+        assignments: dict[tuple[str, str], set[str]] = defaultdict(set)
+        display_names: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)
+
+        for rec in recommendations:
+            if str(rec.get("sdtm_variable_type", "")).lower() != "supp":
+                continue
+
+            dataset = str(rec.get("supp_dataset", "")).strip().upper()
+            qnam = str(rec.get("supp_variable", "")).strip().upper()
+            variable_name = str(rec.get("variable_name", "")).strip()
+            if not dataset or not qnam or not variable_name:
+                continue
+
+            qnam = qnam.split("=", 1)[0].strip()
+            key = (dataset, qnam)
+            normalized_name = variable_name.casefold()
+            assignments[key].add(normalized_name)
+            display_names[key].setdefault(normalized_name, variable_name)
+
+        collisions = {key: names for key, names in assignments.items() if len(names) > 1}
+        if not collisions:
+            return []
+
+        duplicate_assignments = sum(len(names) - 1 for names in collisions.values())
+        affected_variables = sorted(
+            {display_names[key][normalized_name] for key, names in collisions.items() for normalized_name in names}
+        )
+        examples = ", ".join(f"{dataset}.{qnam}" for dataset, qnam in sorted(collisions)[:5])
+        return [
+            ConsistencyIssue(
+                severity="error",
+                check_name="duplicate_supp_qnam",
+                description=(
+                    f"{duplicate_assignments} additional raw variable assignment(s) reuse a SUPP QNAM key: {examples}"
+                ),
+                affected_variables=affected_variables[:20],
+                suggested_fix=("Assign a unique QNAM to each distinct raw variable within a SUPP dataset."),
+            )
+        ]
 
     def _check_variable_coverage(
         self,

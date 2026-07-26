@@ -102,11 +102,32 @@ def test_quality_issue_counts_are_row_based_and_critic_errors_are_deduplicated()
         "deterministic_validation_errors": 1,
         "illegal_sdtm_variables": 1,
         "illegal_supp_qnam": 1,
+        "duplicate_supp_qnam": 0,
         "parse_failures": 1,
         "unmapped_outputs": 1,
         "missing_cascade_provenance": 1,
         "mapping_critic_errors": 1,
     }
+
+
+def test_duplicate_supp_qnam_counts_distinct_raw_variables_only():
+    base = {
+        "domain": "CM",
+        "sdtm_variable": "QVAL",
+        "sdtm_variable_type": "supp",
+        "supp_dataset": "SUPPCM",
+        "supp_variable": "COMMENT",
+        "cascade_level": 4,
+    }
+    rows = [
+        {**base, "metadata_variable": "COMMENT_A"},
+        {**base, "metadata_variable": "COMMENT_B"},
+        {**base, "metadata_variable": "COMMENT_A"},
+    ]
+
+    counts = count_quality_issues(rows, consistency_issues=[])
+
+    assert counts["duplicate_supp_qnam"] == 1
 
 
 @pytest.mark.parametrize(
@@ -192,6 +213,7 @@ def _passing_acceptance_inputs():
         "deterministic_validation_errors": 0,
         "illegal_sdtm_variables": 0,
         "illegal_supp_qnam": 0,
+        "duplicate_supp_qnam": 0,
         "parse_failures": 0,
         "unmapped_outputs": 0,
         "missing_cascade_provenance": 0,
@@ -294,6 +316,7 @@ def test_acceptance_rejects_domain_regression(scope):
         "deterministic_validation_errors",
         "illegal_sdtm_variables",
         "illegal_supp_qnam",
+        "duplicate_supp_qnam",
         "parse_failures",
         "unmapped_outputs",
         "missing_cascade_provenance",
