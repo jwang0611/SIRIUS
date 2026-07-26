@@ -103,6 +103,28 @@ class TestDecomposeWhenClause:
         assert out["sdtm_variable"] == "QVAL"
         assert out["supp_variable"] == "AESEV"
 
+    def test_extracts_general_condition_without_polluting_variable(self):
+        rec = {"sdtm_variable": "ECDOSE when ECMOOD=ADMINISTERED"}
+
+        out = decompose_when_clause(rec)
+
+        assert out["sdtm_variable"] == "ECDOSE"
+        assert out["conditions"] == [{"variable": "ECMOOD", "value": "ADMINISTERED"}]
+
+    def test_preserves_structured_conditions_when_decomposing_reserved_fields(self):
+        rec = {
+            "sdtm_variable": "QVAL when QNAM=EXREAS when ECMOOD=NOT DONE",
+            "conditions": [{"variable": "EPOCH", "value": "TREATMENT"}],
+        }
+
+        out = decompose_when_clause(rec)
+
+        assert out["supp_variable"] == "EXREAS"
+        assert out["conditions"] == [
+            {"variable": "EPOCH", "value": "TREATMENT"},
+            {"variable": "ECMOOD", "value": "NOT DONE"},
+        ]
+
     def test_preserves_existing_testcd(self):
         rec = {"sdtm_variable": "FAORRES when FATESTCD=NEW", "testcd": "ORIG"}
         out = decompose_when_clause(rec)

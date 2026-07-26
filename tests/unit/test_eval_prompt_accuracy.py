@@ -148,6 +148,20 @@ def test_render_structured_supp_mapping_keeps_qnam_and_testcd():
     assert rendered == "QVAL WHEN QNAM=FAOROTH WHEN FATESTCD=THPGRD"
 
 
+def test_render_structured_mapping_appends_general_conditions_after_reserved_fields():
+    rendered = _render_structured_variable(
+        {
+            "domain": "EC",
+            "sdtm_variable": "QVAL",
+            "sdtm_variable_type": "supp",
+            "supp_variable": "EXREAS",
+            "conditions": [{"variable": "ECMOOD", "value": "NOT DONE"}],
+        }
+    )
+
+    assert rendered == "QVAL WHEN QNAM=EXREAS WHEN ECMOOD=NOT DONE"
+
+
 def test_nested_processor_output_recovers_full_key_and_supp_expression(tmp_path):
     gt_record = _gt_entry(
         metadata_table="TH6",
@@ -187,6 +201,53 @@ def test_nested_processor_output_recovers_full_key_and_supp_expression(tmp_path)
                 }
             ],
             ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    metrics = evaluate(load_ai_output(output_path), load_ground_truth(gt_path))
+
+    assert metrics["exact_match"] == 1
+
+
+def test_nested_processor_output_recovers_general_conditions(tmp_path):
+    gt_record = _gt_entry(
+        metadata_table="EX",
+        metadata_variable="EXDOSE",
+        annotation_table="Exposure",
+        annotation_variable="Dose",
+        SDTM_Domain="EC",
+        SDTM_Variable="ECDOSE when ECMOOD=ADMINISTERED",
+        evaluation_cohort="AI_RECOMMENDATION",
+    )
+    gt_path = tmp_path / "gt.json"
+    gt_path.write_text(json.dumps([gt_record]), encoding="utf-8")
+    output_path = tmp_path / "output.json"
+    output_path.write_text(
+        json.dumps(
+            [
+                {
+                    "table_name": "EX",
+                    "original_mappings": [
+                        {
+                            "metadata_variable": "EXDOSE",
+                            "annotation_table": "Exposure",
+                            "annotation_variable": "Dose",
+                        }
+                    ],
+                    "domain_recommendations": [
+                        {
+                            "variable_name": "EXDOSE",
+                            "domain": "EC",
+                            "sdtm_variable": "ECDOSE",
+                            "sdtm_variable_type": "standard",
+                            "conditions": [{"variable": "ECMOOD", "value": "ADMINISTERED"}],
+                            "score": 0.9,
+                            "source": "LLM",
+                        }
+                    ],
+                }
+            ]
         ),
         encoding="utf-8",
     )
