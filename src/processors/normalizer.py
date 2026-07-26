@@ -136,27 +136,6 @@ def filter_recs_by_domain(
 # ---------------------------------------------------------------------------
 # Compound-clause decomposition  (e.g. "FAORRES when FATESTCD=THDIAG")
 # ---------------------------------------------------------------------------
-def normalize_conditions(raw: object) -> list[dict[str, str]]:
-    """Normalize structured non-QNAM/TESTCD ``when`` conditions."""
-    if not isinstance(raw, list):
-        return []
-
-    normalized: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        variable = str(item.get("variable", "") or "").strip().upper()
-        value = str(item.get("value", "") or "").strip()
-        if not variable or not value or variable == "QNAM" or variable.endswith("TESTCD"):
-            continue
-        key = (variable, value)
-        if key not in seen:
-            normalized.append({"variable": variable, "value": value})
-            seen.add(key)
-    return normalized
-
-
 def decompose_when_clause(rec: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of ``rec`` with any ``... when KEY=VAL`` clause expanded."""
     sdtm_var = rec.get("sdtm_variable")
@@ -166,7 +145,6 @@ def decompose_when_clause(rec: dict[str, Any]) -> dict[str, Any]:
     out = dict(rec)
     parts = _WHEN_CLAUSE_RE.split(sdtm_var)
     out["sdtm_variable"] = parts[0].strip()
-    conditions = normalize_conditions(out.get("conditions"))
     for clause in parts[1:]:
         clause = clause.strip()
         if "=" not in clause:
@@ -178,12 +156,6 @@ def decompose_when_clause(rec: dict[str, Any]) -> dict[str, Any]:
             out["testcd"] = val
         elif key_upper == "QNAM" and not out.get("supp_variable"):
             out["supp_variable"] = val
-        elif key_upper != "QNAM" and not key_upper.endswith("TESTCD"):
-            conditions = normalize_conditions(
-                [*conditions, {"variable": key_upper, "value": val}]
-            )
-    if conditions:
-        out["conditions"] = conditions
     return out
 
 
@@ -274,10 +246,6 @@ def dedupe_by_key(
             str(rec.get("sdtm_variable", "")).upper(),
             str(rec.get("testcd", "")).upper(),
             str(rec.get("supp_variable", "")).upper(),
-            tuple(
-                (item["variable"], item["value"])
-                for item in normalize_conditions(rec.get("conditions"))
-            ),
         )
         score = rec.get("score", 0)
         if key in seen:
@@ -321,9 +289,6 @@ def to_cleaned_dict(rec: dict[str, Any], *, variable_name: str) -> dict[str, Any
     if var_type == "supp":
         base["supp_dataset"] = rec.get("supp_dataset", "")
         base["supp_variable"] = rec.get("supp_variable", "")
-    conditions = normalize_conditions(rec.get("conditions"))
-    if conditions:
-        base["conditions"] = conditions
     return base
 
 
@@ -338,7 +303,6 @@ __all__ = [
     "filter_recs_by_domain",
     "is_comment_like_variable",
     "is_standard_variable_name",
-    "normalize_conditions",
     "resolve_multi_domain",
     "to_cleaned_dict",
 ]

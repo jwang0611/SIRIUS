@@ -11,7 +11,6 @@ from typing import Any
 from src.config.domain_semantic_map import is_valid_domain
 from src.processors.deterministic_validator import DeterministicValidator
 from src.processors.mixin_typing import SDTMProcessorHost
-from src.processors.normalizer import normalize_conditions
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +183,6 @@ class PostprocessMixin:
                 parts = _WHEN_CLAUSE_RE.split(sdtm_var)
                 rec["sdtm_variable"] = parts[0].strip()
                 sdtm_var = rec["sdtm_variable"]
-                conditions = normalize_conditions(rec.get("conditions"))
                 for clause in parts[1:]:
                     clause = clause.strip()
                     if "=" not in clause:
@@ -197,12 +195,6 @@ class PostprocessMixin:
                     elif key_upper == "QNAM" and not rec.get("supp_variable"):
                         rec["supp_variable"] = val
                         supp_var = val
-                    elif key_upper != "QNAM" and not key_upper.endswith("TESTCD"):
-                        conditions = normalize_conditions(
-                            [*conditions, {"variable": key_upper, "value": val}]
-                        )
-                if conditions:
-                    rec["conditions"] = conditions
                 # After decomposition, update the KB snapshot so cleaned_rec
                 # uses the decomposed value (not the raw "QVAL when QNAM=xxx").
                 if is_from_kb:
@@ -333,7 +325,6 @@ class PostprocessMixin:
                     "testcd": rec.get("testcd", ""),
                     "source": rec.get("source", ""),
                     "variable_name": variable_name,
-                    "conditions": normalize_conditions(rec.get("conditions")),
                 }
                 normalized.append(cleaned_rec)
             else:
@@ -345,7 +336,6 @@ class PostprocessMixin:
                     "testcd": rec.get("testcd", ""),
                     "source": rec.get("source", ""),
                     "variable_name": variable_name,
-                    "conditions": normalize_conditions(rec.get("conditions")),
                 }
                 normalized.append(cleaned_rec)
 
@@ -359,10 +349,6 @@ class PostprocessMixin:
                 str(rec.get("sdtm_variable", "")).upper(),
                 str(rec.get("testcd", "")).upper(),
                 str(rec.get("supp_variable", "")).upper(),
-                tuple(
-                    (item["variable"], item["value"])
-                    for item in normalize_conditions(rec.get("conditions"))
-                ),
             )
             score = rec.get("score", 0)
             if key in seen:
