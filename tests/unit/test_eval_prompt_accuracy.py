@@ -466,6 +466,30 @@ def test_generate_benchmark_keeps_both_cohorts_and_complex_mappings(tmp_path):
     )
 
 
+def test_benchmark_next_steps_use_clean_worktrees_not_stash(tmp_path, monkeypatch, capsys):
+    gt_path = tmp_path / "gt.json"
+    output_path = tmp_path / "benchmark.json"
+    gt_path.write_text(json.dumps([_gt_entry()]), encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "eval_prompt_accuracy.py",
+            "--ground-truth",
+            str(gt_path),
+            "--gen-benchmark",
+            "--benchmark-output",
+            str(output_path),
+        ],
+    )
+
+    main()
+
+    output = capsys.readouterr().out
+    assert "run_sdtm_experiment.py" in output
+    assert "clean baseline and improved worktrees" in output
+    assert "git stash" not in output
+
+
 def test_cli_requires_explicit_ground_truth():
     parser = build_parser()
 
