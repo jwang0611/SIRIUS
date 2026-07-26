@@ -22,7 +22,7 @@ def test_build_embeddings_batches_large_knowledge_base(monkeypatch):
 
     class FakeClient:
         def __init__(self, model):
-            assert model == "qwen/qwen3-embedding-8b"
+            assert model == "openai/text-embedding-3-small"
 
         def embed_texts(self, texts):
             observed_batches.append(list(texts))
@@ -33,7 +33,7 @@ def test_build_embeddings_batches_large_knowledge_base(monkeypatch):
 
     documents = embeddings.build_embeddings(
         "structured-kb",
-        model="qwen/qwen3-embedding-8b",
+        model="openai/text-embedding-3-small",
         batch_size=100,
     )
 

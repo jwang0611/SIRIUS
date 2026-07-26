@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rate-limit", type=int, default=120)
 
     parser.add_argument("--rag-top-k", type=int, default=3)
-    parser.add_argument("--rag-embedding-model", default="qwen/qwen3-embedding-8b")
+    parser.add_argument("--rag-embedding-model", default="openai/text-embedding-3-small")
     parser.add_argument("--rag-min-score", type=float, default=0.4)
     parser.add_argument("--rag-char-limit", type=int, default=1500)
     parser.add_argument("--force-rag", action="store_true")
