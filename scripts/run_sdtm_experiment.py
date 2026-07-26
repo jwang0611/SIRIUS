@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -24,8 +25,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.evaluation.run_manifest import (  # noqa: E402
     build_run_manifest,
     finalize_run_manifest,
+    hash_file,
     write_manifest,
 )
+from src.rag.chunker import Chunker  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", dest="input_path", type=Path, required=True)
     parser.add_argument("--heldout", dest="heldout_path", type=Path, required=True)
     parser.add_argument("--kb-root", type=Path, required=True)
+    parser.add_argument(
+        "--rag-kb-path",
+        type=Path,
+        help="Parquet directory for RAG; defaults to <kb-root>/structured",
+    )
     parser.add_argument("--output-base", type=Path, required=True)
     parser.add_argument("--manifest", dest="manifest_path", type=Path, required=True)
     parser.add_argument("--execute", action="store_true", help="Execute production generation; default only estimates")
@@ -69,6 +77,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _rag_kb_path(args: argparse.Namespace) -> Path:
+    return args.rag_kb_path or (args.kb_root / "structured")
+
+
+def _rag_cache_dir(args: argparse.Namespace) -> Path:
+    return args.code_root / "data" / "cache" / "rag_vectors"
+
+
+def _validate_pinned_generation(args: argparse.Namespace) -> None:
+    """Reject wrapper values the target generator cannot apply explicitly."""
+    if args.top_p != 0.95:
+        raise ValueError("--top-p must remain 0.95 for this pinned production generator")
+    if args.top_k != 40:
+        raise ValueError("--top-k must remain 40 for this pinned production generator")
+
+
 def build_generator_command(
     args: argparse.Namespace,
     *,
@@ -97,7 +121,7 @@ def build_generator_command(
         "--language",
         str(args.language),
         "--kb-path",
-        str(args.kb_root),
+        str(_rag_kb_path(args)),
         "--rag-top-k",
         str(args.rag_top_k),
         "--rag-embedding-model",
@@ -122,12 +146,15 @@ def build_pinned_environment(
 ) -> dict[str, str]:
     """Pin non-CLI cascade settings while preserving externally supplied credentials."""
     environment = dict(os.environ if base_environment is None else base_environment)
+    rag_kb_path = _rag_kb_path(args)
     environment.update(
         {
             "DEFAULT_AI_PROVIDER": str(args.provider),
             "DEFAULT_MODEL": str(args.model),
             "OPENROUTER_BASE_URL": str(args.endpoint),
-            "KNOWLEDGE_STRUCTURED_PATH": str(args.kb_root),
+            "KNOWLEDGE_STRUCTURED_PATH": str(rag_kb_path),
+            "RAG_KB_BASE_PATH": str(args.kb_root),
+            "RAG_KB_PATH": str(rag_kb_path),
             "RATE_LIMIT_RPM": str(args.rate_limit),
             "RAG_ENABLED": "1",
             "RAG_TOP_K": str(args.rag_top_k),
@@ -148,21 +175,46 @@ def build_pinned_environment(
     return environment
 
 
-def estimate_external_requests(heldout_path: Path, *, runs: int = 1) -> dict[str, int]:
-    """Return conservative request upper bounds from held-out cohort labels."""
+def estimate_external_requests(
+    heldout_path: Path,
+    *,
+    runs: int = 1,
+    rag_kb_path: Path | None = None,
+    embedding_batch_size: int = 100,
+) -> dict[str, int]:
+    """Return conservative generation and batched-embedding upper bounds."""
     with heldout_path.open(encoding="utf-8") as handle:
         rows = json.load(handle)
     if not isinstance(rows, list):
         raise ValueError(f"Held-out data must be a JSON list: {heldout_path}")
+    if embedding_batch_size <= 0:
+        raise ValueError("Embedding batch size must be positive")
+
     ai_rows = sum(1 for row in rows if row.get("evaluation_cohort") == "AI_RECOMMENDATION")
+    query_items = len(rows)
+    query_requests = math.ceil(query_items / embedding_batch_size)
+    kb_items = (
+        len(Chunker(str(rag_kb_path)).load_all_parquet())
+        if rag_kb_path is not None
+        else 0
+    )
+    kb_requests = 1 if kb_items else 0
+    embedding_items = query_items + kb_items
+    embedding_requests = query_requests + kb_requests
     return {
         "heldout_rows": len(rows),
         "ai_recommendation_rows": ai_rows,
         "generation_calls_per_run_max": ai_rows,
-        "query_embedding_calls_per_run_max": ai_rows,
+        "rag_query_embedding_items_per_run_max": query_items,
+        "rag_query_embedding_requests_per_run_max": query_requests,
+        "rag_kb_embedding_items_per_run_max": kb_items,
+        "rag_kb_embedding_requests_per_run_max": kb_requests,
+        "embedding_items_per_run_max": embedding_items,
+        "embedding_requests_per_run_max": embedding_requests,
         "runs": runs,
         "generation_calls_total_max": ai_rows * runs,
-        "query_embedding_calls_total_max": ai_rows * runs,
+        "embedding_items_total_max": embedding_items * runs,
+        "embedding_requests_total_max": embedding_requests * runs,
     }
 
 
@@ -218,11 +270,13 @@ def _summarize_output(path: Path) -> dict[str, Any]:
 
 
 def _validate_inputs(args: argparse.Namespace) -> None:
+    _validate_pinned_generation(args)
     for label, path in (
         ("code root", args.code_root),
         ("input", args.input_path),
         ("held-out", args.heldout_path),
         ("KB root", args.kb_root),
+        ("RAG KB", _rag_kb_path(args)),
     ):
         if not path.exists():
             raise FileNotFoundError(f"{label} not found: {path}")
@@ -237,6 +291,21 @@ def _validate_inputs(args: argparse.Namespace) -> None:
         raise ValueError(f"Benchmark/held-out row mismatch: {len(benchmark)} != {len(heldout)}")
     if len(heldout) != 490:
         raise ValueError(f"Full experiment requires exactly 490 held-out rows, got {len(heldout)}")
+    if args.execute:
+        cache_files = sorted(_rag_cache_dir(args).glob("*.pkl"))
+        if cache_files:
+            raise RuntimeError(
+                "Execution requires an empty isolated RAG vector cache; "
+                f"found {len(cache_files)} cache file(s) in {_rag_cache_dir(args)}"
+            )
+
+
+def _rag_kb_identity(args: argparse.Namespace) -> str:
+    rag_path = _rag_kb_path(args).resolve()
+    try:
+        return rag_path.relative_to(args.kb_root.resolve()).as_posix()
+    except ValueError:
+        return str(rag_path)
 
 
 def _manifest_from_args(
@@ -246,7 +315,7 @@ def _manifest_from_args(
     git_dirty: bool,
     started_at: str,
 ) -> dict[str, Any]:
-    return build_run_manifest(
+    manifest = build_run_manifest(
         run_label=args.run_label,
         code_root=args.code_root,
         git_sha=git_sha,
@@ -267,8 +336,12 @@ def _manifest_from_args(
         },
         rag={
             "enabled": True,
+            "kb_path": _rag_kb_identity(args),
+            "cache_policy": "cold_isolated_worktree",
+            "cache_path": "data/cache/rag_vectors",
             "top_k": args.rag_top_k,
             "embedding_model": args.rag_embedding_model,
+            "embedding_batch_size": 100,
             "min_score": args.rag_min_score,
             "char_limit": args.rag_char_limit,
             "force": args.force_rag,
@@ -283,12 +356,21 @@ def _manifest_from_args(
         },
         started_at=started_at,
     )
+    manifest["runner"] = {
+        "path": "scripts/run_sdtm_experiment.py",
+        "script_sha256": hash_file(Path(__file__), normalize_text=True),
+    }
+    return manifest
 
 
 def main() -> int:
     args = build_parser().parse_args()
     _validate_inputs(args)
-    estimate = estimate_external_requests(args.heldout_path, runs=1)
+    estimate = estimate_external_requests(
+        args.heldout_path,
+        runs=1,
+        rag_kb_path=_rag_kb_path(args),
+    )
     print(json.dumps({"model": args.model, "temperature": args.temperature, **estimate}, indent=2))
 
     if not args.execute:

@@ -890,6 +890,10 @@ def _validate_run_evidence(
     if manifest.get("status") != "succeeded":
         errors.append(f"{label} manifest terminal status must be 'succeeded'")
 
+    runner_record = manifest.get("runner", {})
+    if not runner_record.get("script_sha256"):
+        errors.append(f"{label} manifest is missing experiment-runner hash")
+
     git_record = manifest.get("git", {})
     if not git_record.get("sha") or git_record.get("dirty") is not False:
         errors.append(f"{label} manifest must identify a clean Git revision")

@@ -688,6 +688,10 @@ def _manifest(
     return {
         "schema_version": "1.0.0",
         "status": "succeeded",
+        "runner": {
+            "path": "scripts/run_sdtm_experiment.py",
+            "script_sha256": "same-audit-runner",
+        },
         "git": {"sha": git_sha, "dirty": False},
         "inputs": {
             "benchmark": {"sha256": "benchmark", "row_count": 5},

@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.run_sdtm_experiment import (
+    _validate_inputs,
+    _validate_pinned_generation,
     build_generator_command,
     build_parser,
     build_pinned_environment,
@@ -42,6 +46,7 @@ def test_shared_config_comparison_allows_only_run_identity_changes():
         "configuration": {"model": "m", "temperature": 0},
         "inputs": {"benchmark": {"sha256": "input"}, "heldout": {"sha256": "gt"}},
         "knowledge_base": [{"path": "kb.json", "sha256": "kb"}],
+        "runner": {"script_sha256": "same-runner"},
         "git": {"sha": "a"},
         "prompts": {"template": {"version": "1.0.0"}},
     }
@@ -49,6 +54,7 @@ def test_shared_config_comparison_allows_only_run_identity_changes():
         "configuration": {"model": "m", "temperature": 0},
         "inputs": {"benchmark": {"sha256": "input"}, "heldout": {"sha256": "gt"}},
         "knowledge_base": [{"path": "kb.json", "sha256": "kb"}],
+        "runner": {"script_sha256": "same-runner"},
         "git": {"sha": "b"},
         "prompts": {"template": {"version": "1.1.0"}},
     }
@@ -75,6 +81,28 @@ def test_shared_config_comparison_reports_model_difference():
 
     assert comparison["equal"] is False
     assert comparison["differences"] == ["configuration.model"]
+
+
+def test_shared_config_comparison_reports_runner_difference():
+    baseline = {
+        "configuration": {},
+        "inputs": {},
+        "knowledge_base": [],
+        "runner": {"script_sha256": "baseline"},
+    }
+    improved = {
+        "configuration": {},
+        "inputs": {},
+        "knowledge_base": [],
+        "runner": {"script_sha256": "improved"},
+    }
+
+    comparison = compare_shared_configuration(baseline, improved)
+
+    assert comparison == {
+        "equal": False,
+        "differences": ["runner.script_sha256"],
+    }
 
 
 def test_build_manifest_pins_inputs_kb_prompts_and_has_no_sensitive_keys(tmp_path):
@@ -211,7 +239,8 @@ def test_generator_command_uses_exact_pinned_values_without_api_key(tmp_path):
     ]
     assert "--temperature 0.0" in rendered
     assert "--model google/gemini-3-flash-preview" in rendered
-    assert f"--kb-path {args.kb_root}" in rendered
+    assert f"--kb-path {args.kb_root / 'structured'}" in rendered
+    assert f"--kb-path {args.kb_root} " not in f"{rendered} "
     assert "--rag-top-k 3" in rendered
     assert "--rag-embedding-model Qwen3-Embed" in rendered
     assert "--rag-min-score 0.4" in rendered
@@ -231,6 +260,9 @@ def test_pinned_environment_sets_cascade_rag_and_concurrency(tmp_path):
     )
 
     assert environment["OPENROUTER_API_KEY"] == "kept-out-of-command"
+    assert environment["KNOWLEDGE_STRUCTURED_PATH"] == str(args.kb_root / "structured")
+    assert environment["RAG_KB_BASE_PATH"] == str(args.kb_root)
+    assert environment["RAG_KB_PATH"] == str(args.kb_root / "structured")
     assert environment["KB_MIN_CONFIDENCE"] == "0.8"
     assert environment["CASCADE_KB_HIGH_CONF"] == "0.85"
     assert environment["CASCADE_RAG_HIGH_CONF"] == "0.7"
@@ -246,14 +278,56 @@ def test_request_estimate_uses_current_heldout_cohort_counts(repo_root):
     estimate = estimate_external_requests(
         repo_root / "data/evaluation/full_pipeline_heldout_v1.json",
         runs=2,
+        rag_kb_path=repo_root / "data/knowledge_base/structured",
     )
 
     assert estimate == {
         "heldout_rows": 490,
         "ai_recommendation_rows": 309,
         "generation_calls_per_run_max": 309,
-        "query_embedding_calls_per_run_max": 309,
+        "rag_query_embedding_items_per_run_max": 490,
+        "rag_query_embedding_requests_per_run_max": 5,
+        "rag_kb_embedding_items_per_run_max": 2616,
+        "rag_kb_embedding_requests_per_run_max": 1,
+        "embedding_items_per_run_max": 3106,
+        "embedding_requests_per_run_max": 6,
         "runs": 2,
         "generation_calls_total_max": 618,
-        "query_embedding_calls_total_max": 618,
+        "embedding_items_total_max": 6212,
+        "embedding_requests_total_max": 12,
     }
+
+
+def test_runner_rejects_generation_values_target_cli_cannot_apply(tmp_path):
+    args = _runner_args(tmp_path)
+    _validate_pinned_generation(args)
+
+    args.top_p = 0.8
+    with pytest.raises(ValueError, match="top-p"):
+        _validate_pinned_generation(args)
+
+    args.top_p = 0.95
+    args.top_k = 20
+    with pytest.raises(ValueError, match="top-k"):
+        _validate_pinned_generation(args)
+
+
+def test_execute_rejects_preexisting_rag_vector_cache(tmp_path):
+    args = _runner_args(tmp_path)
+    args.execute = True
+    args.code_root.mkdir(parents=True)
+    args.input_path.write_text(
+        json.dumps([{"name": str(index)} for index in range(490)]),
+        encoding="utf-8",
+    )
+    args.heldout_path.write_text(
+        json.dumps([{"evaluation_cohort": "AI_RECOMMENDATION"} for _ in range(490)]),
+        encoding="utf-8",
+    )
+    (args.kb_root / "structured").mkdir(parents=True)
+    cache_dir = args.code_root / "data" / "cache" / "rag_vectors"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "stale.pkl").write_bytes(b"stale")
+
+    with pytest.raises(RuntimeError, match="empty isolated RAG vector cache"):
+        _validate_inputs(args)

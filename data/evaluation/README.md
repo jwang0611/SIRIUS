@@ -60,11 +60,20 @@ estimate, but does not start the production generator or call a model:
 
 The default experiment is pinned to
 `google/gemini-3-flash-preview`, `temperature=0`, RAG enabled with top-k 3,
-and five workers. The manifest captures the Git SHA and dirty flag, normalized
-input hashes, every JSON/Parquet KB hash, prompt component versions and hashes,
-model/generation parameters, endpoint origin, RAG settings, cascade thresholds,
-concurrency, output hashes, source counts, and cascade-level counts. It never
-records credentials or endpoint query/path details.
+and five workers. `--kb-root` identifies the complete hashed KB tree; unless
+overridden, the runner passes its `structured/` Parquet directory to the
+production RAG chunker. The current held-out/KB combination has a conservative
+per-run ceiling of 309 generation requests, five 100-item query-embedding
+requests for all 490 rows, and one cold-cache KB-embedding request containing
+2,616 chunks. Both arms must use separate clean worktrees, and execution is
+rejected when `data/cache/rag_vectors/` already contains a vector cache. The
+manifest records this `cold_isolated_worktree` policy. It also captures the
+experiment-runner script hash, target
+Git SHA and dirty flag, normalized input hashes, every JSON/Parquet KB hash,
+prompt component versions and hashes, model/generation parameters, endpoint
+origin, RAG settings, cascade thresholds, concurrency, output hashes, source
+counts, and cascade-level counts. It never records credentials or endpoint
+query/path details.
 
 Only after the estimated call count, model, endpoint/provider, and price risk
 have been reported and explicitly authorized should the same command be run

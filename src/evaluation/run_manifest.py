@@ -134,6 +134,7 @@ def build_run_manifest(
 def _shared_identity(manifest: dict[str, Any]) -> dict[str, Any]:
     inputs = manifest.get("inputs", {})
     return {
+        "runner": manifest.get("runner", {}),
         "configuration": manifest.get("configuration", {}),
         "inputs": {
             name: {
