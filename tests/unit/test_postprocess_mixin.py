@@ -278,6 +278,30 @@ class TestNormalizeDomainRecsBasic:
         assert len(out[0]["supp_variable"]) <= 8
         assert out[0]["supp_variable"].isalnum()
 
+    def test_comment_like_kb_composite_mapping_remains_authoritative(self):
+        host = _Host()
+        recs = [
+            {
+                "domain": "EC|EX",
+                "sdtm_variable": "ECSTDTC when ECMOOD=X|EXSTDTC",
+                "score": 0.99,
+                "source": "KB",
+                "kb_validated": True,
+            }
+        ]
+
+        out = host._normalize_domain_recs(
+            table_name="t",
+            variable_name="备注",
+            domain_recs=recs,
+            target_domain=None,
+            enforce_domain=False,
+        )
+
+        assert out[0]["domain"] == "EC|EX"
+        assert out[0]["sdtm_variable"] == "ECSTDTC when ECMOOD=X|EXSTDTC"
+        assert out[0]["sdtm_variable_type"] == "standard"
+
     def test_multi_domain_resolution(self):
         host = _Host()
         recs = [

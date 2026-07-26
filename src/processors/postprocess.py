@@ -235,7 +235,7 @@ class PostprocessMixin:
                 print(f"📌 Multi-domain '{original_multi_domain}' resolved to '{domain}' for {variable_name}")
 
             is_comment_like = any(kw in varname_lower for kw in comment_keywords)
-            if is_comment_like and var_type != "supp":
+            if not is_from_kb and is_comment_like and var_type != "supp":
                 var_type = "supp"
                 rec["sdtm_variable_type"] = "supp"
 
@@ -314,8 +314,8 @@ class PostprocessMixin:
 
                 rec = normalize_supp_record(rec, variable_name=variable_name)
                 cleaned_rec = {
-                    "domain": rec.get("domain", ""),
-                    "sdtm_variable": rec.get("sdtm_variable", ""),
+                    "domain": original_kb_domain if original_kb_domain else rec.get("domain", ""),
+                    "sdtm_variable": (original_kb_sdtm_var if original_kb_sdtm_var else rec.get("sdtm_variable", "")),
                     "sdtm_variable_type": rec.get("sdtm_variable_type", ""),
                     "score": rec.get("score", 0.9),
                     "supp_dataset": rec.get("supp_dataset", ""),
