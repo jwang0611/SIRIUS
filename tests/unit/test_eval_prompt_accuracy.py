@@ -803,6 +803,12 @@ def test_cli_exposes_machine_report_arguments():
     assert args.require_acceptance is True
 
 
+def test_cli_help_renders_percentage_text():
+    help_text = build_parser().format_help()
+
+    assert "100% of ground truth" in help_text
+
+
 def test_build_ab_report_keeps_complete_audit_and_slice_metrics(tmp_path):
     paths = _write_ab_inputs(tmp_path)
     gt = load_ground_truth(paths["ground_truth"])

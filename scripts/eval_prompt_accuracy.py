@@ -841,7 +841,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--require-full-coverage",
         action="store_true",
-        help="Exit non-zero if any evaluated output covers less than 100% of ground truth",
+        help="Exit non-zero if any evaluated output covers less than 100%% of ground truth",
     )
 
     bench_group = parser.add_argument_group("benchmark generation")
