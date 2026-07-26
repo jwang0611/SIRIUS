@@ -1,4 +1,4 @@
-version: "1.2.0"
+version: "1.1.0"
 
 rules:
   # ========== CORE RULES (Always apply) ==========
@@ -54,9 +54,9 @@ rules:
   # EX (Exposure)
   RULE_EX_001: "Exposure: Treatment name → EXTRT. Use DOSE/ROUTE patterns for dosing info."
   # FA (Findings About)
-  RULE_FA_001: "FA domain: If annotation_variable does NOT contain '其他', set sdtm_variable='FAORRES', sdtm_variable_type='standard', and put the study-specific FATESTCD (≤8 chars, abbreviated from context) in testcd. The testcd is NOT always the metadata_variable — it may be abbreviated (e.g., THPTYP→THCLA, THINDAT→THFDTC) or identical (e.g., THLOC→THLOC, THTNMT→THTNMT)."
-  RULE_FA_002: "FA domain: If annotation_variable contains '其他', set sdtm_variable='QVAL', sdtm_variable_type='supp', supp_dataset='SUPPFA', supp_variable='FAOROTH', and put the parent non-'其他' finding's FATESTCD in testcd."
-  RULE_FA_003: "FA domain: Date fields (日期/date) also use sdtm_variable='FAORRES' with the date-related FATESTCD in testcd (e.g., metadata_variable THINDAT uses testcd='THFDTC'). Do NOT use FADTC for study-specific date findings in FA."
+  RULE_FA_001: "FA domain: If annotation_variable does NOT contain '其他', map to FAORRES with a study-specific FATESTCD (≤8 chars, abbreviated from context). Format: 'FAORRES when FATESTCD=XX'. FATESTCD is NOT always the metadata_variable — it may be abbreviated (e.g., THPTYP→THCLA, THINDAT→THFDTC) or identical (e.g., THLOC→THLOC, THTNMT→THTNMT). sdtm_variable_type='standard'."
+  RULE_FA_002: "FA domain: If annotation_variable contains '其他', map to SUPPFA. Format: 'QVAL when QNAM=FAOROTH when FATESTCD=XX', where XX is the FATESTCD of the parent (non-'其他') variable that this '其他' field belongs to. sdtm_variable_type='supp'."
+  RULE_FA_003: "FA domain: Date fields (日期/date) ALSO map to FAORRES with a date-related FATESTCD (e.g., THINDAT→FAORRES when FATESTCD=THFDTC). Do NOT use FADTC for study-specific date findings in FA."
   # QS (Questionnaires)
   RULE_QS_001: "Questionnaire/问卷/量表/评分 → QS domain. Use FIND patterns for test/result."
   # PC/PP (Pharmacokinetics)

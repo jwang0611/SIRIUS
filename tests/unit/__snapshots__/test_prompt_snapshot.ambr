@@ -54,8 +54,6 @@
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
-  - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
-  - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
@@ -65,11 +63,11 @@
   **Examples (select relevant patterns for reference):**
   
   Standard variables:
-  - "不良事件/不良事件名称" → {"domain": "AE", "sdtm_variable": "AETERM", "sdtm_variable_type": "standard"}
-  - "不良事件/严重程度" → {"domain": "AE", "sdtm_variable": "AETOXGR", "sdtm_variable_type": "standard"}
+  - "不良事件/不良事件名称" → AE.AETERM
+  - "不良事件/严重程度" → AE.AETOXGR
   
   SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
-  - "不良事件/备注" → {"domain": "AE", "sdtm_variable": "QVAL", "sdtm_variable_type": "supp", "supp_dataset": "SUPPAE", "supp_variable": "AECOM"}
+  - "不良事件/备注" → SUPPAE.QVAL (QNAM="AECOM")
   
   **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
   
@@ -97,9 +95,9 @@
   - Location/部位/位置 → --LOC (e.g., TULOC, PRLOC, VSLOC, PELOC).
   - Position/体位 → --POS (e.g., VSPOS, EGPOS). For vital signs and ECG.
   - Method/方法 → --METHOD (e.g., TUMETHOD, EGMETHOD). Other method → SUPPxx.xxMEOTH.
-  - FA domain: If annotation_variable does NOT contain '其他', set sdtm_variable='FAORRES', sdtm_variable_type='standard', and put the study-specific FATESTCD (≤8 chars, abbreviated from context) in testcd. The testcd is NOT always the metadata_variable — it may be abbreviated (e.g., THPTYP→THCLA, THINDAT→THFDTC) or identical (e.g., THLOC→THLOC, THTNMT→THTNMT).
-  - FA domain: If annotation_variable contains '其他', set sdtm_variable='QVAL', sdtm_variable_type='supp', supp_dataset='SUPPFA', supp_variable='FAOROTH', and put the parent non-'其他' finding's FATESTCD in testcd.
-  - FA domain: Date fields (日期/date) also use sdtm_variable='FAORRES' with the date-related FATESTCD in testcd (e.g., metadata_variable THINDAT uses testcd='THFDTC'). Do NOT use FADTC for study-specific date findings in FA.
+  - FA domain: If annotation_variable does NOT contain '其他', map to FAORRES with a study-specific FATESTCD (≤8 chars, abbreviated from context). Format: 'FAORRES when FATESTCD=XX'. FATESTCD is NOT always the metadata_variable — it may be abbreviated (e.g., THPTYP→THCLA, THINDAT→THFDTC) or identical (e.g., THLOC→THLOC, THTNMT→THTNMT). sdtm_variable_type='standard'.
+  - FA domain: If annotation_variable contains '其他', map to SUPPFA. Format: 'QVAL when QNAM=FAOROTH when FATESTCD=XX', where XX is the FATESTCD of the parent (non-'其他') variable that this '其他' field belongs to. sdtm_variable_type='supp'.
+  - FA domain: Date fields (日期/date) ALSO map to FAORRES with a date-related FATESTCD (e.g., THINDAT→FAORRES when FATESTCD=THFDTC). Do NOT use FADTC for study-specific date findings in FA.
   
   
   **Input (Current Variable):**
@@ -118,7 +116,7 @@
   
   
   **Domain-Specific Patterns:**
-  - FA: 不含'其他'时使用 sdtm_variable='FAORRES' 并把≤8字符的 FATESTCD 语义缩写放入 testcd（不一定等于 metadata_variable）；含'其他'时使用 sdtm_variable='QVAL'、sdtm_variable_type='supp'、supp_dataset='SUPPFA'、supp_variable='FAOROTH'，并把对应父变量的 FATESTCD 放入 testcd；日期字段也使用 FAORRES + 结构化 testcd（不要用 FADTC）。
+  - FA: 不含'其他'→'FAORRES when FATESTCD=XX' (XX为≤8字符的语义缩写,不一定等于metadata_variable); 含'其他'→'QVAL when QNAM=FAOROTH when FATESTCD=XX' (XX=对应父变量的FATESTCD); 日期字段也→FAORRES+FATESTCD（不要用FADTC）
   
   **Reasoning Checklist (consider each step before generating output):**
   1. What clinical concept does this variable represent? Interpret the Chinese annotation if present.
@@ -133,8 +131,6 @@
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
-  - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
-  - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
@@ -143,12 +139,12 @@
   
   **Examples (select relevant patterns for reference):**
   
-  --ORRES variables (MUST include testcd):
-  - "肿瘤病史/肿瘤诊断名称(THCLDX)" → {"domain": "FA", "sdtm_variable": "FAORRES", "sdtm_variable_type": "standard", "testcd": "THDIA"}
-  - "肿瘤病史/当前疾病部位(THLOC)" → {"domain": "FA", "sdtm_variable": "FAORRES", "sdtm_variable_type": "standard", "testcd": "THLOC"}
+  Standard variables:
+  - "肿瘤病史/肿瘤诊断名称(THCLDX)" → FA.FAORRES when FATESTCD=THDIA
+  - "肿瘤病史/当前疾病部位(THLOC)" → FA.FAORRES when FATESTCD=THLOC
   
   SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
-  - "肿瘤病史/其他病理类型(THPTYPO)" → {"domain": "FA", "sdtm_variable": "QVAL", "sdtm_variable_type": "supp", "supp_dataset": "SUPPFA", "supp_variable": "FAOROTH", "testcd": "THCLA"}
+  - "肿瘤病史/其他病理类型(THPTYPO)" → SUPPFA.QVAL (QNAM="FAOROTH")
   
   **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
   
@@ -215,8 +211,6 @@
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
-  - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
-  - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
@@ -226,12 +220,12 @@
   **Examples (select relevant patterns for reference):**
   
   Standard variables:
-  - "不良事件/开始日期" → {"domain": "AE", "sdtm_variable": "AESTDTC", "sdtm_variable_type": "standard"}
-  - "不良事件/结束日期" → {"domain": "AE", "sdtm_variable": "AEENDTC", "sdtm_variable_type": "standard"}
+  - "不良事件/开始日期" → AE.AESTDTC
+  - "不良事件/结束日期" → AE.AEENDTC
   
   SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
-  - "不良事件/备注" → {"domain": "AE", "sdtm_variable": "QVAL", "sdtm_variable_type": "supp", "supp_dataset": "SUPPAE", "supp_variable": "AECOM"}
-  - "合并用药/备注" → {"domain": "CM", "sdtm_variable": "QVAL", "sdtm_variable_type": "supp", "supp_dataset": "SUPPCM", "supp_variable": "CMCOM"}
+  - "不良事件/备注" → SUPPAE.QVAL (QNAM="AECOM")
+  - "合并用药/备注" → SUPPCM.QVAL (QNAM="CMCOM")
   
   **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
   
@@ -289,8 +283,6 @@
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
-  - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
-  - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
@@ -361,8 +353,6 @@
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
-  - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
-  - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
@@ -372,11 +362,11 @@
   **Examples (select relevant patterns for reference):**
   
   Standard variables:
-  - "不良事件/不良事件名称" → {"domain": "AE", "sdtm_variable": "AETERM", "sdtm_variable_type": "standard"}
-  - "不良事件/严重程度" → {"domain": "AE", "sdtm_variable": "AETOXGR", "sdtm_variable_type": "standard"}
+  - "不良事件/不良事件名称" → AE.AETERM
+  - "不良事件/严重程度" → AE.AETOXGR
   
   SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
-  - "不良事件/备注" → {"domain": "AE", "sdtm_variable": "QVAL", "sdtm_variable_type": "supp", "supp_dataset": "SUPPAE", "supp_variable": "AECOM"}
+  - "不良事件/备注" → SUPPAE.QVAL (QNAM="AECOM")
   
   **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
   
@@ -439,8 +429,6 @@
   **Constraints:**
   - Variable names ≤8 chars. If longer, use SUPPxx.
   - **sdtm_variable** must be a plain variable name (e.g. "FAORRES", "QVAL", "AETERM"). Do NOT embed "when" clauses -- use the separate "testcd" and "supp_variable" fields instead.
-  - **testcd** contains only the TESTCD value (e.g. "THCLA"), never "FATESTCD=THCLA" or another expression.
-  - For SUPP mappings, use **sdtm_variable**="QVAL", put the SUPP dataset in **supp_dataset**, and put only the QNAM value in **supp_variable**. Never put QNAM, TESTCD, or SUPP details inside **sdtm_variable**.
   - 备注→xxCOM (AECOM, CMCOM), 其他→xxOTH
   - **CRITICAL:** Only use `sdtm_variable_type: "standard"` if the variable appears in the domain variable list above. If it does NOT appear in the list, it MUST be mapped as `sdtm_variable_type: "supp"` with appropriate SUPPxx dataset and QNAM.
   
@@ -450,11 +438,11 @@
   **Examples (select relevant patterns for reference):**
   
   Standard variables:
-  - "不良事件/严重程度" → {"domain": "AE", "sdtm_variable": "AETOXGR", "sdtm_variable_type": "standard"}
-  - "不良事件/是否严重" → {"domain": "AE", "sdtm_variable": "AESER", "sdtm_variable_type": "standard"}
+  - "不良事件/严重程度" → AE.AETOXGR
+  - "不良事件/是否严重" → AE.AESER
   
   SUPP variables (sdtm_variable='QVAL', supp_variable=QNAM):
-  - "不良事件/备注" → {"domain": "AE", "sdtm_variable": "QVAL", "sdtm_variable_type": "supp", "supp_dataset": "SUPPAE", "supp_variable": "AECOM"}
+  - "不良事件/备注" → SUPPAE.QVAL (QNAM="AECOM")
   
   **Score Guidelines:** 0.9-1.0 (perfect), 0.7-0.89 (good), 0.5-0.69 (acceptable), <0.5 (poor)
   
