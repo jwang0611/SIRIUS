@@ -207,6 +207,28 @@ class TestDuplicateSuppQnam:
 
         assert critic._check_duplicate_supp_qnam([rec, dict(rec)]) == []
 
+    def test_qval_without_type_uses_same_supp_scope_as_release_gate(self, critic):
+        recs = [
+            {
+                "variable_name": "COMMENT_A",
+                "sdtm_variable": "QVAL",
+                "supp_dataset": "SUPPCM",
+                "supp_variable": "COMMENT",
+            },
+            {
+                "variable_name": "COMMENT_B",
+                "sdtm_variable": "QVAL",
+                "supp_dataset": "SUPPCM",
+                "supp_variable": "COMMENT",
+            },
+        ]
+
+        issues = critic._check_duplicate_supp_qnam(recs)
+
+        assert len(issues) == 1
+        assert issues[0].check_name == "duplicate_supp_qnam"
+        assert "1 additional raw variable" in issues[0].description
+
 
 def test_criticize_combines_all_checks(critic):
     recs = [

@@ -148,6 +148,39 @@ def split_when_expression(value: object) -> tuple[str, list[str]]:
     return parts[0].strip(), [part.strip() for part in parts[1:] if part.strip()]
 
 
+def is_supp_mapping(rec: dict[str, Any]) -> bool:
+    """Return whether a recommendation belongs to the SUPP mapping contract."""
+    variable_type = str(rec.get("sdtm_variable_type", "") or "").strip().lower()
+    plain_variable, _ = split_when_expression(rec.get("sdtm_variable"))
+    return variable_type == "supp" or plain_variable.upper() == "QVAL"
+
+
+def collect_supp_qnam_assignments(
+    recommendations: Sequence[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, str]]:
+    """Collect SUPP dataset/QNAM assignments using one shared audit scope.
+
+    The nested mapping is ``normalised raw variable -> display raw variable``.
+    Runtime MappingCritic and offline release gates both consume this helper,
+    so an untyped ``QVAL`` record cannot be counted by only one of them.
+    """
+    assignments: dict[tuple[str, str], dict[str, str]] = {}
+    for rec in recommendations:
+        if not is_supp_mapping(rec):
+            continue
+
+        dataset = str(rec.get("supp_dataset", "") or "").strip().upper()
+        qnam = str(rec.get("supp_variable", "") or "").strip().upper()
+        variable_name = str(rec.get("metadata_variable") or rec.get("variable_name") or "").strip()
+        if not dataset or not qnam or not variable_name:
+            continue
+
+        qnam = qnam.split("=", 1)[0].strip()
+        display_names = assignments.setdefault((dataset, qnam), {})
+        display_names.setdefault(variable_name.casefold(), variable_name)
+    return assignments
+
+
 def decompose_when_clause(rec: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of ``rec`` with any ``... when KEY=VAL`` clause expanded."""
     sdtm_var = rec.get("sdtm_variable")
@@ -376,11 +409,13 @@ __all__ = [
     "STANDARD_SUFFIXES",
     "CleanedRecord",
     "classify_variable_type",
+    "collect_supp_qnam_assignments",
     "decompose_when_clause",
     "dedupe_by_key",
     "filter_recs_by_domain",
     "is_comment_like_variable",
     "is_standard_variable_name",
+    "is_supp_mapping",
     "normalize_supp_record",
     "resolve_multi_domain",
     "split_when_expression",

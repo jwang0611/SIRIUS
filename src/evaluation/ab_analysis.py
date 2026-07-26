@@ -6,11 +6,12 @@ import json
 import math
 import random
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any
 
 from src.config.domain_semantic_map import is_valid_domain, strip_supp_prefix
 from src.processors.deterministic_validator import SUPPQUAL_VARS, _get_domain_standard_vars
+from src.processors.normalizer import collect_supp_qnam_assignments
 
 SCENARIO_NON_STANDARD_DOMAIN = "NON_STANDARD_DOMAIN"
 SCENARIO_MULTI_DOMAIN = "MULTI_DOMAIN"
@@ -126,22 +127,7 @@ def _supp_structure_is_illegal(row: dict[str, Any]) -> bool:
 
 
 def _count_duplicate_supp_qnam(rows: list[dict[str, Any]]) -> int:
-    assignments: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for row in rows:
-        variable = _raw_variable(row)
-        variable_type = str(row.get("sdtm_variable_type", "") or "").lower()
-        if variable_type != "supp" and variable != "QVAL":
-            continue
-
-        dataset = str(row.get("supp_dataset", "") or "").strip().upper()
-        qnam = str(row.get("supp_variable", "") or "").strip().upper()
-        variable_name = str(row.get("metadata_variable") or row.get("variable_name") or "").strip()
-        if not dataset or not qnam or not variable_name:
-            continue
-
-        qnam = qnam.split("=", 1)[0].strip()
-        assignments[(dataset, qnam)].add(variable_name.casefold())
-
+    assignments = collect_supp_qnam_assignments(rows)
     return sum(len(names) - 1 for names in assignments.values() if len(names) > 1)
 
 

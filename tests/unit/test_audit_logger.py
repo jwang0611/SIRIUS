@@ -99,6 +99,38 @@ class TestLogBatchSummary:
         assert entry["stats"]["llm_call_rate"] == 0.0
 
 
+class TestLogLlmRetry:
+    def test_writes_structured_retry_without_raw_prompt_or_response(self, auditor, tmp_path):
+        auditor.log_llm_retry(
+            variable_data={
+                "metadata_table": "AE",
+                "metadata_variable": "AETERM",
+            },
+            model_name="test/model",
+            retry_count=1,
+            reason="invalid_json",
+            instruction_version="json-repair-v1",
+        )
+
+        entry = _read_all_entries(_log_file(tmp_path))[0]
+        assert entry == {
+            "timestamp": entry["timestamp"],
+            "session_id": "unit-test-session",
+            "operation": "llm_retry",
+            "model": "test/model",
+            "retry_count": 1,
+            "reason": "invalid_json",
+            "instruction_version": "json-repair-v1",
+            "input": {
+                "metadata_table": "AE",
+                "metadata_variable": "AETERM",
+            },
+        }
+        serialized = json.dumps(entry)
+        assert "prompt" not in serialized.lower()
+        assert "response" not in serialized.lower()
+
+
 class TestLogCorrection:
     def test_writes_correction_entry(self, auditor, tmp_path):
         auditor.log_correction(

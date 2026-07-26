@@ -144,6 +144,34 @@ class AuditLogger:
         }
         self._append_entry(entry)
 
+    def log_llm_retry(
+        self,
+        *,
+        variable_data: dict[str, Any],
+        model_name: str,
+        retry_count: int,
+        reason: str,
+        instruction_version: str,
+    ) -> None:
+        """Record a model retry without persisting prompt or response content."""
+        if not self.enabled:
+            return
+
+        entry = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "session_id": self.session_id,
+            "operation": "llm_retry",
+            "model": model_name,
+            "retry_count": retry_count,
+            "reason": reason,
+            "instruction_version": instruction_version,
+            "input": {
+                "metadata_table": variable_data.get("metadata_table", ""),
+                "metadata_variable": variable_data.get("metadata_variable", ""),
+            },
+        }
+        self._append_entry(entry)
+
     def log_correction(
         self,
         variable_data: dict[str, Any],

@@ -29,6 +29,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from src.config.domain_semantic_map import is_valid_domain, strip_supp_prefix
+from src.processors.normalizer import collect_supp_qnam_assignments
 
 logger = logging.getLogger(__name__)
 
@@ -578,33 +579,13 @@ class MappingCritic:
         recommendations: list[dict[str, Any]],
     ) -> list[ConsistencyIssue]:
         """Flag distinct raw variables assigned to the same SUPP dataset/QNAM."""
-        assignments: dict[tuple[str, str], set[str]] = defaultdict(set)
-        display_names: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)
-
-        for rec in recommendations:
-            if str(rec.get("sdtm_variable_type", "")).lower() != "supp":
-                continue
-
-            dataset = str(rec.get("supp_dataset", "")).strip().upper()
-            qnam = str(rec.get("supp_variable", "")).strip().upper()
-            variable_name = str(rec.get("variable_name", "")).strip()
-            if not dataset or not qnam or not variable_name:
-                continue
-
-            qnam = qnam.split("=", 1)[0].strip()
-            key = (dataset, qnam)
-            normalized_name = variable_name.casefold()
-            assignments[key].add(normalized_name)
-            display_names[key].setdefault(normalized_name, variable_name)
-
+        assignments = collect_supp_qnam_assignments(recommendations)
         collisions = {key: names for key, names in assignments.items() if len(names) > 1}
         if not collisions:
             return []
 
         duplicate_assignments = sum(len(names) - 1 for names in collisions.values())
-        affected_variables = sorted(
-            {display_names[key][normalized_name] for key, names in collisions.items() for normalized_name in names}
-        )
+        affected_variables = sorted({display_name for names in collisions.values() for display_name in names.values()})
         examples = ", ".join(f"{dataset}.{qnam}" for dataset, qnam in sorted(collisions)[:5])
         return [
             ConsistencyIssue(

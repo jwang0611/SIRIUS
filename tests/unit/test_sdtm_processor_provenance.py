@@ -14,6 +14,7 @@ def _bare_processor() -> SDTMProcessor:
     processor = object.__new__(SDTMProcessor)
     processor.audit_logger = None
     processor.debug = False
+    processor.model_name = "test/model"
     return processor
 
 
@@ -87,6 +88,97 @@ def test_level_four_retries_once_after_invalid_json():
         ]
     )
     calls = []
+    audit_events = []
+
+    class SequentialClient:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            return next(responses)
+
+        def get_last_usage(self):
+            return None
+
+        def get_error_message(self, error):
+            return str(error)
+
+    processor.client = SequentialClient()
+    processor.audit_logger = SimpleNamespace(
+        log_llm_retry=lambda **kwargs: audit_events.append(kwargs),
+        log_mapping=lambda **kwargs: None,
+    )
+    processor.kb_hints = None
+    processor.rate_limiter = SimpleNamespace(wait=lambda: None)
+    processor.generation_config = SimpleNamespace(
+        max_output_tokens=2000,
+        temperature=0,
+        top_p=0.95,
+        top_k=40,
+    )
+    processor.log_ai_interactions = False
+    processor.enable_knowledge_base = False
+    processor.domain_override_threshold = 0.85
+    processor._get_knowledge_base_context = lambda variable_data: {}
+    processor._recommend_domain_from_annotation = lambda annotation_table: "AE"
+    processor._try_cascade_shortcircuit = lambda *args: SimpleNamespace(
+        recs=None,
+        rag_contexts=[],
+    )
+    processor._create_enhanced_prompt = lambda *args, **kwargs: "PROMPT"
+    processor._validate_with_knowledge_base = lambda result, variable_data, kb_context: result
+    processor._normalize_domain_recs = lambda **kwargs: kwargs["domain_recs"]
+
+    recs = processor.process_variable_pair(
+        "AE",
+        {
+            "metadata_variable": "AETERM",
+            "annotation_table": "Adverse Events",
+        },
+        [],
+    )
+
+    assert len(calls) == 2
+    assert calls[0]["prompt"] == "PROMPT"
+    assert calls[1]["prompt"] != calls[0]["prompt"]
+    assert "previous response" in calls[1]["prompt"].lower()
+    assert "json" in calls[1]["prompt"].lower()
+    assert audit_events == [
+        {
+            "variable_data": {
+                "metadata_table": "AE",
+                "metadata_variable": "AETERM",
+            },
+            "model_name": processor.model_name,
+            "retry_count": 1,
+            "reason": "invalid_json",
+            "instruction_version": "json-repair-v1",
+        }
+    ]
+    assert recs is not None
+    assert recs[0]["source"] == "LLM"
+    assert recs[0]["cascade_level"] == 4
+
+
+def test_level_four_retries_once_after_empty_response():
+    processor = _bare_processor()
+    valid_response = json.dumps(
+        {
+            "table_recommendations": [
+                {
+                    "table_name": "AE",
+                    "domain_recommendations": [
+                        {
+                            "domain": "AE",
+                            "sdtm_variable": "AETERM",
+                            "sdtm_variable_type": "standard",
+                            "score": 0.9,
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    responses = iter(["", valid_response])
+    calls = []
 
     class SequentialClient:
         def generate_content(self, **kwargs):
@@ -131,6 +223,7 @@ def test_level_four_retries_once_after_invalid_json():
     )
 
     assert len(calls) == 2
+    assert calls[1]["prompt"] != calls[0]["prompt"]
     assert recs is not None
     assert recs[0]["source"] == "LLM"
     assert recs[0]["cascade_level"] == 4

@@ -43,6 +43,13 @@ ProgressCallback = Callable[[int, int, str | None, str | None], bool | None]
 
 logger = logging.getLogger(__name__)
 
+_JSON_RETRY_INSTRUCTION_VERSION = "json-repair-v1"
+_JSON_RETRY_INSTRUCTION = (
+    "\n\nThe previous response was empty or was not valid JSON. "
+    "Return exactly one valid JSON object that follows the requested schema. "
+    "Do not include explanations or Markdown code fences."
+)
+
 
 def _recommendation_source_excel_label(source: str | None) -> str:
     """Map ``domain_rec['source']`` to the user-facing Excel *Source* column.
@@ -789,31 +796,46 @@ class SDTMProcessor(
         table_name: str,
         variable_name: str,
     ) -> str:
-        """Retry one deterministic generation when the first payload is invalid JSON."""
+        """Retry one empty or invalid JSON generation with a repair instruction."""
 
-        def generate() -> str:
+        def generate(generation_prompt: str) -> str:
             return self.client.generate_content(
-                prompt=prompt,
+                prompt=generation_prompt,
                 max_output_tokens=self.generation_config.max_output_tokens,
                 temperature=self.generation_config.temperature,
                 top_p=self.generation_config.top_p,
                 top_k=self.generation_config.top_k,
             )
 
-        response_text = generate()
+        response_text = generate(prompt)
         if not response_text or not response_text.strip():
-            return response_text
-        json_content = self._extract_json_content(response_text)
-        if not json_content.strip():
-            return response_text
+            retry_reason = "empty_response"
+        else:
+            json_content = self._extract_json_content(response_text)
+            if not json_content.strip():
+                retry_reason = "missing_json"
+            else:
+                try:
+                    json.loads(json_content)
+                except json.JSONDecodeError:
+                    retry_reason = "invalid_json"
+                else:
+                    return response_text
 
-        try:
-            json.loads(json_content)
-        except json.JSONDecodeError:
-            print(f"Retrying AI generation once after invalid JSON for {table_name} - {variable_name}")
-            self.rate_limiter.wait()
-            return generate()
-        return response_text
+        print(f"Retrying AI generation once after {retry_reason.replace('_', ' ')} for {table_name} - {variable_name}")
+        if self.audit_logger:
+            self.audit_logger.log_llm_retry(
+                variable_data={
+                    "metadata_table": table_name,
+                    "metadata_variable": variable_name,
+                },
+                model_name=self.model_name,
+                retry_count=1,
+                reason=retry_reason,
+                instruction_version=_JSON_RETRY_INSTRUCTION_VERSION,
+            )
+        self.rate_limiter.wait()
+        return generate(f"{prompt}{_JSON_RETRY_INSTRUCTION}")
 
     # ==================== Core variable processing ====================
 
