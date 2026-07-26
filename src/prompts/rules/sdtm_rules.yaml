@@ -1,4 +1,4 @@
-version: "1.1.0"
+version: "1.0.0"
 
 rules:
   # ========== CORE RULES (Always apply) ==========
@@ -122,7 +122,7 @@ domain_rules:
 
 # Domain type groupings (determines which pattern_rules are loaded per domain)
 domain_types:
-  FINDINGS:      [LB, VS, EG, PE, QS, PC, PP, TR, RS, IS, MB, MO, FA, SC, OE, MK, GF, CP, XU]
+  FINDINGS:      [LB, VS, EG, PE, QS, PC, PP, TR, RS, IS, MB, MO, FA, SC]
   EVENTS:        [AE, DS]
-  INTERVENTIONS: [CM, MH, PR, EX, APMH]
+  INTERVENTIONS: [CM, MH, PR, EX]
   ONCOLOGY:      [TU, TR, RS]
