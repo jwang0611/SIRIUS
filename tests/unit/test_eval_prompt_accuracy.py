@@ -17,6 +17,7 @@ from scripts.eval_prompt_accuracy import (
     main,
     print_report,
 )
+from src.evaluation.run_manifest import hash_file
 
 
 def _gt_entry(**overrides):
@@ -676,22 +677,43 @@ def _ab_outputs(records, *, improved_ai_match):
     ]
 
 
-def _manifest(*, git_sha, prompt_sha, model="fixed/model"):
+def _manifest(
+    *,
+    git_sha,
+    prompt_sha,
+    heldout_path,
+    output_path,
+    model="fixed/model",
+):
     return {
         "schema_version": "1.0.0",
-        "status": "completed",
+        "status": "succeeded",
         "git": {"sha": git_sha, "dirty": False},
         "inputs": {
             "benchmark": {"sha256": "benchmark", "row_count": 5},
-            "heldout": {"sha256": "heldout", "row_count": 5},
+            "heldout": {
+                "sha256": hash_file(heldout_path, normalize_text=True),
+                "row_count": 5,
+            },
         },
         "knowledge_base": [{"path": "kb.json", "sha256": "kb"}],
-        "prompts": {"template": {"version": "1.0.0", "sha256": prompt_sha}},
+        "prompts": {
+            name: {"version": "1.0.0", "sha256": f"{prompt_sha}-{name}"}
+            for name in ("template", "rules", "examples")
+        },
         "configuration": {
+            "provider": "openrouter",
             "model": model,
             "generation": {"temperature": 0},
             "rag": {"enabled": True},
             "concurrency": {"workers": 5},
+            "cascade": {"kb_high_confidence": 0.85},
+        },
+        "outputs": {
+            "json": {
+                "path": str(output_path.resolve()),
+                "sha256": hash_file(output_path, normalize_text=True),
+            }
         },
     }
 
@@ -711,7 +733,14 @@ def _write_ab_inputs(tmp_path, *, improved_ai_match=True, improved_model="fixed/
         encoding="utf-8",
     )
     baseline_manifest_path.write_text(
-        json.dumps(_manifest(git_sha="baseline", prompt_sha="old")),
+        json.dumps(
+            _manifest(
+                git_sha="baseline",
+                prompt_sha="old",
+                heldout_path=gt_path,
+                output_path=baseline_path,
+            )
+        ),
         encoding="utf-8",
     )
     improved_manifest_path.write_text(
@@ -719,6 +748,8 @@ def _write_ab_inputs(tmp_path, *, improved_ai_match=True, improved_model="fixed/
             _manifest(
                 git_sha="improved",
                 prompt_sha="new",
+                heldout_path=gt_path,
+                output_path=improved_path,
                 model=improved_model,
             )
         ),
@@ -828,6 +859,10 @@ def test_cli_writes_machine_report_and_creates_parent_directory(tmp_path, monkey
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["decision"] == "ACCEPT"
     assert report["baseline"]["cohort_stats"]["KB_DISAGREE"]["gt_size"] == 1
+    assert report["evidence_validation"] == {
+        "baseline": {"valid": True, "errors": []},
+        "improved": {"valid": True, "errors": []},
+    }
 
 
 def test_cli_require_acceptance_exits_one_on_rollback(tmp_path, monkeypatch):
@@ -859,3 +894,47 @@ def test_cli_manifest_mismatch_exits_two(tmp_path, monkeypatch):
         main()
 
     assert exc_info.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        ("failed_status", "terminal status"),
+        ("dirty_git", "clean Git revision"),
+        ("output_hash", "output JSON hash"),
+        ("heldout_hash", "held-out hash"),
+    ],
+)
+def test_cli_rejects_unbound_or_nonterminal_manifest_evidence(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    mutation,
+    expected_error,
+):
+    paths = _write_ab_inputs(tmp_path)
+    for manifest_name in ("baseline_manifest", "improved_manifest"):
+        manifest_path = paths[manifest_name]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if mutation == "failed_status":
+            manifest["status"] = "failed"
+        elif mutation == "dirty_git":
+            manifest["git"]["dirty"] = True
+        elif mutation == "output_hash":
+            manifest["outputs"]["json"]["sha256"] = "not-the-output-hash"
+        elif mutation == "heldout_hash":
+            manifest["inputs"]["heldout"]["sha256"] = "not-the-heldout-hash"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    report_path = tmp_path / f"{mutation}.json"
+    argv = ["eval_prompt_accuracy.py"]
+    for option, path in paths.items():
+        argv.extend([f"--{option.replace('_', '-')}", str(path)])
+    argv.extend(["--report-json", str(report_path), "--require-acceptance"])
+    monkeypatch.setattr("sys.argv", argv)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 2
+    assert expected_error in capsys.readouterr().err

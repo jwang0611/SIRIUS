@@ -54,7 +54,7 @@ from src.evaluation.ab_analysis import (  # noqa: E402
     paired_bootstrap,
     paired_cohort_outcomes,
 )
-from src.evaluation.run_manifest import compare_shared_configuration  # noqa: E402
+from src.evaluation.run_manifest import compare_shared_configuration, hash_file  # noqa: E402
 from src.processors.sdtm_processor import compute_diff_status  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -877,6 +877,84 @@ def _load_json_object(path: Path, *, label: str) -> dict:
     return payload
 
 
+def _validate_run_evidence(
+    manifest: dict,
+    *,
+    label: str,
+    output_path: Path,
+    heldout_path: Path,
+) -> dict:
+    """Bind one successful clean manifest to the files being evaluated."""
+    errors: list[str] = []
+
+    if manifest.get("status") != "succeeded":
+        errors.append(f"{label} manifest terminal status must be 'succeeded'")
+
+    git_record = manifest.get("git", {})
+    if not git_record.get("sha") or git_record.get("dirty") is not False:
+        errors.append(f"{label} manifest must identify a clean Git revision")
+
+    prompts = manifest.get("prompts", {})
+    for component in ("template", "rules", "examples"):
+        record = prompts.get(component, {})
+        if not record.get("version") or not record.get("sha256"):
+            errors.append(f"{label} manifest is missing {component} prompt version/hash")
+
+    configuration = manifest.get("configuration", {})
+    if not configuration.get("provider") or not configuration.get("model"):
+        errors.append(f"{label} manifest is missing provider/model")
+    generation = configuration.get("generation", {})
+    if generation.get("temperature") != 0:
+        errors.append(f"{label} manifest temperature must be 0")
+    for section in ("rag", "concurrency", "cascade"):
+        if not isinstance(configuration.get(section), dict) or not configuration[section]:
+            errors.append(f"{label} manifest is missing {section} configuration")
+
+    inputs = manifest.get("inputs", {})
+    heldout_record = inputs.get("heldout", {})
+    actual_heldout_hash = hash_file(heldout_path, normalize_text=True)
+    if heldout_record.get("sha256") != actual_heldout_hash:
+        errors.append(f"{label} manifest held-out hash does not match --ground-truth")
+    try:
+        with heldout_path.open(encoding="utf-8") as handle:
+            heldout_rows = json.load(handle)
+        actual_heldout_rows = len(heldout_rows) if isinstance(heldout_rows, list) else -1
+    except (OSError, json.JSONDecodeError):
+        actual_heldout_rows = -1
+    if heldout_record.get("row_count") != actual_heldout_rows:
+        errors.append(f"{label} manifest held-out row count does not match --ground-truth")
+
+    benchmark_record = inputs.get("benchmark", {})
+    if (
+        not benchmark_record.get("sha256")
+        or benchmark_record.get("row_count") != actual_heldout_rows
+    ):
+        errors.append(f"{label} manifest benchmark identity is incomplete")
+
+    knowledge_base = manifest.get("knowledge_base")
+    if not isinstance(knowledge_base, list) or not knowledge_base:
+        errors.append(f"{label} manifest has no knowledge-base hashes")
+    elif any(not record.get("path") or not record.get("sha256") for record in knowledge_base):
+        errors.append(f"{label} manifest contains an incomplete knowledge-base hash")
+
+    output_record = manifest.get("outputs", {}).get("json", {})
+    recorded_output_path = output_record.get("path")
+    try:
+        path_matches = (
+            Path(str(recorded_output_path)).resolve()
+            == output_path.resolve()
+        )
+    except (OSError, TypeError, ValueError):
+        path_matches = False
+    if not path_matches:
+        errors.append(f"{label} manifest output JSON path does not match evaluated output")
+    actual_output_hash = hash_file(output_path, normalize_text=True)
+    if output_record.get("sha256") != actual_output_hash:
+        errors.append(f"{label} manifest output JSON hash does not match evaluated output")
+
+    return {"valid": not errors, "errors": errors}
+
+
 def _write_report(path: Path, report: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -970,6 +1048,27 @@ def main() -> None:
                         "commands": [],
                     }
                 )
+                evidence_validation = {
+                    "baseline": _validate_run_evidence(
+                        baseline_manifest,
+                        label="baseline",
+                        output_path=args.baseline,
+                        heldout_path=args.ground_truth,
+                    ),
+                    "improved": _validate_run_evidence(
+                        improved_manifest,
+                        label="improved",
+                        output_path=args.improved,
+                        heldout_path=args.ground_truth,
+                    ),
+                }
+                evidence_errors = [
+                    error
+                    for result in evidence_validation.values()
+                    for error in result["errors"]
+                ]
+                if evidence_errors:
+                    raise ValueError("; ".join(evidence_errors))
                 report = build_ab_report(
                     base_metrics,
                     impr_metrics,
@@ -979,6 +1078,7 @@ def main() -> None:
                     bootstrap_seed=args.bootstrap_seed,
                     bootstrap_replicates=args.bootstrap_replicates,
                 )
+                report["evidence_validation"] = evidence_validation
             except ValueError as exc:
                 print(f"ERROR: {exc}", file=sys.stderr)
                 raise SystemExit(2) from exc

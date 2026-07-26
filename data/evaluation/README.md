@@ -117,7 +117,11 @@ passes. Then create and gate the machine-readable report:
 The A/B report retains the complete baseline and improved metrics, including
 cohort, domain, source, cascade-level, special-scenario, and deterministic
 quality slices. It performs a paired bootstrap on `AI_RECOMMENDATION` rows
-aligned by `evaluation_id`. Exit codes are:
+aligned by `evaluation_id`. Before scoring acceptance, it also requires both
+manifests to have `status="succeeded"`, clean Git SHAs, all prompt component
+versions/hashes, pinned generation/RAG/cascade/concurrency settings, complete
+KB hashes, and held-out/output hashes that match the exact files passed to the
+evaluator. Exit codes are:
 
 - `0`: the requested report was written and all requested gates passed;
 - `1`: full coverage or an acceptance gate failed;
