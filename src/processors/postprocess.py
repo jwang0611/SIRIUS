@@ -407,6 +407,7 @@ class PostprocessMixin:
                 "score": 0.0,
                 "priority": 999,
                 "source": "FALLBACK",
+                "cascade_level": 4,
                 "fallback_reason": reason,
             }
         ]

@@ -819,6 +819,7 @@ class SDTMProcessor(
                     "variable_name": variable_name,  # required for Excel source_mapping lookup
                     "score": 1.0,
                     "source": "KB_NOT_SUBMITTED",
+                    "cascade_level": 0,
                     "priority": 0,
                 }
             ]
@@ -1260,6 +1261,7 @@ class SDTMProcessor(
                     "score": 0.0,
                     "priority": 999,
                     "source": "UNMAPPED",
+                    "cascade_level": None,
                     "unmapped_reason": "Variable not processed or missing from recommendations",
                     "num": num_value,
                 }
@@ -1491,7 +1493,11 @@ class SDTMProcessor(
         processing_time_ms: float | None = None,
     ) -> None:
         """Log mapping result to the audit trail (if audit is enabled)."""
-        if not self.audit_logger or not domain_recs:
+        if not domain_recs:
+            return
+        for rec in domain_recs:
+            rec["cascade_level"] = cascade_level
+        if not self.audit_logger:
             return
         for rec in domain_recs:
             validation_issues = []
