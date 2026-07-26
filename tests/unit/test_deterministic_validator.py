@@ -147,6 +147,21 @@ class TestDeterministicValidator:
         assert rec.get("domain_prefix_mismatch") is True
         assert any("domain_prefix_mismatch" in i for i in issues)
 
+    def test_supp_qval_skips_standard_domain_prefix_check(self, validator):
+        rec, issues = validator.validate_and_correct(
+            {
+                "domain": "FA",
+                "sdtm_variable": "QVAL",
+                "sdtm_variable_type": "supp",
+                "supp_dataset": "SUPPFA",
+                "supp_variable": "FANOTE",
+            },
+            variable_name="fanote",
+        )
+
+        assert rec.get("domain_prefix_mismatch") is not True
+        assert not any("domain_prefix_mismatch" in issue for issue in issues)
+
     def test_non_standard_variable_flagged(self, validator):
         with patch(
             "src.processors.deterministic_validator._get_domain_standard_vars",

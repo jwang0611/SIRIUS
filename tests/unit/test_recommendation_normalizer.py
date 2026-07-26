@@ -130,6 +130,27 @@ class TestNormalize:
         assert out[0]["sdtm_variable"] == "ECDOSE"
         assert out[0]["conditions"] == [{"variable": "ECMOOD", "value": "ADMINISTERED"}]
 
+    def test_supp_contract_matches_production_postprocessor(self, normalizer):
+        recs = [
+            {
+                "domain": "FA",
+                "sdtm_variable": "QNAM",
+                "sdtm_variable_type": "supp",
+                "supp_variable": "TULOC OTH",
+            }
+        ]
+
+        out = normalizer.normalize(
+            table_name="T",
+            variable_name="tuloc_oth",
+            domain_recs=recs,
+            target_domain="FA",
+        )
+
+        assert out[0]["sdtm_variable"] == "QVAL"
+        assert out[0]["supp_dataset"] == "SUPPFA"
+        assert out[0]["supp_variable"] == "TULOCOTH"
+
     def test_uses_injected_is_valid_domain(self):
         hits = []
 
