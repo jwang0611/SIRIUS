@@ -60,7 +60,10 @@ estimate, but does not start the production generator or call a model:
 
 The default experiment is pinned to
 `google/gemini-3-flash-preview`, `temperature=0`, RAG enabled with top-k 3,
-and five workers. `--kb-root` identifies the complete hashed KB tree; unless
+`qwen/qwen3-embedding-8b`, and five workers. The fully qualified embedding
+model slug is required by the public OpenRouter embeddings API; the legacy
+`Qwen3-Embed` internal-gateway alias is not used. `--kb-root` identifies the
+complete hashed KB tree; unless
 overridden, the runner passes its `structured/` Parquet directory to the
 production RAG chunker. The current held-out/KB combination has a conservative
 per-run ceiling of 309 generation requests, five 100-item query-embedding

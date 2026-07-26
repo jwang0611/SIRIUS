@@ -242,7 +242,7 @@ def test_generator_command_uses_exact_pinned_values_without_api_key(tmp_path):
     assert f"--kb-path {args.kb_root / 'structured'}" in rendered
     assert f"--kb-path {args.kb_root} " not in f"{rendered} "
     assert "--rag-top-k 3" in rendered
-    assert "--rag-embedding-model Qwen3-Embed" in rendered
+    assert "--rag-embedding-model qwen/qwen3-embedding-8b" in rendered
     assert "--rag-min-score 0.4" in rendered
     assert "--rag-char-limit 1500" in rendered
     assert "--parallel" in command
