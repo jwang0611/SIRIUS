@@ -1505,7 +1505,7 @@ class SDTMProcessor(
         cascade_level: int,
         processing_time_ms: float | None = None,
     ) -> None:
-        """Log mapping result to the audit trail (if audit is enabled)."""
+        """Stamp cascade provenance and write the audit record when enabled."""
         if not domain_recs:
             return
         for rec in domain_recs:
