@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import random
 import re
 from collections import Counter
 from typing import Any
@@ -153,3 +155,219 @@ def count_quality_issues(
     }
     counts["mapping_critic_errors"] = len(unique_critic_errors)
     return {name: counts[name] for name in QUALITY_COUNTER_NAMES}
+
+
+def _nearest_rank(values: list[float], probability: float) -> float:
+    if not values:
+        raise ValueError("Cannot calculate a percentile from no values")
+    rank = max(1, math.ceil(probability * len(values)))
+    return values[min(rank - 1, len(values) - 1)]
+
+
+def paired_bootstrap(
+    baseline: list[int],
+    improved: list[int],
+    *,
+    seed: int,
+    replicates: int,
+) -> dict[str, Any]:
+    """Bootstrap the paired exact-match delta using shared row indices."""
+    if len(baseline) != len(improved):
+        raise ValueError("Paired baseline and improved outcomes must have the same length")
+    if not baseline:
+        raise ValueError("Paired bootstrap requires at least one outcome")
+    if replicates <= 0:
+        raise ValueError("Bootstrap replicates must be positive")
+
+    paired_deltas = [int(after) - int(before) for before, after in zip(baseline, improved, strict=True)]
+    observed_delta = sum(paired_deltas) / len(paired_deltas)
+    rng = random.Random(seed)
+    bootstrap_deltas = []
+    for _ in range(replicates):
+        sample_delta = sum(paired_deltas[rng.randrange(len(paired_deltas))] for _ in paired_deltas)
+        bootstrap_deltas.append(sample_delta / len(paired_deltas))
+    bootstrap_deltas.sort()
+
+    improved_rows = sum(1 for before, after in zip(baseline, improved, strict=True) if not before and after)
+    worsened_rows = sum(1 for before, after in zip(baseline, improved, strict=True) if before and not after)
+    return {
+        "row_count": len(paired_deltas),
+        "baseline_rate": sum(baseline) / len(baseline),
+        "improved_rate": sum(improved) / len(improved),
+        "observed_delta": observed_delta,
+        "improved_rows": improved_rows,
+        "worsened_rows": worsened_rows,
+        "unchanged_rows": len(paired_deltas) - improved_rows - worsened_rows,
+        "seed": seed,
+        "replicates": replicates,
+        "ci_95": [
+            _nearest_rank(bootstrap_deltas, 0.025),
+            _nearest_rank(bootstrap_deltas, 0.975),
+        ],
+    }
+
+
+def paired_cohort_outcomes(
+    baseline: dict[str, Any],
+    improved: dict[str, Any],
+    *,
+    cohort: str,
+) -> dict[str, list[Any]]:
+    """Align binary row outcomes by evaluation ID for one cohort."""
+
+    def index(metrics: dict[str, Any]) -> dict[str, int]:
+        indexed: dict[str, int] = {}
+        for row in metrics.get("row_results", []):
+            if row.get("cohort") != cohort:
+                continue
+            evaluation_id = str(row.get("evaluation_id", ""))
+            if not evaluation_id:
+                raise ValueError(f"Missing evaluation_id in {cohort} row result")
+            if evaluation_id in indexed:
+                raise ValueError(f"Duplicate evaluation_id in {cohort}: {evaluation_id}")
+            indexed[evaluation_id] = int(bool(row.get("exact_match")))
+        return indexed
+
+    baseline_index = index(baseline)
+    improved_index = index(improved)
+    if set(baseline_index) != set(improved_index):
+        missing_from_improved = sorted(set(baseline_index) - set(improved_index))
+        missing_from_baseline = sorted(set(improved_index) - set(baseline_index))
+        raise ValueError(
+            "Paired cohort evaluation IDs differ: "
+            f"missing_from_improved={missing_from_improved}, "
+            f"missing_from_baseline={missing_from_baseline}"
+        )
+    evaluation_ids = sorted(baseline_index)
+    return {
+        "evaluation_ids": evaluation_ids,
+        "baseline": [baseline_index[evaluation_id] for evaluation_id in evaluation_ids],
+        "improved": [improved_index[evaluation_id] for evaluation_id in evaluation_ids],
+    }
+
+
+def evaluate_acceptance(
+    baseline: dict[str, Any],
+    improved: dict[str, Any],
+    *,
+    paired: dict[str, Any],
+    manifest_comparison: dict[str, Any],
+    required_tests: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply every release condition and return an auditable decision."""
+    gates: list[dict[str, Any]] = []
+
+    def add_gate(
+        name: str,
+        passed: bool,
+        *,
+        baseline_value: Any,
+        improved_value: Any,
+        detail: str,
+    ) -> None:
+        gates.append(
+            {
+                "name": name,
+                "passed": bool(passed),
+                "baseline": baseline_value,
+                "improved": improved_value,
+                "detail": detail,
+            }
+        )
+
+    baseline_coverage = float(baseline.get("coverage", 0))
+    improved_coverage = float(improved.get("coverage", 0))
+    add_gate(
+        "full_coverage",
+        baseline_coverage == 1.0 and improved_coverage == 1.0,
+        baseline_value=baseline_coverage,
+        improved_value=improved_coverage,
+        detail="Both runs must evaluate every ground-truth row.",
+    )
+
+    baseline_cohorts = baseline.get("cohort_stats", {})
+    improved_cohorts = improved.get("cohort_stats", {})
+    baseline_kb_exact = int(baseline_cohorts.get("KB_AGREE", {}).get("match", 0))
+    improved_kb_exact = int(improved_cohorts.get("KB_AGREE", {}).get("match", 0))
+    add_gate(
+        "KB_AGREE_exact_no_regression",
+        improved_kb_exact >= baseline_kb_exact,
+        baseline_value=baseline_kb_exact,
+        improved_value=improved_kb_exact,
+        detail="KB_AGREE is the clean deterministic KB-path regression cohort.",
+    )
+
+    observed_delta = float(paired.get("observed_delta", 0))
+    ci_95 = paired.get("ci_95", [0, 0])
+    ci_lower = float(ci_95[0])
+    add_gate(
+        "AI_RECOMMENDATION_exact_positive",
+        observed_delta > 0,
+        baseline_value=paired.get("baseline_rate"),
+        improved_value=paired.get("improved_rate"),
+        detail=f"Observed paired exact delta is {observed_delta:.6f}.",
+    )
+    add_gate(
+        "AI_RECOMMENDATION_exact_evidence",
+        observed_delta >= 0.02 or ci_lower > 0,
+        baseline_value={"required_absolute_delta": 0.02, "required_ci_lower": 0},
+        improved_value={"observed_delta": observed_delta, "ci_95": ci_95},
+        detail="Require at least +2 percentage points or a paired 95% CI lower bound above zero.",
+    )
+
+    baseline_domain = int(baseline.get("domain_match", 0))
+    improved_domain = int(improved.get("domain_match", 0))
+    add_gate(
+        "overall_domain_no_regression",
+        improved_domain >= baseline_domain,
+        baseline_value=baseline_domain,
+        improved_value=improved_domain,
+        detail="Overall Domain Match count cannot decline at fixed coverage.",
+    )
+    baseline_ai_domain = int(
+        baseline_cohorts.get("AI_RECOMMENDATION", {}).get("domain_match", 0)
+    )
+    improved_ai_domain = int(
+        improved_cohorts.get("AI_RECOMMENDATION", {}).get("domain_match", 0)
+    )
+    add_gate(
+        "AI_RECOMMENDATION_domain_no_regression",
+        improved_ai_domain >= baseline_ai_domain,
+        baseline_value=baseline_ai_domain,
+        improved_value=improved_ai_domain,
+        detail="AI_RECOMMENDATION Domain Match count cannot decline.",
+    )
+
+    baseline_quality = baseline.get("quality_issues", {})
+    improved_quality = improved.get("quality_issues", {})
+    for counter in QUALITY_COUNTER_NAMES:
+        before = int(baseline_quality.get(counter, 0))
+        after = int(improved_quality.get(counter, 0))
+        add_gate(
+            f"quality_{counter}_no_increase",
+            after <= before,
+            baseline_value=before,
+            improved_value=after,
+            detail=f"{counter} cannot increase.",
+        )
+
+    add_gate(
+        "shared_run_configuration",
+        bool(manifest_comparison.get("equal")),
+        baseline_value="pinned",
+        improved_value=manifest_comparison.get("differences", []),
+        detail="Input, KB, model, generation, RAG, cascade, and concurrency must match.",
+    )
+    add_gate(
+        "required_offline_tests",
+        required_tests.get("all_passed") is True,
+        baseline_value=True,
+        improved_value=required_tests.get("all_passed"),
+        detail="Every named Prompt/cascade/normalizer/validator/critic/evaluation test must pass.",
+    )
+
+    return {
+        "decision": "ACCEPT" if all(gate["passed"] for gate in gates) else "ROLLBACK",
+        "gates": gates,
+        "diagnostic_only_cohorts": ["KB_DISAGREE"],
+    }

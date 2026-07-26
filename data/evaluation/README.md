@@ -1,7 +1,7 @@
 # Evaluation datasets
 
 `full_pipeline_heldout_v1.json` is a curated, metadata-only benchmark for the
-complete SIRIUS cascade. It deliberately contains both:
+complete SIRIUS cascade. It deliberately contains three cohorts:
 
 - `KB_AGREE` (107 rows): the four input fields and normalized SDTM mapping
   agree with the production KB. This is the clean deterministic KB-path
@@ -27,20 +27,118 @@ comments, assignments, and timelines are intentionally excluded. The manifest
 records the source hash, production-KB hash, curation counts, exclusions, and
 normalizations needed to reproduce an audit.
 
-Generate the complete processor input:
+## Reproducible full-pipeline A/B
 
-```bash
-python scripts/eval_prompt_accuracy.py \
-  --ground-truth data/evaluation/full_pipeline_heldout_v1.json \
-  --gen-benchmark
+Generate the complete 490-row processor input. Keep the generated benchmark
+and all run artifacts outside the repository:
+
+```powershell
+$python = "C:\path\to\python.exe"
+$codeRoot = (Resolve-Path ".").Path
+$artifactRoot = "C:\path\to\external\sirius-ab-artifacts"
+
+& $python scripts/eval_prompt_accuracy.py `
+  --ground-truth data/evaluation/full_pipeline_heldout_v1.json `
+  --gen-benchmark `
+  --benchmark-output "$artifactRoot\benchmark-input.json"
 ```
 
-Evaluate an output:
+Before authorizing external calls, run the pinned wrapper without `--execute`.
+It validates the complete held-out input and prints a conservative request
+estimate, but does not start the production generator or call a model:
 
-```bash
-python scripts/eval_prompt_accuracy.py \
-  --ground-truth data/evaluation/full_pipeline_heldout_v1.json \
-  --ai-output data/output/result.json \
+```powershell
+& $python scripts/run_sdtm_experiment.py `
+  --run-label baseline `
+  --code-root $codeRoot `
+  --input "$artifactRoot\benchmark-input.json" `
+  --heldout "$codeRoot\data\evaluation\full_pipeline_heldout_v1.json" `
+  --kb-root "$codeRoot\data\knowledge_base" `
+  --output-base "$artifactRoot\baseline" `
+  --manifest "$artifactRoot\baseline.manifest.json"
+```
+
+The default experiment is pinned to
+`google/gemini-3-flash-preview`, `temperature=0`, RAG enabled with top-k 3,
+and five workers. The manifest captures the Git SHA and dirty flag, normalized
+input hashes, every JSON/Parquet KB hash, prompt component versions and hashes,
+model/generation parameters, endpoint origin, RAG settings, cascade thresholds,
+concurrency, output hashes, source counts, and cascade-level counts. It never
+records credentials or endpoint query/path details.
+
+Only after the estimated call count, model, endpoint/provider, and price risk
+have been reported and explicitly authorized should the same command be run
+with `--execute`. Run the baseline from its clean detached baseline worktree
+and the improved candidate from its clean candidate worktree. Apart from
+`--run-label`, `--code-root`, `--output-base`, and `--manifest`, every
+experiment setting must be identical:
+
+```powershell
+& $python scripts/run_sdtm_experiment.py `
+  --run-label baseline `
+  --code-root $baselineCodeRoot `
+  --input "$artifactRoot\benchmark-input.json" `
+  --heldout "$baselineCodeRoot\data\evaluation\full_pipeline_heldout_v1.json" `
+  --kb-root "$baselineCodeRoot\data\knowledge_base" `
+  --output-base "$artifactRoot\baseline" `
+  --manifest "$artifactRoot\baseline.manifest.json" `
+  --execute
+
+& $python scripts/run_sdtm_experiment.py `
+  --run-label improved `
+  --code-root $improvedCodeRoot `
+  --input "$artifactRoot\benchmark-input.json" `
+  --heldout "$improvedCodeRoot\data\evaluation\full_pipeline_heldout_v1.json" `
+  --kb-root "$improvedCodeRoot\data\knowledge_base" `
+  --output-base "$artifactRoot\improved" `
+  --manifest "$artifactRoot\improved.manifest.json" `
+  --execute
+```
+
+Record the required offline commands and their real exit codes in
+`required-tests.json`, with `all_passed` true only when every required group
+passes. Then create and gate the machine-readable report:
+
+```powershell
+& $python scripts/eval_prompt_accuracy.py `
+  --ground-truth data/evaluation/full_pipeline_heldout_v1.json `
+  --baseline "$artifactRoot\baseline_google_gemini-3-flash-prev.json" `
+  --improved "$artifactRoot\improved_google_gemini-3-flash-prev.json" `
+  --baseline-manifest "$artifactRoot\baseline.manifest.json" `
+  --improved-manifest "$artifactRoot\improved.manifest.json" `
+  --required-tests-json "$artifactRoot\required-tests.json" `
+  --report-json "$artifactRoot\ab-report.json" `
+  --bootstrap-seed 20260726 `
+  --bootstrap-replicates 10000 `
+  --require-full-coverage `
+  --require-acceptance
+```
+
+The A/B report retains the complete baseline and improved metrics, including
+cohort, domain, source, cascade-level, special-scenario, and deterministic
+quality slices. It performs a paired bootstrap on `AI_RECOMMENDATION` rows
+aligned by `evaluation_id`. Exit codes are:
+
+- `0`: the requested report was written and all requested gates passed;
+- `1`: full coverage or an acceptance gate failed;
+- `2`: a manifest/report input is malformed or the shared run configuration
+  differs.
+
+Acceptance requires 100% coverage, no `KB_AGREE` Exact Match regression, a
+positive `AI_RECOMMENDATION` Exact Match delta with either at least +2
+percentage points or a paired 95% CI lower bound above zero, no overall or AI
+Domain Match regression, no increase in any deterministic/parse/MappingCritic
+quality counter, identical shared run settings, and passing required tests.
+The 74 `KB_DISAGREE` rows remain a diagnostic-only adjudication cohort: they
+are reported separately and never form a clean release gate before expert
+review.
+
+For a single diagnostic output:
+
+```powershell
+& $python scripts/eval_prompt_accuracy.py `
+  --ground-truth data/evaluation/full_pipeline_heldout_v1.json `
+  --ai-output "$artifactRoot\result.json" `
   --require-full-coverage
 ```
 
