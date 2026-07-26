@@ -1,8 +1,8 @@
-version: "1.0.0"
+version: "1.1.0"
 
 # Few-shot examples organized by pattern type.
 # Each example: domain, input ("table/variable"), output (SDTM variable), type (standard|supp)
-# Optional fields: testcd, supp (dataset name), qnam
+# Optional structured fields: testcd, supp_dataset, supp_variable
 examples:
   term:
     - {domain: AE, input: "不良事件/不良事件名称", output: AETERM,  type: standard}
@@ -35,14 +35,14 @@ examples:
     - {domain: RS, input: "疗效评估/总体疗效",     output: RSORRES, testcd: OVRLRESP, type: standard}
 
   supp:
-    - {domain: AE, input: "不良事件/备注",              output: QVAL, supp: SUPPAE, qnam: AECOM,    type: supp}
-    - {domain: CM, input: "合并用药/备注",              output: QVAL, supp: SUPPCM, qnam: CMCOM,    type: supp}
-    - {domain: CM, input: "合并用药/适应症若为其他请说明", output: QVAL, supp: SUPPCM, qnam: CMINDOTH, type: supp}
-    - {domain: PR, input: "手术操作/备注",              output: QVAL, supp: SUPPPR, qnam: PRCOM,    type: supp}
-    - {domain: PR, input: "手术操作/原因若为其他请说明", output: QVAL, supp: SUPPPR, qnam: PRINDOTH, type: supp}
-    - {domain: PE, input: "体格检查/备注",              output: QVAL, supp: SUPPPE, qnam: PECOM,    type: supp}
-    - {domain: TU, input: "肿瘤病灶/备注",              output: QVAL, supp: SUPPTU, qnam: TUCOM,    type: supp}
-    - {domain: MH, input: "既往病史/其他说明",          output: QVAL, supp: SUPPMH, qnam: MHCOM,    type: supp}
+    - {domain: AE, input: "不良事件/备注",              output: QVAL, supp_dataset: SUPPAE, supp_variable: AECOM,    type: supp}
+    - {domain: CM, input: "合并用药/备注",              output: QVAL, supp_dataset: SUPPCM, supp_variable: CMCOM,    type: supp}
+    - {domain: CM, input: "合并用药/适应症若为其他请说明", output: QVAL, supp_dataset: SUPPCM, supp_variable: CMINDOTH, type: supp}
+    - {domain: PR, input: "手术操作/备注",              output: QVAL, supp_dataset: SUPPPR, supp_variable: PRCOM,    type: supp}
+    - {domain: PR, input: "手术操作/原因若为其他请说明", output: QVAL, supp_dataset: SUPPPR, supp_variable: PRINDOTH, type: supp}
+    - {domain: PE, input: "体格检查/备注",              output: QVAL, supp_dataset: SUPPPE, supp_variable: PECOM,    type: supp}
+    - {domain: TU, input: "肿瘤病灶/备注",              output: QVAL, supp_dataset: SUPPTU, supp_variable: TUCOM,    type: supp}
+    - {domain: MH, input: "既往病史/其他说明",          output: QVAL, supp_dataset: SUPPMH, supp_variable: MHCOM,    type: supp}
 
   category:
     - {domain: AE, input: "不良事件/分类",     output: AECAT,  type: standard}
@@ -74,11 +74,11 @@ examples:
     - {domain: AE, input: "不良事件/转归",           output: AEOUT,   type: standard}
 
   fa_specific:
-    - {domain: FA, input: "肿瘤病史/肿瘤诊断名称(THCLDX)",   output: "FAORRES when FATESTCD=THDIA",  type: standard}
-    - {domain: FA, input: "肿瘤病史/当前疾病部位(THLOC)",     output: "FAORRES when FATESTCD=THLOC",  type: standard}
-    - {domain: FA, input: "肿瘤病史/首次确诊病理类型(THPTYP)", output: "FAORRES when FATESTCD=THCLA",  type: standard}
-    - {domain: FA, input: "肿瘤病史/其他病理类型(THPTYPO)",   output: QVAL, supp: SUPPFA, qnam: FAOROTH, type: supp}
-    - {domain: FA, input: "肿瘤病史/首次确诊日期(THINDAT)",   output: "FAORRES when FATESTCD=THFDTC", type: standard}
+    - {domain: FA, input: "肿瘤病史/肿瘤诊断名称(THCLDX)",   output: FAORRES, testcd: THDIA,  type: standard}
+    - {domain: FA, input: "肿瘤病史/当前疾病部位(THLOC)",     output: FAORRES, testcd: THLOC,  type: standard}
+    - {domain: FA, input: "肿瘤病史/首次确诊病理类型(THPTYP)", output: FAORRES, testcd: THCLA,  type: standard}
+    - {domain: FA, input: "肿瘤病史/其他病理类型(THPTYPO)",   output: QVAL, supp_dataset: SUPPFA, supp_variable: FAOROTH, testcd: THCLA, type: supp}
+    - {domain: FA, input: "肿瘤病史/首次确诊日期(THINDAT)",   output: FAORRES, testcd: THFDTC, type: standard}
 
   indication:
     - {domain: CM, input: "合并用药/适应症",   output: CMINDC, type: standard}
@@ -87,7 +87,7 @@ examples:
   status:
     - {domain: MH, input: "既往病史/是否持续", output: MHENRF, type: standard}
     - {domain: CM, input: "合并用药/是否持续", output: CMENRF, type: standard}
-    - {domain: PR, input: "手术操作/是否持续", output: QVAL,   supp: SUPPPR, qnam: PRONGO, type: supp}
+    - {domain: PR, input: "手术操作/是否持续", output: QVAL,   supp_dataset: SUPPPR, supp_variable: PRONGO, type: supp}
 
 # Keyword → pattern mapping (used by _detect_variable_patterns)
 variable_pattern_keywords:
