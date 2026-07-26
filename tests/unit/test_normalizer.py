@@ -18,6 +18,7 @@ from src.processors.normalizer import (
     is_standard_variable_name,
     normalize_supp_record,
     resolve_multi_domain,
+    split_when_expression,
     to_cleaned_dict,
 )
 
@@ -114,6 +115,13 @@ class TestDecomposeWhenClause:
     def test_non_string_sdtm_variable(self):
         rec = {"sdtm_variable": None}
         assert decompose_when_clause(rec) == rec
+
+
+def test_split_when_expression_preserves_all_condition_clauses():
+    variable, clauses = split_when_expression("QVAL when QNAM=FAOROTH when FATESTCD=THCLA")
+
+    assert variable == "QVAL"
+    assert clauses == ["QNAM=FAOROTH", "FATESTCD=THCLA"]
 
 
 class TestResolveMultiDomain:

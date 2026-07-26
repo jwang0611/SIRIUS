@@ -139,17 +139,28 @@ def filter_recs_by_domain(
 # ---------------------------------------------------------------------------
 # Compound-clause decomposition  (e.g. "FAORRES when FATESTCD=THDIAG")
 # ---------------------------------------------------------------------------
+def split_when_expression(value: object) -> tuple[str, list[str]]:
+    """Split a legacy ``VARIABLE when CONDITION`` expression without data loss."""
+    text = str(value or "").strip()
+    if not text:
+        return "", []
+    parts = _WHEN_CLAUSE_RE.split(text)
+    return parts[0].strip(), [part.strip() for part in parts[1:] if part.strip()]
+
+
 def decompose_when_clause(rec: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of ``rec`` with any ``... when KEY=VAL`` clause expanded."""
     sdtm_var = rec.get("sdtm_variable")
-    if not isinstance(sdtm_var, str) or not _WHEN_CLAUSE_RE.search(sdtm_var):
+    if not isinstance(sdtm_var, str):
+        return dict(rec)
+
+    variable, clauses = split_when_expression(sdtm_var)
+    if not clauses:
         return dict(rec)
 
     out = dict(rec)
-    parts = _WHEN_CLAUSE_RE.split(sdtm_var)
-    out["sdtm_variable"] = parts[0].strip()
-    for clause in parts[1:]:
-        clause = clause.strip()
+    out["sdtm_variable"] = variable
+    for clause in clauses:
         if "=" not in clause:
             continue
         key, _, val = clause.partition("=")
@@ -372,5 +383,6 @@ __all__ = [
     "is_standard_variable_name",
     "normalize_supp_record",
     "resolve_multi_domain",
+    "split_when_expression",
     "to_cleaned_dict",
 ]

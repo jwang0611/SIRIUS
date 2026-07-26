@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.processors.normalizer import split_when_expression
 from src.rag.chunker import Chunk
 from src.rag.embeddings import OpenRouterEmbeddingClient
 from src.rag.retriever import InMemoryRetriever, build_or_reuse_embeddings
@@ -557,7 +558,24 @@ class RAGPromptAugmenter:
             # Build structured entry
             if sdtm_domain and sdtm_var:
                 # Has SDTM mapping info
-                mapping_line = f"{i}. [Score: {ctx.effective_score:.2f}] {source_table}/{source_var} → **{sdtm_domain}.{sdtm_var}** ({source_type})"
+                plain_var, conditions = split_when_expression(sdtm_var)
+                qualifiers: list[str] = []
+                for condition in conditions:
+                    key, separator, value = condition.partition("=")
+                    key_upper = key.strip().upper()
+                    value = value.strip()
+                    if separator and key_upper.endswith("TESTCD"):
+                        qualifiers.append(f"testcd={value}")
+                    elif separator and key_upper == "QNAM":
+                        qualifiers.append(f"supp_variable={value}")
+                    else:
+                        qualifiers.append(f"condition={condition}")
+                qualifier_text = f"; {', '.join(qualifiers)}" if qualifiers else ""
+                mapping_line = (
+                    f"{i}. [Score: {ctx.effective_score:.2f}] "
+                    f"{source_table}/{source_var} → **{sdtm_domain}.{plain_var}**"
+                    f"{qualifier_text} ({source_type})"
+                )
             elif sdtm_domain:
                 # Only domain
                 mapping_line = f"{i}. [Score: {ctx.effective_score:.2f}] {source_table}/{source_var} → **{sdtm_domain}** ({source_type})"

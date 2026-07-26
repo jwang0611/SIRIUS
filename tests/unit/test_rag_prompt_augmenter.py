@@ -18,5 +18,7 @@ def test_structured_context_preserves_ecrf_chunk_variable_metadata():
 
     rendered = augmenter.build_context_block([context], structured=True)
 
-    assert "**XX.XXVAR when XXFLAG=Y**" in rendered
+    assert "**XX.XXVAR**" in rendered
+    assert "condition=XXFLAG=Y" in rendered
+    assert "XXVAR when XXFLAG=Y" not in rendered
     assert "Synthetic Table/RAWVAR" in rendered
