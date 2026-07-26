@@ -198,7 +198,7 @@ def estimate_external_requests(
         if rag_kb_path is not None
         else 0
     )
-    kb_requests = 1 if kb_items else 0
+    kb_requests = math.ceil(kb_items / embedding_batch_size)
     embedding_items = query_items + kb_items
     embedding_requests = query_requests + kb_requests
     return {

@@ -288,13 +288,13 @@ def test_request_estimate_uses_current_heldout_cohort_counts(repo_root):
         "rag_query_embedding_items_per_run_max": 490,
         "rag_query_embedding_requests_per_run_max": 5,
         "rag_kb_embedding_items_per_run_max": 2616,
-        "rag_kb_embedding_requests_per_run_max": 1,
+        "rag_kb_embedding_requests_per_run_max": 27,
         "embedding_items_per_run_max": 3106,
-        "embedding_requests_per_run_max": 6,
+        "embedding_requests_per_run_max": 32,
         "runs": 2,
         "generation_calls_total_max": 618,
         "embedding_items_total_max": 6212,
-        "embedding_requests_total_max": 12,
+        "embedding_requests_total_max": 64,
     }
 
 

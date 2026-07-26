@@ -67,8 +67,9 @@ complete hashed KB tree; unless
 overridden, the runner passes its `structured/` Parquet directory to the
 production RAG chunker. The current held-out/KB combination has a conservative
 per-run ceiling of 309 generation requests, five 100-item query-embedding
-requests for all 490 rows, and one cold-cache KB-embedding request containing
-2,616 chunks. Both arms must use separate clean worktrees, and execution is
+requests for all 490 rows, and 27 cold-cache KB-embedding requests covering
+2,616 chunks in batches of at most 100. Both arms must use separate clean
+worktrees, and execution is
 rejected when `data/cache/rag_vectors/` already contains a vector cache. The
 manifest records this `cold_isolated_worktree` policy. It also captures the
 experiment-runner script hash, target
