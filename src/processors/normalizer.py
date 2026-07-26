@@ -20,8 +20,6 @@ from typing import Any
 _MULTI_DOMAIN_SPLIT = re.compile(r"[|/;]")
 _WHEN_CLAUSE_RE = re.compile(r"\s+when\s+", re.IGNORECASE)
 _DOMAIN_TOKEN_SPLIT = re.compile(r"[|/,\s]+")
-_QNAM_RE = re.compile(r"^[A-Z][A-Z0-9]{0,7}$")
-_NON_QNAM_CHARS_RE = re.compile(r"[^A-Z0-9]")
 
 QVARS: frozenset[str] = frozenset({"QNAM", "QLABEL", "QVAL", "QORIG", "QEVAL", "IDVAR", "IDVARVAL"})
 
@@ -262,56 +260,6 @@ def classify_variable_type(
 
 
 # ---------------------------------------------------------------------------
-# SUPP contract normalization
-# ---------------------------------------------------------------------------
-def normalize_supp_record(
-    rec: dict[str, Any],
-    *,
-    variable_name: str,
-) -> dict[str, Any]:
-    """Return a SUPP recommendation that satisfies the structured contract."""
-    from src.processors.deterministic_validator import SUPPQUAL_VARS, _get_domain_standard_vars
-
-    out = dict(rec)
-    domain = str(out.get("domain", "") or "").strip().upper()
-    base_domain = domain[4:] if domain.startswith("SUPP") else domain
-    standard_vars = _get_domain_standard_vars(base_domain)
-
-    def candidate_token(raw: object) -> str:
-        token = _NON_QNAM_CHARS_RE.sub("", str(raw or "").strip().upper())
-        if not token:
-            return ""
-        if not token[0].isalpha():
-            token = f"Q{token}"
-        return token[:8]
-
-    qnam = ""
-    candidates = (
-        (variable_name, out.get("supp_variable"), out.get("sdtm_variable"))
-        if out.get("auto_corrected_to_supp")
-        else (out.get("supp_variable"), variable_name, out.get("sdtm_variable"))
-    )
-    for raw in candidates:
-        token = candidate_token(raw)
-        if (
-            _QNAM_RE.fullmatch(token)
-            and token not in SUPPQUAL_VARS
-            and token not in standard_vars
-        ):
-            qnam = token
-            break
-
-    out["sdtm_variable"] = "QVAL"
-    out["sdtm_variable_type"] = "supp"
-    out["supp_variable"] = qnam or "COMMENT"
-    if base_domain:
-        out["supp_dataset"] = f"SUPP{base_domain}"
-    elif not out.get("supp_dataset"):
-        out["supp_dataset"] = "SUPPXX"
-    return out
-
-
-# ---------------------------------------------------------------------------
 # Deduplication
 # ---------------------------------------------------------------------------
 def dedupe_by_key(
@@ -391,7 +339,6 @@ __all__ = [
     "is_comment_like_variable",
     "is_standard_variable_name",
     "normalize_conditions",
-    "normalize_supp_record",
     "resolve_multi_domain",
     "to_cleaned_dict",
 ]
