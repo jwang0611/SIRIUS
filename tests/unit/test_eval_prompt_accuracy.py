@@ -194,6 +194,167 @@ def test_nested_processor_output_recovers_full_key_and_supp_expression(tmp_path)
     assert metrics["exact_match"] == 1
 
 
+def test_nested_processor_output_preserves_provenance_and_quality_fields(tmp_path):
+    output_path = tmp_path / "output.json"
+    output_path.write_text(
+        json.dumps(
+            [
+                {
+                    "table_name": "TH6",
+                    "original_mappings": [
+                        {
+                            "metadata_variable": "THPTYPO",
+                            "annotation_table": "Tumor History",
+                            "annotation_variable": "Other pathology type",
+                        }
+                    ],
+                    "domain_recommendations": [
+                        {
+                            "variable_name": "THPTYPO",
+                            "domain": "FA",
+                            "sdtm_variable": "QVAL",
+                            "sdtm_variable_type": "supp",
+                            "supp_dataset": "SUPPFA",
+                            "supp_variable": "FAOROTH",
+                            "testcd": "THCLA",
+                            "score": 0.9,
+                            "source": "LLM",
+                            "cascade_level": 4,
+                            "non_standard_variable": True,
+                            "fallback_reason": "",
+                        }
+                    ],
+                    "consistency_issues": [
+                        {
+                            "severity": "error",
+                            "issue_type": "synthetic",
+                            "description": "synthetic critic error",
+                        }
+                    ],
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    rows = load_ai_output(output_path)
+
+    assert rows[0]["cascade_level"] == 4
+    assert rows[0]["sdtm_variable"] == "QVAL"
+    assert rows[0]["supp_dataset"] == "SUPPFA"
+    assert rows[0]["supp_variable"] == "FAOROTH"
+    assert rows[0]["testcd"] == "THCLA"
+    assert rows[0]["validation_flags"] == {"non_standard_variable": True}
+    assert rows[0]["consistency_issues"][0]["severity"] == "error"
+
+
+def test_evaluate_reports_cohort_cascade_scenario_rows_and_quality(tmp_path):
+    records = [
+        _gt_entry(
+            evaluation_id="FPH-0001",
+            metadata_table="TH6",
+            metadata_variable="THPTYPO",
+            annotation_table="Tumor History",
+            annotation_variable="Other pathology type",
+            SDTM_Domain="FA",
+            SDTM_Variable="QVAL when QNAM=FAOROTH when FATESTCD=THCLA",
+            reference_source="LLM",
+            evaluation_cohort="AI_RECOMMENDATION",
+        ),
+        _gt_entry(
+            evaluation_id="FPH-0002",
+            metadata_table="SUBJECT",
+            metadata_variable="CRFVER",
+            annotation_table="Subject",
+            annotation_variable="CRF version",
+            SDTM_Domain="",
+            SDTM_Variable="NOT SUBMITTED",
+            evaluation_cohort="KB_AGREE",
+        ),
+        _gt_entry(
+            evaluation_id="FPH-0003",
+            metadata_table="CUSTOM",
+            metadata_variable="CUSVAR",
+            annotation_table="Custom",
+            annotation_variable="Custom variable",
+            SDTM_Domain="CUSTOM",
+            SDTM_Variable="CUSVAR",
+            evaluation_cohort="KB_DISAGREE",
+        ),
+    ]
+    gt_path = tmp_path / "gt.json"
+    gt_path.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+    rows = [
+        _ai_row(
+            metadata_table="TH6",
+            metadata_variable="THPTYPO",
+            annotation_table="Tumor History",
+            annotation_variable="Other pathology type",
+            ai_domain="FA",
+            ai_variable="QVAL WHEN QNAM=FAOROTH WHEN FATESTCD=THCLA",
+            domain="FA",
+            sdtm_variable="QVAL",
+            sdtm_variable_type="supp",
+            supp_dataset="SUPPFA",
+            supp_variable="FAOROTH",
+            testcd="THCLA",
+            source="LLM",
+            cascade_level=4,
+        ),
+        _ai_row(
+            metadata_table="SUBJECT",
+            metadata_variable="CRFVER",
+            annotation_table="Subject",
+            annotation_variable="CRF version",
+            ai_domain="",
+            ai_variable="NOT SUBMITTED",
+            domain="",
+            sdtm_variable="NOT SUBMITTED",
+            sdtm_variable_type="not_submitted",
+            source="KB_NOT_SUBMITTED",
+            cascade_level=0,
+        ),
+        _ai_row(
+            metadata_table="CUSTOM",
+            metadata_variable="CUSVAR",
+            annotation_table="Custom",
+            annotation_variable="Custom variable",
+            ai_domain="CUSTOM",
+            ai_variable="CUSVAR",
+            domain="CUSTOM",
+            sdtm_variable="CUSVAR",
+            sdtm_variable_type="standard",
+            source="KB",
+            cascade_level=1,
+        ),
+    ]
+
+    metrics = evaluate(rows, load_ground_truth(gt_path))
+
+    assert metrics["coverage"] == 1
+    assert metrics["cohort_stats"]["AI_RECOMMENDATION"]["match"] == 1
+    assert metrics["cohort_stats"]["KB_AGREE"]["match"] == 1
+    assert metrics["cohort_stats"]["KB_DISAGREE"]["match"] == 1
+    assert metrics["cascade_stats"]["4"]["match"] == 1
+    assert metrics["cascade_stats"]["0"]["match"] == 1
+    assert metrics["scenario_stats"]["SUPP"]["match"] == 1
+    assert metrics["scenario_stats"]["TESTCD"]["match"] == 1
+    assert metrics["scenario_stats"]["NOT_SUBMITTED"]["match"] == 1
+    assert metrics["scenario_stats"]["NON_STANDARD_DOMAIN"]["match"] == 1
+    assert len(metrics["row_results"]) == 3
+    assert {row["evaluation_id"] for row in metrics["row_results"]} == {
+        "FPH-0001",
+        "FPH-0002",
+        "FPH-0003",
+    }
+    assert not any(metrics["quality_issues"].values())
+    assert metrics["cohort_policy"]["KB_DISAGREE"] == {
+        "diagnostic_only": True,
+        "release_gate": False,
+    }
+
+
 def test_nested_processor_output_warns_when_original_mapping_is_missing(tmp_path, caplog):
     output_path = tmp_path / "output.json"
     output_path.write_text(

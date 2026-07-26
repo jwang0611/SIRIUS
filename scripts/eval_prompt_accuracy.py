@@ -47,6 +47,7 @@ from typing import TypeAlias
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.evaluation.ab_analysis import classify_scenarios, count_quality_issues  # noqa: E402
 from src.processors.sdtm_processor import compute_diff_status  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,14 @@ logger = logging.getLogger(__name__)
 
 MappingKey: TypeAlias = tuple[str, str, str, str]
 _KEY_FIELDS = ("annotation_table", "metadata_table", "annotation_variable", "metadata_variable")
+_VALIDATION_FLAGS = (
+    "invalid_domain_corrected",
+    "variable_name_corrected",
+    "variable_name_truncated",
+    "domain_prefix_mismatch",
+    "non_standard_variable",
+    "auto_corrected_to_supp",
+)
 
 
 def _normalize_variable(raw: str) -> str:
@@ -166,9 +175,20 @@ def load_ai_output(path: Path) -> list[dict]:
                             "metadata_variable": var_name,
                             "ai_domain": _normalize_domain(drec.get("domain", "")),
                             "ai_variable": _render_structured_variable(drec),
+                            "domain": _normalize_domain(drec.get("domain", "")),
+                            "sdtm_variable": str(drec.get("sdtm_variable", "") or "").strip(),
                             "score": drec.get("score", 0),
                             "source": drec.get("source", ""),
+                            "cascade_level": drec.get("cascade_level"),
                             "sdtm_variable_type": drec.get("sdtm_variable_type", ""),
+                            "supp_dataset": drec.get("supp_dataset", ""),
+                            "supp_variable": drec.get("supp_variable", ""),
+                            "testcd": drec.get("testcd", ""),
+                            "fallback_reason": drec.get("fallback_reason", ""),
+                            "validation_flags": {
+                                key: drec.get(key) for key in _VALIDATION_FLAGS if drec.get(key)
+                            },
+                            "consistency_issues": table_rec.get("consistency_issues", []),
                         }
                     )
         elif "annotation_table" in first:
@@ -181,8 +201,20 @@ def load_ai_output(path: Path) -> list[dict]:
                         "metadata_variable": entry.get("metadata_variable", ""),
                         "ai_domain": _normalize_domain(entry.get("SDTM_Domain", "")),
                         "ai_variable": _normalize_variable(entry.get("SDTM_Variable", "")),
+                        "domain": _normalize_domain(entry.get("SDTM_Domain", "")),
+                        "sdtm_variable": str(entry.get("SDTM_Variable", "") or "").strip(),
                         "score": entry.get("Score", 0),
                         "source": entry.get("Source", ""),
+                        "cascade_level": entry.get("cascade_level", entry.get("Cascade_Level")),
+                        "sdtm_variable_type": entry.get("sdtm_variable_type", ""),
+                        "supp_dataset": entry.get("supp_dataset", ""),
+                        "supp_variable": entry.get("supp_variable", ""),
+                        "testcd": entry.get("testcd", ""),
+                        "fallback_reason": entry.get("fallback_reason", ""),
+                        "validation_flags": {
+                            key: entry.get(key) for key in _VALIDATION_FLAGS if entry.get(key)
+                        },
+                        "consistency_issues": entry.get("consistency_issues", []),
                     }
                 )
 
@@ -219,8 +251,9 @@ def evaluate(
 ) -> dict:
     """Compare AI rows against ground truth. Return metrics dict."""
     ai_rows = _dedup_rows(ai_rows)
+    ai_by_key = {_mapping_key(row): row for row in ai_rows}
     gt_size = len(gt)
-    ai_keys = {_mapping_key(row) for row in ai_rows}
+    ai_keys = set(ai_by_key)
     gt_keys = set(gt)
     missing_gt_keys = sorted(gt_keys - ai_keys)
     extra_ai_keys = sorted(ai_keys - gt_keys)
@@ -233,56 +266,78 @@ def evaluate(
         lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
     )
     source_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "match": 0, "domain_match": 0})
+    cascade_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"total": 0, "match": 0, "domain_match": 0}
+    )
     cohort_stats: dict[str, dict[str, int]] = defaultdict(
         lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
     )
+    scenario_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
+    )
     mismatches: list[dict] = []
+    row_results: list[dict] = []
 
-    for ref in gt.values():
+    def update_slice(stats: dict[str, int], *, exact: bool, domain_match: bool) -> None:
+        stats["total"] += 1
+        if exact:
+            stats["match"] += 1
+        if domain_match:
+            stats["domain_match"] += 1
+
+    for key, ref in gt.items():
+        ref_domain = _normalize_domain(ref.get("SDTM_Domain", ""))
+        ref_variable = _normalize_variable(ref.get("SDTM_Variable", ""))
         cohort = ref.get("evaluation_cohort") or ref.get("reference_source") or "UNSPECIFIED"
-        cohort_stats[cohort]["gt_size"] += 1
-        ref_domain = _normalize_domain(ref.get("SDTM_Domain", ""))
-        ref_variable = _normalize_variable(ref.get("SDTM_Variable", ""))
         domain_key = "NOT_SUBMITTED" if ref_variable == "NOT SUBMITTED" else (ref_domain or "UNKNOWN")
+        scenarios = classify_scenarios(ref)
+
+        cohort_stats[cohort]["gt_size"] += 1
         domain_stats[domain_key]["gt_size"] += 1
+        for scenario in scenarios:
+            scenario_stats[scenario]["gt_size"] += 1
 
-    for row in ai_rows:
-        key = _mapping_key(row)
-        ref = gt.get(key)
-        if ref is None:
+        row = ai_by_key.get(key)
+        if row is None:
+            statuses["missing"] += 1
+            row_results.append(
+                {
+                    "evaluation_id": ref.get("evaluation_id", ""),
+                    "cohort": cohort,
+                    "domain": domain_key,
+                    "source": None,
+                    "cascade_level": None,
+                    "scenarios": sorted(scenarios),
+                    "status": "missing",
+                    "exact_match": False,
+                    "domain_match": False,
+                }
+            )
             continue
-
-        ref_domain = _normalize_domain(ref.get("SDTM_Domain", ""))
-        ref_variable = _normalize_variable(ref.get("SDTM_Variable", ""))
         ai_domain = row["ai_domain"]
         ai_variable = row["ai_variable"]
 
         status = _mapping_status(ai_domain, ai_variable, ref_domain, ref_variable)
         statuses[status] += 1
         total += 1
-
         source = row.get("source", "LLM") or "LLM"
-        cohort = ref.get("evaluation_cohort") or ref.get("reference_source") or "UNSPECIFIED"
-        domain_key = "NOT_SUBMITTED" if ref_variable == "NOT SUBMITTED" else (ref_domain or "UNKNOWN")
+        cascade_level = row.get("cascade_level")
+        cascade_key = "UNRECORDED" if cascade_level is None else str(cascade_level)
+        exact = status == "match"
+        domain_match = status in {"match", "var_diff"}
 
-        domain_stats[domain_key]["total"] += 1
-        source_stats[source]["total"] += 1
-        cohort_stats[cohort]["total"] += 1
+        update_slice(domain_stats[domain_key], exact=exact, domain_match=domain_match)
+        update_slice(source_stats[source], exact=exact, domain_match=domain_match)
+        update_slice(cascade_stats[cascade_key], exact=exact, domain_match=domain_match)
+        update_slice(cohort_stats[cohort], exact=exact, domain_match=domain_match)
+        for scenario in scenarios:
+            update_slice(scenario_stats[scenario], exact=exact, domain_match=domain_match)
 
-        if status == "match":
+        if exact:
             matched += 1
             domain_matched += 1
-            domain_stats[domain_key]["match"] += 1
-            domain_stats[domain_key]["domain_match"] += 1
-            source_stats[source]["match"] += 1
-            source_stats[source]["domain_match"] += 1
-            cohort_stats[cohort]["match"] += 1
-            cohort_stats[cohort]["domain_match"] += 1
         elif status == "var_diff":
             domain_matched += 1
-            domain_stats[domain_key]["domain_match"] += 1
-            source_stats[source]["domain_match"] += 1
-            cohort_stats[cohort]["domain_match"] += 1
             mismatches.append(
                 {
                     "table": row["annotation_table"],
@@ -302,8 +357,27 @@ def evaluate(
                     "ref": f"{ref_domain}.{ref_variable}",
                 }
             )
+        row_results.append(
+            {
+                "evaluation_id": ref.get("evaluation_id", ""),
+                "cohort": cohort,
+                "domain": domain_key,
+                "source": source,
+                "cascade_level": cascade_level,
+                "scenarios": sorted(scenarios),
+                "status": status,
+                "exact_match": exact,
+                "domain_match": domain_match,
+            }
+        )
 
     coverage = total / gt_size if gt_size else 0
+    consistency_issues = [
+        issue
+        for row in ai_rows
+        for issue in row.get("consistency_issues", [])
+        if isinstance(issue, dict)
+    ]
     return {
         "label": label,
         "gt_size": gt_size,
@@ -323,7 +397,19 @@ def evaluate(
         "statuses": dict(statuses),
         "domain_stats": dict(domain_stats),
         "source_stats": dict(source_stats),
+        "cascade_stats": dict(cascade_stats),
         "cohort_stats": dict(cohort_stats),
+        "scenario_stats": dict(scenario_stats),
+        "row_results": row_results,
+        "quality_issues": count_quality_issues(
+            ai_rows,
+            consistency_issues=consistency_issues,
+        ),
+        "cohort_policy": {
+            "KB_AGREE": {"diagnostic_only": False, "release_gate": True},
+            "KB_DISAGREE": {"diagnostic_only": True, "release_gate": False},
+            "AI_RECOMMENDATION": {"diagnostic_only": False, "release_gate": True},
+        },
         "mismatches": mismatches,
     }
 
