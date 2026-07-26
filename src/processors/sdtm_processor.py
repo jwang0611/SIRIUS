@@ -849,6 +849,7 @@ class SDTMProcessor(
             kb_context,
             all_variables,
             completed_table_mappings,
+            rag_contexts=cascade.rag_contexts,
         )
 
         if dry_run:
@@ -1367,6 +1368,7 @@ class SDTMProcessor(
         kb_context: dict[str, Any],
         all_table_variables: list[dict[str, Any]] | None = None,
         completed_table_mappings: list[dict[str, Any]] | None = None,
+        rag_contexts: list[Any] | None = None,
     ) -> str:
         """Create enhanced prompt with knowledge base context.
 
@@ -1376,6 +1378,8 @@ class SDTMProcessor(
             all_table_variables: All sibling variables in the same CRF table.
             completed_table_mappings: Already-mapped sibling results (for
                 table-level consistency in sequential mode).
+            rag_contexts: Retrieved Level-3 contexts to include when the
+                cascade falls through to Level 4 LLM inference.
         """
         if self.data_masker:
             variable_data = self.data_masker.mask_variable_data(variable_data)
@@ -1409,6 +1413,15 @@ class SDTMProcessor(
                 kb_section += f"- Domain context: {domain_info.get('domain', 'N/A')} ({domain_info.get('description', 'No description')})\n"
 
             base_prompt += kb_section
+
+        if rag_contexts and getattr(self, "rag_augmenter", None):
+            rag_section = self.rag_augmenter.build_context_block(
+                rag_contexts,
+                char_limit=self.rag_char_limit,
+                structured=True,
+            )
+            if rag_section:
+                base_prompt += f"\n\n{rag_section}"
 
         if kb_context.get("domain_hint"):
             base_prompt += f"\n\n**⚠️ Domain Hint (HIGHEST PRIORITY):** The target SDTM domain is `{kb_context['domain_hint']}` (inferred from annotation table). Use `{kb_context['domain_hint']}` domain variables."
