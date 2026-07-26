@@ -114,6 +114,22 @@ class TestNormalize:
         assert out and out[0]["sdtm_variable"] == "FAORRES"
         assert out[0]["testcd"] == "X"
 
+    def test_general_when_clause_uses_structured_conditions(self, normalizer):
+        recs = [{"domain": "EC", "sdtm_variable": "ECDOSE when ECMOOD=ADMINISTERED"}]
+        with patch(
+            "src.processors.deterministic_validator._get_domain_standard_vars",
+            return_value={"ECDOSE"},
+        ):
+            out = normalizer.normalize(
+                table_name="T",
+                variable_name="dose",
+                domain_recs=recs,
+                target_domain="EC",
+            )
+
+        assert out[0]["sdtm_variable"] == "ECDOSE"
+        assert out[0]["conditions"] == [{"variable": "ECMOOD", "value": "ADMINISTERED"}]
+
     def test_uses_injected_is_valid_domain(self):
         hits = []
 

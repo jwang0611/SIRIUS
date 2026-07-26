@@ -202,6 +202,29 @@ class TestNormalizeDomainRecsBasic:
         assert out
         assert out[0]["testcd"] == "THDIAG"
 
+    def test_general_when_clause_survives_production_postprocess(self):
+        host = _Host()
+        recs = [
+            {
+                "domain": "EC",
+                "sdtm_variable": "ECDOSE when ECMOOD=ADMINISTERED",
+                "score": 0.9,
+                "sdtm_variable_type": "standard",
+                "source": "LLM",
+            }
+        ]
+
+        out = host._normalize_domain_recs(
+            table_name="t",
+            variable_name="dose",
+            domain_recs=recs,
+            target_domain="EC",
+            enforce_domain=True,
+        )
+
+        assert out[0]["sdtm_variable"] == "ECDOSE"
+        assert out[0]["conditions"] == [{"variable": "ECMOOD", "value": "ADMINISTERED"}]
+
     def test_multi_domain_resolution(self):
         host = _Host()
         recs = [
