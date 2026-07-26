@@ -279,6 +279,7 @@ def check_example_output_contract(exs: dict) -> tuple[bool, list[str]]:
             testcd = str(ex.get("testcd", "")).upper()
             supp_dataset = str(ex.get("supp_dataset", "")).upper()
             supp_variable = str(ex.get("supp_variable", "")).upper()
+            conditions = ex.get("conditions", [])
 
             if not _PURE_VAR_RE.fullmatch(output):
                 msgs.append(
@@ -337,6 +338,50 @@ def check_example_output_contract(exs: dict) -> tuple[bool, list[str]]:
                     )
                 )
                 ok = False
+
+            if not isinstance(conditions, list):
+                msgs.append(
+                    _err(f"[examples.{pattern}] conditions must be a list")
+                )
+                ok = False
+                conditions = []
+            for condition in conditions:
+                if not isinstance(condition, dict):
+                    msgs.append(
+                        _err(
+                            f"[examples.{pattern}] each condition must be an object "
+                            "with variable and value"
+                        )
+                    )
+                    ok = False
+                    continue
+                condition_variable = str(condition.get("variable", "")).upper()
+                condition_value = str(condition.get("value", "")).strip()
+                if not _PURE_VAR_RE.fullmatch(condition_variable):
+                    msgs.append(
+                        _err(
+                            f"[examples.{pattern}] condition variable "
+                            f"'{condition_variable}' must be a pure 1-{_MAX_VAR_LEN} "
+                            "character variable"
+                        )
+                    )
+                    ok = False
+                if condition_variable == "QNAM" or condition_variable.endswith("TESTCD"):
+                    msgs.append(
+                        _err(
+                            f"[examples.{pattern}] reserved condition variable "
+                            f"'{condition_variable}' must use the structured "
+                            "supp_variable or testcd field"
+                        )
+                    )
+                    ok = False
+                if not condition_value:
+                    msgs.append(
+                        _err(
+                            f"[examples.{pattern}] condition value must be non-empty"
+                        )
+                    )
+                    ok = False
 
     if ok:
         msgs.append(_ok("All examples follow the structured output contract"))
