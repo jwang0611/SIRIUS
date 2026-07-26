@@ -675,8 +675,16 @@ treated as a frozen-configuration mismatch. The failed reports are retained as
 - [x] Add regression tests for audit-only runner drift, comparable critic
   recomputation, retry success, and bounded retry fallback.
 - [x] Run the required focused tests and static gates before fixing the v8 SHA.
-- [ ] Commit a clean v8 candidate, rerun the frozen Improved arm, and require
+- [x] Commit a clean v8 candidate, rerun the frozen Improved arm, and require
   all machine gates to accept it before updating the PR.
+
+Observed for `improved-v8` at
+`dcdd7a91fb6158b573d549bbba49356c8860c840`: 490/490 coverage,
+AI_RECOMMENDATION exact 76/309 to 83/309 (+2.27 percentage points; paired
+bootstrap 95% CI +0.32 to +4.21), no Domain or KB_AGREE regression, and all
+16/16 release gates accepted. The machine-readable evidence is retained
+externally as `ab-report.v8.json`, `improved-v8.manifest.json`, and
+`required-tests-v8.json`.
 
 - [ ] **Step 4: Update the PR branch and evidence**
 
