@@ -117,15 +117,6 @@ def _render_structured_variable(entry: dict) -> str:
     if testcd and domain:
         domain_prefix = domain.split("|", 1)[0][:2]
         variable = f"{variable} when {domain_prefix}TESTCD={testcd}"
-    conditions = entry.get("conditions")
-    if isinstance(conditions, list):
-        for condition in conditions:
-            if not isinstance(condition, dict):
-                continue
-            condition_variable = str(condition.get("variable", "") or "").strip().upper()
-            condition_value = str(condition.get("value", "") or "").strip()
-            if condition_variable and condition_value:
-                variable = f"{variable} when {condition_variable}={condition_value}"
     return _normalize_variable(variable)
 
 
@@ -201,7 +192,6 @@ def load_ai_output(path: Path) -> list[dict]:
                             "supp_dataset": drec.get("supp_dataset", ""),
                             "supp_variable": drec.get("supp_variable", ""),
                             "testcd": drec.get("testcd", ""),
-                            "conditions": drec.get("conditions", []),
                             "fallback_reason": drec.get("fallback_reason", ""),
                             "validation_flags": {
                                 key: drec.get(key) for key in _VALIDATION_FLAGS if drec.get(key)
@@ -228,7 +218,6 @@ def load_ai_output(path: Path) -> list[dict]:
                         "supp_dataset": entry.get("supp_dataset", ""),
                         "supp_variable": entry.get("supp_variable", ""),
                         "testcd": entry.get("testcd", ""),
-                        "conditions": entry.get("conditions", []),
                         "fallback_reason": entry.get("fallback_reason", ""),
                         "validation_flags": {
                             key: entry.get(key) for key in _VALIDATION_FLAGS if entry.get(key)
