@@ -370,8 +370,7 @@ class DeterministicValidator:
 
         # 3. Variable-domain prefix consistency
         sdtm_var = str(rec.get("sdtm_variable", "")).strip()
-        is_supp = str(rec.get("sdtm_variable_type", "")).lower() == "supp"
-        if sdtm_var and domain and not is_supp:
+        if sdtm_var and domain:
             is_consistent, desc = validate_variable_domain_consistency(domain, sdtm_var)
             if not is_consistent:
                 # Don't auto-correct prefix mismatches — just flag them

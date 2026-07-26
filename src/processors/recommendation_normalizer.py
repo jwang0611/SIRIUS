@@ -102,8 +102,6 @@ class RecommendationNormalizer:
         validated: list[dict[str, Any]] = []
         for rec in stage3:
             rec["sdtm_variable_type"] = normalizer.classify_variable_type(rec, variable_name)
-            if rec["sdtm_variable_type"] == "supp":
-                rec = normalizer.normalize_supp_record(rec, variable_name=variable_name)
             fixed, _issues = self.validator.validate_and_correct(
                 rec,
                 variable_name=variable_name,
