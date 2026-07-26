@@ -584,7 +584,7 @@ git commit -m "docs: clarify cascade provenance handling"
   `artifacts/required-tests-v7.json`
 - Update: PR #17 body and four inline review threads
 
-- [ ] **Step 1: Ensure the candidate revision is clean**
+- [x] **Step 1: Ensure the candidate revision is clean**
 
 ```powershell
 git status --short
@@ -593,7 +593,7 @@ git rev-parse HEAD
 
 Expected: clean status and a fixed candidate SHA.
 
-- [ ] **Step 2: Execute the frozen Improved arm**
+- [x] **Step 2: Execute the frozen Improved arm**
 
 Run:
 
@@ -634,7 +634,7 @@ python scripts/run_sdtm_experiment.py `
 Write all outputs and the manifest outside the repository under the artifacts
 directory. Expected generation-call count is approximately 244.
 
-- [ ] **Step 3: Evaluate with the updated gates**
+- [x] **Step 3: Evaluate with the updated gates**
 
 ```powershell
 $reviewArtifacts = 'C:\Users\chenkai.lv\.codex\visualizations\2026\07\26\019f9d09-4a04-7070-8e33-bb11c86c0c53\artifacts'
@@ -656,6 +656,27 @@ python scripts/eval_prompt_accuracy.py `
 Expected: 100% coverage and `ACCEPT`. If any gate fails, retain the failed
 external report, revert the failing behavioral candidate, and do not claim an
 accuracy improvement.
+
+Observed for `improved-v7`: coverage and accuracy gates passed, but the release
+decision was `ROLLBACK` because one malformed model response increased parse
+and MappingCritic errors, while a Ruff-only runner hash change was incorrectly
+treated as a frozen-configuration mismatch. The failed reports are retained as
+`ab-report.v7.json` and `ab-report.failed-v7-comparable.json`.
+
+### Task 6A: Remediate the failed v7 quality gates
+
+- [x] Treat runner hash drift as explicit audit-only evidence while continuing
+  to gate model, input, held-out, KB, RAG, concurrency, generation, and cascade
+  configuration equality.
+- [x] Recompute MappingCritic issues for both output arms with the same current
+  critic instead of comparing embedded issues produced by different revisions.
+- [x] Add one rate-limited production-path retry after malformed JSON, retaining
+  the Level-4 fallback after the second malformed response.
+- [x] Add regression tests for audit-only runner drift, comparable critic
+  recomputation, retry success, and bounded retry fallback.
+- [x] Run the required focused tests and static gates before fixing the v8 SHA.
+- [ ] Commit a clean v8 candidate, rerun the frozen Improved arm, and require
+  all machine gates to accept it before updating the PR.
 
 - [ ] **Step 4: Update the PR branch and evidence**
 

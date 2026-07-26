@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -58,6 +59,131 @@ def test_llm_fallback_has_level_four():
     )
 
     assert recs[0]["source"] == "FALLBACK"
+    assert recs[0]["cascade_level"] == 4
+
+
+def test_level_four_retries_once_after_invalid_json():
+    processor = _bare_processor()
+    responses = iter(
+        [
+            "not-json",
+            json.dumps(
+                {
+                    "table_recommendations": [
+                        {
+                            "table_name": "AE",
+                            "domain_recommendations": [
+                                {
+                                    "domain": "AE",
+                                    "sdtm_variable": "AETERM",
+                                    "sdtm_variable_type": "standard",
+                                    "score": 0.9,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
+    calls = []
+
+    class SequentialClient:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            return next(responses)
+
+        def get_last_usage(self):
+            return None
+
+        def get_error_message(self, error):
+            return str(error)
+
+    processor.client = SequentialClient()
+    processor.kb_hints = None
+    processor.rate_limiter = SimpleNamespace(wait=lambda: None)
+    processor.generation_config = SimpleNamespace(
+        max_output_tokens=2000,
+        temperature=0,
+        top_p=0.95,
+        top_k=40,
+    )
+    processor.log_ai_interactions = False
+    processor.enable_knowledge_base = False
+    processor.domain_override_threshold = 0.85
+    processor._get_knowledge_base_context = lambda variable_data: {}
+    processor._recommend_domain_from_annotation = lambda annotation_table: "AE"
+    processor._try_cascade_shortcircuit = lambda *args: SimpleNamespace(
+        recs=None,
+        rag_contexts=[],
+    )
+    processor._create_enhanced_prompt = lambda *args, **kwargs: "PROMPT"
+    processor._validate_with_knowledge_base = lambda result, variable_data, kb_context: result
+    processor._normalize_domain_recs = lambda **kwargs: kwargs["domain_recs"]
+
+    recs = processor.process_variable_pair(
+        "AE",
+        {
+            "metadata_variable": "AETERM",
+            "annotation_table": "Adverse Events",
+        },
+        [],
+    )
+
+    assert len(calls) == 2
+    assert recs is not None
+    assert recs[0]["source"] == "LLM"
+    assert recs[0]["cascade_level"] == 4
+
+
+def test_level_four_falls_back_after_second_invalid_json():
+    processor = _bare_processor()
+    calls = []
+
+    class InvalidClient:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            return "still-not-json"
+
+        def get_last_usage(self):
+            return None
+
+        def get_error_message(self, error):
+            return str(error)
+
+    processor.client = InvalidClient()
+    processor.kb_hints = None
+    processor.rate_limiter = SimpleNamespace(wait=lambda: None)
+    processor.generation_config = SimpleNamespace(
+        max_output_tokens=2000,
+        temperature=0,
+        top_p=0.95,
+        top_k=40,
+    )
+    processor.log_ai_interactions = False
+    processor.enable_knowledge_base = False
+    processor.domain_override_threshold = 0.85
+    processor._get_knowledge_base_context = lambda variable_data: {}
+    processor._recommend_domain_from_annotation = lambda annotation_table: "AE"
+    processor._try_cascade_shortcircuit = lambda *args: SimpleNamespace(
+        recs=None,
+        rag_contexts=[],
+    )
+    processor._create_enhanced_prompt = lambda *args, **kwargs: "PROMPT"
+
+    recs = processor.process_variable_pair(
+        "AE",
+        {
+            "metadata_variable": "AETERM",
+            "annotation_table": "Adverse Events",
+        },
+        [],
+    )
+
+    assert len(calls) == 2
+    assert recs is not None
+    assert recs[0]["source"] == "FALLBACK"
+    assert recs[0]["fallback_reason"] == "Failed to parse AI JSON"
     assert recs[0]["cascade_level"] == 4
 
 

@@ -773,6 +773,48 @@ class SDTMProcessor(
         # No shortcircuit — caller should proceed to Level 4
         return CascadeResult(recs=None, cascade_level=4, rag_contexts=rag_contexts, rag_info=rag_info)
 
+    @staticmethod
+    def _extract_json_content(response_text: str) -> str:
+        """Extract a JSON payload from an optional Markdown code fence."""
+        if "```json" in response_text:
+            return response_text.split("```json")[1].split("```")[0].strip()
+        if "```" in response_text:
+            return response_text.split("```")[1].strip()
+        return response_text
+
+    def _generate_content_with_json_retry(
+        self,
+        *,
+        prompt: str,
+        table_name: str,
+        variable_name: str,
+    ) -> str:
+        """Retry one deterministic generation when the first payload is invalid JSON."""
+
+        def generate() -> str:
+            return self.client.generate_content(
+                prompt=prompt,
+                max_output_tokens=self.generation_config.max_output_tokens,
+                temperature=self.generation_config.temperature,
+                top_p=self.generation_config.top_p,
+                top_k=self.generation_config.top_k,
+            )
+
+        response_text = generate()
+        if not response_text or not response_text.strip():
+            return response_text
+        json_content = self._extract_json_content(response_text)
+        if not json_content.strip():
+            return response_text
+
+        try:
+            json.loads(json_content)
+        except json.JSONDecodeError:
+            print(f"Retrying AI generation once after invalid JSON for {table_name} - {variable_name}")
+            self.rate_limiter.wait()
+            return generate()
+        return response_text
+
     # ==================== Core variable processing ====================
 
     def process_variable_pair(
@@ -888,12 +930,10 @@ class SDTMProcessor(
             if self.log_ai_interactions:
                 self._log_ai_interaction(table_name, variable_name, "INPUT", prompt, "prompt")
 
-            response_text = self.client.generate_content(
+            response_text = self._generate_content_with_json_retry(
                 prompt=prompt,
-                max_output_tokens=self.generation_config.max_output_tokens,
-                temperature=self.generation_config.temperature,
-                top_p=self.generation_config.top_p,
-                top_k=self.generation_config.top_k,
+                table_name=table_name,
+                variable_name=variable_name,
             )
             api_end_time = time.time()
             api_duration = api_end_time - api_start_time
@@ -925,12 +965,7 @@ class SDTMProcessor(
                     "AI response empty",
                 )
 
-            if "```json" in response_text:
-                json_content = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                json_content = response_text.split("```")[1].strip()
-            else:
-                json_content = response_text
+            json_content = self._extract_json_content(response_text)
 
             if not json_content or json_content.strip() == "":
                 print(f"✗ No valid JSON content extracted for {table_name} - {variable_name}")
