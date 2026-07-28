@@ -255,7 +255,7 @@ python scripts/convert_als2sdtm.py \
 # 默认纯确定性提取（离线、无需凭据）
 python scripts/extract_acrf_pdf.py --input your_acrf.pdf --output-name your_project
 
-# 可选：启用 LLM 辅助字段清理（合并换行标签、去选项、识别表格字段；需要 LLM 凭据）
+# 可选：确定性结果过少时，用 LLM 增量补充字段（不会删除确定性结果；需要 LLM 凭据）
 python scripts/extract_acrf_pdf.py --input your_acrf.pdf --output-name your_project --use-llm
 ```
 

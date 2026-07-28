@@ -59,3 +59,14 @@ def test_acrf_env_hydrates_into_typed_settings(monkeypatch: pytest.MonkeyPatch):
 
     assert settings.acrf.use_llm is True
     assert settings.acrf.llm_min_fields == 5
+
+
+def test_print_extraction_warnings_uses_filename_and_safe_message(capsys: pytest.CaptureFixture[str]):
+    cli._print_extraction_warnings(
+        Path("sample.pdf"),
+        ["form 'Empty Form': no fields extracted"],
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "[WARN] sample.pdf: form 'Empty Form': no fields extracted\n"

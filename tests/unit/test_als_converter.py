@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -140,6 +141,32 @@ class TestConvertAls2Sdtm:
 
         df = pd.read_json(output_dir / "WithEmpty.json")
         assert len(df) == 2
+
+    def test_preserves_literal_none_while_dropping_fully_empty_rows(self, tmp_path):
+        file_path = tmp_path / "LiteralNone.xlsx"
+        df = pd.DataFrame(
+            {
+                "表名": ["AE", None],
+                "变量名": ["None", None],
+                "SDTM_Domain": ["AE", None],
+                "SDTM_Variable": ["AETERM", None],
+            }
+        )
+        with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Sheet1", index=False)
+
+        output_dir = tmp_path / "out"
+        outputs = convert_als2sdtm(
+            input_file=str(file_path),
+            output_dir=str(output_dir),
+            sheet_name="Sheet1",
+            output_format="json",
+            column_mapping=_MINIMAL_MAPPING,
+        )
+
+        rows = json.loads(Path(outputs["json"]).read_text(encoding="utf-8"))
+        assert len(rows) == 1
+        assert rows[0]["annotation_variable"] == "None"
 
     def test_raises_on_missing_columns(self, tmp_path):
         file_path = tmp_path / "MissingCols.xlsx"

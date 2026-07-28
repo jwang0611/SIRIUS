@@ -3,7 +3,7 @@
 
 Reads a bookmarked eCRF PDF, derives the form list from the PDF outline and the
 field labels from each form's page text (deterministic by default; add
-``--use-llm`` for an LLM-assisted cleanup pass), then writes:
+``--use-llm`` for additive recovery on sparse forms), then writes:
 
 * ``<output-dir>/<name>.json``            – 4-field records for the recommender
 * ``<output-dir>/<name>.xlsx``            – sibling with a ``num`` order column
@@ -72,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--use-llm",
         action="store_true",
-        help="Enable the optional LLM-assisted field cleanup pass (requires API credentials).",
+        help="Enable optional LLM-assisted field recovery for sparse forms (requires API credentials).",
     )
     parser.add_argument("--model", help="Model for the LLM pass (default: DEFAULT_MODEL env).")
     parser.add_argument("--api-key", help="API key for the LLM pass (default: env).")
@@ -138,6 +138,12 @@ def _resolve_config(args: argparse.Namespace, settings, use_llm: bool) -> AcrfCo
     )
 
 
+def _print_extraction_warnings(pdf: Path, warning_messages: list[str]) -> None:
+    """Print safe extractor warnings without exposing input paths or page text."""
+    for message in warning_messages:
+        print(f"[WARN] {pdf.name}: {message}", file=sys.stderr)
+
+
 def main() -> None:
     args = parse_args()
     settings = get_settings()
@@ -190,6 +196,7 @@ def main() -> None:
             f"{stats.get('fields_total')} fields"
             + (f", {stats.get('forms_via_llm')} via LLM" if stats.get("llm_enabled") else "")
         )
+        _print_extraction_warnings(pdf, result.warnings)
         for path in (json_path, xlsx_path, als_path):
             try:
                 print(f"     -> {path.relative_to(Path.cwd())}")

@@ -46,9 +46,9 @@ def extract_acrf(
 ) -> ExtractionResult:
     """Extract (form, field) records from an aCRF/eCRF PDF.
 
-    ``use_llm`` requires ``client`` (a :class:`BaseAIClient`). When enabled, the
-    LLM's validated labels replace the deterministic ones for a form whenever it
-    returns a non-empty list, falling back to the deterministic labels otherwise.
+    ``use_llm`` requires ``client`` (a :class:`BaseAIClient`). When enabled for
+    a sparse form, validated LLM labels are merged into the deterministic list;
+    model omissions never remove deterministic fields.
     """
     cfg = cfg or AcrfConfig()
     result = ExtractionResult()
@@ -78,7 +78,13 @@ def extract_acrf(
             continue
 
         page_height = heights.get(span.page_start)
-        fields = extract_field_candidates(line_boxes, boilerplate, cfg, page_height)
+        fields = extract_field_candidates(
+            line_boxes,
+            boilerplate,
+            cfg,
+            page_height,
+            form_name=span.form_name,
+        )
 
         # Only call the LLM when the deterministic pass came up short (avoids
         # sending every form to an external model), and MERGE its labels rather
@@ -111,6 +117,7 @@ def extract_acrf(
         "forms_total": len(spans),
         "forms_skipped": len(skipped),
         "forms_with_fields": forms_with_fields,
+        "forms_without_fields": len(spans) - forms_with_fields,
         "forms_via_llm": llm_forms,
         "fields_total": len(result.records),
         "llm_enabled": llm_enabled,
