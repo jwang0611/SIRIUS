@@ -11,7 +11,7 @@ import logging
 
 from src.processors.acrf import outline as _outline
 from src.processors.acrf import text as _text
-from src.processors.acrf.fields import extract_field_candidates, merge_field_lists, validate_field_set
+from src.processors.acrf.fields import extract_form_sections, merge_field_lists, validate_field_set
 from src.processors.acrf.models import AcrfConfig, ExtractionResult, FormSpan, LineBox
 from src.processors.acrf.records import assemble_records
 
@@ -65,6 +65,7 @@ def extract_acrf(
 
     form_fields: list[tuple[str, list[str]]] = []
     forms_with_fields = 0
+    sub_forms = 0
     llm_forms = 0
     for span in spans:
         line_boxes = _form_line_boxes(span, boxes_by_page)
@@ -78,13 +79,18 @@ def extract_acrf(
             continue
 
         page_height = heights.get(span.page_start)
-        fields = extract_field_candidates(
+        sections = extract_form_sections(
             line_boxes,
             boilerplate,
             cfg,
             page_height,
             form_name=span.form_name,
         )
+        # A grid heading that merely repeats the bookmark name is not a separate
+        # table; fold it back so its columns stay with the form.
+        fields = [
+            f for section in sections if section.name is None or section.name == span.form_name for f in section.fields
+        ]
 
         # Only call the LLM when the deterministic pass came up short (avoids
         # sending every form to an external model), and MERGE its labels rather
@@ -111,6 +117,18 @@ def extract_acrf(
             forms_with_fields += 1
         form_fields.append((span.form_name, fields))
 
+        # A grid with its own in-page heading is a separate form in the ALS, so
+        # emit it as its own table rather than folding it into the bookmark form.
+        for section in sections:
+            if section.name is None or section.name == span.form_name:
+                continue
+            sub_fields, sub_warns = validate_field_set(section.fields, cfg)
+            for w in sub_warns:
+                result.warnings.append(f"form '{section.name}': {w}")
+            if sub_fields:
+                sub_forms += 1
+                form_fields.append((section.name, sub_fields))
+
     result.records = assemble_records(form_fields, cfg)
     result.stats = {
         "total_pages": total_pages,
@@ -118,6 +136,7 @@ def extract_acrf(
         "forms_skipped": len(skipped),
         "forms_with_fields": forms_with_fields,
         "forms_without_fields": len(spans) - forms_with_fields,
+        "sub_forms": sub_forms,
         "forms_via_llm": llm_forms,
         "fields_total": len(result.records),
         "llm_enabled": llm_enabled,

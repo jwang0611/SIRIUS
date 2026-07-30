@@ -11,7 +11,12 @@ import statistics
 from collections import defaultdict
 
 from src.processors.acrf.fields import norm
-from src.processors.acrf.models import LineBox
+from src.processors.acrf.models import LineBox, WordBox
+
+# Glyph gap (in points) above which two adjacent characters belong to different
+# words. CJK is set solid, so any real gap is meaningful; 1pt keeps kerning
+# noise from splitting a word while still separating table columns.
+_WORD_GAP = 1.0
 
 
 class PdfBackendError(RuntimeError):
@@ -26,6 +31,32 @@ def _require_pdfplumber():  # type: ignore[no-untyped-def]
             "pdfplumber is required for aCRF PDF text extraction. Install it with: pip install pdfplumber"
         ) from exc
     return pdfplumber
+
+
+def _chars_to_words(chars: list[dict]) -> tuple[WordBox, ...]:
+    """Group a line's characters into positioned words by horizontal gap."""
+    words: list[WordBox] = []
+    buf: list[dict] = []
+
+    def flush() -> None:
+        if not buf:
+            return
+        text = "".join(str(c.get("text") or "") for c in buf).strip()
+        if text:
+            words.append(WordBox(text=text, x0=float(buf[0]["x0"]), x1=float(buf[-1]["x1"])))
+        buf.clear()
+
+    for char in chars:
+        if not isinstance(char.get("x0"), (int, float)) or not isinstance(char.get("x1"), (int, float)):
+            continue
+        if str(char.get("text") or "").isspace():
+            flush()
+            continue
+        if buf and float(char["x0"]) - float(buf[-1]["x1"]) > _WORD_GAP:
+            flush()
+        buf.append(char)
+    flush()
+    return tuple(words)
 
 
 def _line_to_box(line: dict, page_index: int) -> LineBox | None:
@@ -45,6 +76,7 @@ def _line_to_box(line: dict, page_index: int) -> LineBox | None:
         bottom=float(line.get("bottom", 0.0) or 0.0),
         size=size,
         bold=bold,
+        words=_chars_to_words(chars),
     )
 
 

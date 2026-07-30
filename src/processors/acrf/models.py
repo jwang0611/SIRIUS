@@ -65,9 +65,28 @@ class FormSpan:
     level: int = 1
 
 
+@dataclass(frozen=True)
+class WordBox:
+    """One horizontally contiguous run of glyphs inside a :class:`LineBox`.
+
+    Table columns are only recoverable from x positions: a wrapped grid header
+    reads as several visual lines, and its columns line up on ``x0`` far more
+    reliably than on whitespace in the flattened line text.
+    """
+
+    text: str
+    x0: float
+    x1: float
+
+
 @dataclass
 class LineBox:
-    """One visual text line with position and font hints (page-top origin)."""
+    """One visual text line with position and font hints (page-top origin).
+
+    ``words`` is optional: the PDF backend fills it, but the pure heuristics
+    degrade to whole-line behaviour when it is empty, so unit tests can build
+    ``LineBox`` values without synthesising per-word geometry.
+    """
 
     text: str
     page: int
@@ -77,6 +96,20 @@ class LineBox:
     bottom: float
     size: float
     bold: bool = False
+    words: tuple[WordBox, ...] = ()
+
+
+@dataclass
+class FormSection:
+    """A block of fields that belongs together under one table name.
+
+    ``name`` is ``None`` for the bookmark form's own fields. It is set when a
+    grid carries its own in-page heading (e.g. a "…明细" detail table), which the
+    source ALS models as a separate form.
+    """
+
+    name: str | None
+    fields: list[str] = field(default_factory=list)
 
 
 @dataclass
