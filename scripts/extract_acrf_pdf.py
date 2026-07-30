@@ -191,9 +191,13 @@ def main() -> None:
             continue
 
         stats = result.stats
+        # Sub-tables are extra rows in the output, so the bookmark-form count
+        # alone would understate what the workbook actually contains.
+        sub_forms = stats.get("sub_forms") or 0
         print(
-            f"[OK] {pdf.name}: {stats.get('forms_with_fields')}/{stats.get('forms_total')} forms, "
-            f"{stats.get('fields_total')} fields"
+            f"[OK] {pdf.name}: {stats.get('forms_with_fields')}/{stats.get('forms_total')} forms"
+            + (f" (+{sub_forms} sub-tables)" if sub_forms else "")
+            + f", {stats.get('fields_total')} fields"
             + (f", {stats.get('forms_via_llm')} via LLM" if stats.get("llm_enabled") else "")
         )
         _print_extraction_warnings(pdf, result.warnings)
