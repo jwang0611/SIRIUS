@@ -376,12 +376,17 @@ def test_generic_answer_word_above_a_grid_never_names_a_table():
     assert sections[0].fields == ["Other", "Reason", "Date"]
 
 
-def _cells(words: list[tuple[str, float, float]], top: float = 170.0, size: float = 10.0) -> LineBox:
+def _cells(
+    words: list[tuple[str, float, float]],
+    top: float = 170.0,
+    size: float = 10.0,
+    page: int = 0,
+) -> LineBox:
     """A header line with explicit word extents, so gaps are realistic."""
     boxes = tuple(WordBox(text=t, x0=x0, x1=x1) for t, x0, x1 in words)
     return LineBox(
         text=" ".join(t for t, _, _ in words),
-        page=0,
+        page=page,
         x0=boxes[0].x0,
         top=top,
         x1=boxes[-1].x1,
@@ -442,6 +447,23 @@ def test_multi_word_body_value_does_not_split_its_header():
     ]
 
     assert detect_grids([header, *rows])[0].columns == ["Visit Name", "Date"]
+
+
+def test_rule_from_another_page_does_not_split_this_pages_header():
+    # A bookmark form may span several pages with the same y layout. Geometry
+    # from page 1 must not become column evidence for a page-0 grid.
+    header = _cells(
+        [("No.", 40, 58), ("Visit", 66, 92), ("Name", 94.8, 124), ("Date", 200, 224)],
+        page=0,
+    )
+    row = _cells(
+        [("1", 40, 47), ("Visit 1", 66, 124), ("2024-01-01", 200, 256)],
+        top=190.0,
+        page=0,
+    )
+    page_1_rule_near_name = (1, 94.8, 160.0, 210.0)
+
+    assert detect_grids([header, row], (page_1_rule_near_name,))[0].columns == ["Visit Name", "Date"]
 
 
 def test_bare_no_opens_a_grid_when_numbered_rows_corroborate_it():

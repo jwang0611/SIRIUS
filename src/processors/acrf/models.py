@@ -79,10 +79,12 @@ class WordBox:
     x1: float
 
 
-# A vertical ruling or cell-box edge: ``(x, top, bottom)``. On a blank CRF the
-# entry boxes are vector graphics, so these edges are the only witness to where a
-# table column starts when the data rows hold nothing but a row number.
-RuleBox = tuple[float, float, float]
+# A vertical ruling or cell-box edge: ``(page, x, top, bottom)``. On a blank CRF
+# the entry boxes are vector graphics, so these edges are the only witness to
+# where a table column starts when the data rows hold nothing but a row number.
+# The page stays attached because one bookmark form can span several pages whose
+# table regions reuse the same vertical coordinates.
+RuleBox = tuple[int, float, float, float]
 
 
 @dataclass

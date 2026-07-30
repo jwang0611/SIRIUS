@@ -17,7 +17,8 @@ from src.processors.acrf.models import LineBox, RuleBox, WordBox
 # words. CJK is set solid, so any real gap is meaningful; 1pt keeps kerning
 # noise from splitting a word while still separating table columns.
 _WORD_GAP = 1.0
-# Below this height a ruling is horizontal and carries no column information.
+# Below this height a vector edge cannot contribute meaningful vertical ruling
+# coverage. Final column evidence is filtered against the table span in fields.py.
 _MIN_RULE_HEIGHT = 2.0
 
 
@@ -89,8 +90,8 @@ def _line_to_box(line: dict, page_index: int) -> LineBox | None:
     )
 
 
-def _page_column_rules(page: object) -> tuple[RuleBox, ...]:
-    """Vertical rules and cell-box edges on one page, as ``(x, top, bottom)``.
+def _page_column_rules(page: object, page_index: int) -> tuple[RuleBox, ...]:
+    """Vertical rules and cell-box edges as ``(page, x, top, bottom)``.
 
     A blank CRF draws its entry boxes as vector graphics, so on a table whose
     data rows hold nothing but a row number these edges are the only evidence of
@@ -106,8 +107,8 @@ def _page_column_rules(page: object) -> tuple[RuleBox, ...]:
             continue
         if bottom - top < _MIN_RULE_HEIGHT:
             continue
-        rules.add((round(x0, 1), top, bottom))
-        rules.add((round(x1, 1), top, bottom))
+        rules.add((page_index, round(x0, 1), top, bottom))
+        rules.add((page_index, round(x1, 1), top, bottom))
     return tuple(sorted(rules))
 
 
@@ -133,7 +134,7 @@ def extract_all_line_boxes(
                 boxes = [b for line in lines if (b := _line_to_box(line, idx))]
                 boxes_by_page[idx] = boxes
                 try:
-                    rules_by_page[idx] = _page_column_rules(page)
+                    rules_by_page[idx] = _page_column_rules(page, idx)
                 except Exception:
                     rules_by_page[idx] = ()
     except PdfBackendError:

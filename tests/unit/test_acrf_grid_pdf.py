@@ -170,4 +170,25 @@ def test_real_pdf_vector_rules_prove_columns_when_cells_are_blank(tmp_path: Path
     boxes, _heights, rules = extract_all_line_boxes(str(pdf))
 
     assert rules[0], "the stroked rulings must reach the extractor"
+    assert {rule[0] for rule in rules[0]} == {0}, "each ruling must retain its page"
     assert detect_grids(boxes[0], rules[0])[0].columns == ["Date", "Time"]
+
+
+def test_real_pdf_short_control_edge_does_not_split_a_header(tmp_path: Path):
+    """A checkbox/input edge inside one row is not a table-column ruling."""
+    pdf = tmp_path / "short_control.pdf"
+    _write_table_pdf(
+        pdf,
+        [
+            [("No.", 72), ("Visit Name", 110), ("Date", 200)],
+            [("1", 72), ("Visit 1", 110), ("2024-01-01", 200)],
+        ],
+        # Ten points high and aligned under "Name": enough to reproduce the
+        # false split when any vertical overlap is accepted as a column.
+        rules=[(134, 665, 675)],
+    )
+
+    boxes, _heights, rules = extract_all_line_boxes(str(pdf))
+
+    assert rules[0], "the short control edge must reach the coverage filter"
+    assert detect_grids(boxes[0], rules[0])[0].columns == ["Visit Name", "Date"]
