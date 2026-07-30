@@ -72,18 +72,11 @@ class WordBox:
     Table columns are only recoverable from x positions: a wrapped grid header
     reads as several visual lines, and its columns line up on ``x0`` far more
     reliably than on whitespace in the flattened line text.
-
-    ``space_before`` records *why* this word was split from the previous one: a
-    real space glyph (a word break inside one cell) or bare horizontal distance
-    (a cell boundary, which PDF typesetting expresses by position, not spaces).
-    Gap width alone cannot tell those apart — adjacent narrow table columns such
-    as Date/Time sit closer together than some intra-cell spaces.
     """
 
     text: str
     x0: float
     x1: float
-    space_before: bool = False
 
 
 @dataclass

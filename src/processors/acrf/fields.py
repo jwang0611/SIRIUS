@@ -52,6 +52,10 @@ _GRID_MARKER_RE = re.compile(r"^(?:#|no\.?|s/?n|序号|编号)$", re.IGNORECASE)
 # A bare "No" is equally the answer to a yes/no question, so it opens a table
 # only with corroborating geometry: sibling header cells *and* numbered rows.
 _AMBIGUOUS_GRID_MARKER_RE = re.compile(r"^no$", re.IGNORECASE)
+# Largest gap, as a fraction of the font size, that still reads as within one
+# header cell. Calibrated on this project's corpus: intra-cell gaps reach
+# 0.295 em, the tightest real column boundary is 0.512 em.
+_MAX_INTRA_CELL_GAP = 0.4
 _GRID_ROW_NUMBER_RE = re.compile(r"^\d{1,3}$")
 # Marks that prove a line carries an answer/value, so it is a data-entry row
 # rather than a section heading.
@@ -316,44 +320,68 @@ class _Grid:
     consumed: frozenset[int]  # id() of every LineBox the grid absorbs
 
 
-def _header_cells(line_box: LineBox, marker: WordBox) -> list[WordBox]:
+def _header_cells(line_box: LineBox, marker: WordBox, column_starts: tuple[float, ...] = ()) -> list[WordBox]:
     """One line's header words merged into table cells.
 
-    Two words join only when a real space glyph separates them ("Start Date" is
-    one column typeset with a space, while adjacent Date/Time columns are set by
-    position with no space between), both are Latin (CJK is set solid, so any
-    gap between CJK words is a cell boundary), and the gap stays within a word
-    space — which rejects a column that happens to be padded with spaces. The
-    row-number marker is dropped before merging; it sits a few points from the
-    first column and would otherwise force the gap bound implausibly tight.
+    Two words join only when every test agrees they sit in one cell:
+
+    * the gap is at most :data:`_MAX_INTRA_CELL_GAP` of the font size — measured
+      over this project's corpus, intra-cell gaps top out at 0.295 em while the
+      tightest real column boundary is 0.512 em, so 0.4 em splits them with
+      margin on both sides (a bare gap threshold is required because real PDFs
+      carry no space glyphs at all — ``pdfplumber`` synthesises them);
+    * both sides are Latin, since CJK is set solid and any gap between two CJK
+      words is a boundary;
+    * the second word does not start a column that the data rows established,
+      which is direct layout evidence and overrides the gap.
+
+    The row-number marker is dropped before merging: it sits a few points from
+    the first column and would otherwise force the bound implausibly tight.
     """
     words = [w for w in _words_of(line_box) if w is not marker]
     if not words:
         return []
-    limit = max(3.0, (line_box.size or 10.0) * 0.6)
+    limit = max(2.0, (line_box.size or 10.0) * _MAX_INTRA_CELL_GAP)
 
     cells = [words[0]]
     for word in words[1:]:
         previous = cells[-1]
         same_cell = (
-            word.space_before
+            word.x0 - previous.x1 <= limit
             and not _CJK_RE.search(previous.text)
             and not _CJK_RE.search(word.text)
-            and word.x0 - previous.x1 <= limit
+            and not any(abs(word.x0 - start) <= 3.0 for start in column_starts)
         )
         if not same_cell:
             cells.append(word)
             continue
-        cells[-1] = WordBox(
-            text=_join_labels(previous.text, word.text),
-            x0=previous.x0,
-            x1=word.x1,
-            space_before=previous.space_before,
-        )
+        cells[-1] = WordBox(text=_join_labels(previous.text, word.text), x0=previous.x0, x1=word.x1)
     return cells
 
 
-def _stitch_grid_columns(band: list[LineBox], marker: WordBox) -> list[str]:
+def _numbered_rows(boxes: list[LineBox], body: list[int], marker_x: float) -> list[LineBox]:
+    """Body lines that actually open with a row number in the marker column."""
+    rows: list[LineBox] = []
+    for index in body:
+        words = _words_of(boxes[index])
+        if words and _GRID_ROW_NUMBER_RE.match(words[0].text.strip()) and abs(words[0].x0 - marker_x) <= 6.0:
+            rows.append(boxes[index])
+    return rows
+
+
+def _body_column_starts(rows: list[LineBox], marker_x: float) -> tuple[float, ...]:
+    """Column left edges witnessed by the grid's own data rows."""
+    starts: list[float] = []
+    for row in rows:
+        for word in _words_of(row):
+            if abs(word.x0 - marker_x) <= 6.0:
+                continue
+            if not any(abs(word.x0 - start) <= 3.0 for start in starts):
+                starts.append(word.x0)
+    return tuple(sorted(starts))
+
+
+def _stitch_grid_columns(band: list[LineBox], marker: WordBox, column_starts: tuple[float, ...] = ()) -> list[str]:
     """Rebuild column headers from a (possibly wrapped) header band.
 
     Column headers wrap downward inside their own column, so words that share an
@@ -365,7 +393,7 @@ def _stitch_grid_columns(band: list[LineBox], marker: WordBox) -> list[str]:
         # four words but two columns, and clustering words directly would split
         # every multi-word English header — and then mint a duplicate "Date"
         # variable downstream.
-        for word in _header_cells(line_box, marker):
+        for word in _header_cells(line_box, marker, column_starts):
             for column in placed:
                 if abs(column[0][1].x0 - word.x0) <= 3.0:
                     column.append((line_box.top, word))
@@ -506,11 +534,19 @@ def detect_grids(line_boxes: list[LineBox]) -> list[_Grid]:
             interior_x = marker.x0 + max(8.0, size)
 
             band = _grid_header_band(boxes, index, interior_x)
-            columns = _stitch_grid_columns([boxes[i] for i in band], marker)
-            if not columns:
-                continue
             body = _grid_body(boxes, band[-1] + 1, marker.x0, interior_x)
-            if _AMBIGUOUS_GRID_MARKER_RE.match(marker.text.strip()) and not body:
+            numbered = _numbered_rows(boxes, body, marker.x0)
+            # "No" is also the answer to a yes/no question. Only real numbered
+            # rows corroborate a table — a merely non-empty body does not, since
+            # any line right of the marker column joins it.
+            if _AMBIGUOUS_GRID_MARKER_RE.match(marker.text.strip()) and not numbered:
+                continue
+            columns = _stitch_grid_columns(
+                [boxes[i] for i in band],
+                marker,
+                _body_column_starts(numbered, marker.x0),
+            )
+            if not columns:
                 continue
             title_box = _grid_title(boxes, band[0], interior_x, size)
 

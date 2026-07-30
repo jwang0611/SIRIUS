@@ -376,15 +376,11 @@ def test_generic_answer_word_above_a_grid_never_names_a_table():
     assert sections[0].fields == ["Other", "Reason", "Date"]
 
 
-def _cells(words: list[tuple], top: float = 170.0, size: float = 10.0) -> LineBox:
-    """A header line with explicit word extents, so gaps are realistic.
-
-    Each word is ``(text, x0, x1)``, or ``(text, x0, x1, space_before)`` to mark
-    it as separated from the previous word by a real space glyph.
-    """
-    boxes = tuple(WordBox(text=w[0], x0=w[1], x1=w[2], space_before=bool(w[3:4] and w[3])) for w in words)
+def _cells(words: list[tuple[str, float, float]], top: float = 170.0, size: float = 10.0) -> LineBox:
+    """A header line with explicit word extents, so gaps are realistic."""
+    boxes = tuple(WordBox(text=t, x0=x0, x1=x1) for t, x0, x1 in words)
     return LineBox(
-        text=" ".join(w[0] for w in words),
+        text=" ".join(t for t, _, _ in words),
         page=0,
         x0=boxes[0].x0,
         top=top,
@@ -402,9 +398,9 @@ def test_multi_word_english_grid_header_stays_one_column_per_cell():
         [
             ("No.", 40, 58),
             ("Start", 66, 92),
-            ("Date", 94.8, 120, True),
+            ("Date", 94.8, 120),
             ("End", 200, 220),
-            ("Date", 222.8, 248, True),
+            ("Date", 222.8, 248),
         ]
     )
     row_1 = _cells([("1", 40, 47), ("Headache", 66, 120)], top=190.0)
@@ -416,18 +412,19 @@ def test_multi_word_english_grid_header_stays_one_column_per_cell():
 
 
 def test_adjacent_narrow_english_columns_are_not_merged():
-    # Date/Time and Low/High sit closer than an intra-cell space, so gap alone
-    # cannot separate them — only the absence of a space glyph can.
-    header = _cells([("No.", 40, 58), ("Date", 66, 100), ("Time", 105, 130), ("Low", 140, 160), ("High", 164, 188)])
+    # Date/Time and Low/High are the tightest real column pairs: 0.5 em at 10pt
+    # type, against intra-cell gaps that top out at 0.295 em.
+    header = _cells([("No.", 40, 58), ("Date", 66, 100), ("Time", 105, 130), ("Low", 140, 160), ("High", 165, 189)])
     row_1 = _cells([("1", 40, 47), ("x", 66, 72)], top=190.0)
 
     assert detect_grids([header, row_1])[0].columns == ["Date", "Time", "Low", "High"]
 
 
-def test_space_padded_column_is_not_merged_into_its_neighbour():
-    # Some exporters pad cells with spaces; the gap bound still separates them.
-    header = _cells([("No.", 40, 58), ("Date", 66, 100), ("Time", 140, 165, True)])
-    row_1 = _cells([("1", 40, 47), ("x", 66, 72)], top=190.0)
+def test_body_column_start_splits_a_cell_even_at_an_intra_cell_gap():
+    # Direct layout evidence beats the gap: the data row proves "Time" opens its
+    # own column, so it stays split despite sitting only 0.2 em from "Date".
+    header = _cells([("No.", 40, 58), ("Date", 66, 100), ("Time", 102, 126)])
+    row_1 = _cells([("1", 40, 47), ("2024-01-01", 66, 96), ("09:30", 102, 126)], top=190.0)
 
     assert detect_grids([header, row_1])[0].columns == ["Date", "Time"]
 

@@ -34,43 +34,35 @@ def _require_pdfplumber():  # type: ignore[no-untyped-def]
 
 
 def _chars_to_words(chars: list[dict]) -> tuple[WordBox, ...]:
-    """Group a line's characters into positioned words.
+    """Group a line's characters into positioned words by horizontal gap.
 
-    Splits on a space glyph or on a horizontal gap, recording which of the two
-    caused each split so callers can tell a word break from a cell boundary.
+    Note that real PDFs generally carry **no** space glyphs: ``pdfplumber``
+    synthesises the spaces in ``line["text"]`` from positions. Word boundaries
+    are therefore always positional, which is why callers separate an intra-cell
+    space from a cell boundary by measuring the gap (see ``fields._header_cells``)
+    rather than looking for a space character.
     """
     words: list[WordBox] = []
     buf: list[dict] = []
-    pending_space = False
 
-    def flush(space_before: bool) -> bool:
-        """Emit the buffered word. Returns the ``space_before`` for the next one."""
-        nonlocal buf
+    def flush() -> None:
         if not buf:
-            return space_before
+            return
         text = "".join(str(c.get("text") or "") for c in buf).strip()
         if text:
-            words.append(
-                WordBox(
-                    text=text,
-                    x0=float(buf[0]["x0"]),
-                    x1=float(buf[-1]["x1"]),
-                    space_before=space_before,
-                )
-            )
-        buf = []
-        return False
+            words.append(WordBox(text=text, x0=float(buf[0]["x0"]), x1=float(buf[-1]["x1"])))
+        buf.clear()
 
     for char in chars:
         if not isinstance(char.get("x0"), (int, float)) or not isinstance(char.get("x1"), (int, float)):
             continue
         if str(char.get("text") or "").isspace():
-            pending_space = flush(pending_space) or True
+            flush()
             continue
         if buf and float(char["x0"]) - float(buf[-1]["x1"]) > _WORD_GAP:
-            pending_space = flush(pending_space)
+            flush()
         buf.append(char)
-    flush(pending_space)
+    flush()
     return tuple(words)
 
 
