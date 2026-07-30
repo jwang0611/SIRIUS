@@ -57,6 +57,10 @@ _ANSWER_MARK_RE = re.compile(f"[{_OPTION_GLYPHS}]|_{{2,}}|[|｜][\\s_]*[|｜]")
 # a question or an instruction instead.
 _SENTENCE_PUNCT_RE = re.compile(r"[，,。、；;？?！!]")
 _MAX_GRID_TITLE_LEN = 20
+# Words that may legitimately be a *field* (one checkbox of a group) but never
+# the name of a table. Kept separate from ``STOP_EXACT`` so naming a table stays
+# strict without costing those fields.
+_GENERIC_TITLE_WORDS: frozenset[str] = frozenset({"other", "none", "not reported", "specify", "unknown"})
 # How many lines must share a far-right x0 before the column reads as a list of
 # answer choices rather than a second column of real fields.
 _MIN_ANSWER_COLUMN_RUN = 4
@@ -412,6 +416,10 @@ def _grid_title(boxes: list[LineBox], band_start: int, interior_x: float, size: 
         if len(_words_of(candidate)) != 1:  # a label printed with its value
             return None
         if _SENTENCE_PUNCT_RE.search(cleaned) or len(cleaned) > _MAX_GRID_TITLE_LEN:
+            return None
+        # A generic answer word never names a table, even though an ALS may well
+        # carry it as a field ("Other" as one checkbox of a group).
+        if norm(cleaned) in _GENERIC_TITLE_WORDS:
             return None
         if _ANSWER_MARK_RE.search(candidate.text):
             return None

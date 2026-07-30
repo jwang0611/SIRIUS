@@ -359,3 +359,17 @@ def test_outdented_group_heading_is_dropped_but_nested_subfield_is_kept():
         "Ethnicity",
         "Specify other ethnicity",
     ]
+
+
+def test_generic_answer_word_above_a_grid_never_names_a_table():
+    # An ALS may carry "Other" as one checkbox of a group, so it stays a field —
+    # but it must not invent a table, which would propagate into the Spec.
+    boxes = [
+        _row([("Other", 43.0)], top=180.0, size=12.0),
+        _row([("No.", 40.0), ("Reason", 66.0), ("Date", 200.0)], top=210.0, size=12.0),
+        _row([("1", 40.0), ("Screen failure", 66.0)], top=226.0, size=12.0),
+    ]
+    sections = extract_form_sections(boxes, set(), AcrfConfig())
+
+    assert [s.name for s in sections] == [None]
+    assert sections[0].fields == ["Other", "Reason", "Date"]
