@@ -530,19 +530,29 @@ def _rule_column_starts(
     page: int,
     top: float,
     bottom: float,
+    header_bottom: float,
+    row_height: float,
 ) -> tuple[float, ...]:
-    """Column rulings on ``page`` that cover enough of one table's height.
+    """Column rulings on ``page`` that genuinely divide one table's columns.
 
     PDF pages contain many short vertical edges from checkboxes and input
-    controls. Any-overlap matching turns those into false column starts, so
-    aligned fragments are grouped by x and their clipped interval union must
-    cover at least :data:`_MIN_COLUMN_RULE_COVERAGE` of the table span.
+    controls. Any-overlap matching turns those into false column starts, so an
+    aligned group of fragments has to pass two tests:
+
+    * its clipped interval union covers at least
+      :data:`_MIN_COLUMN_RULE_COVERAGE` of the table span; and
+    * it reaches at least a row below the header band. A column ruling separates
+      *rows*, so it always continues past the header — even on a blank table,
+      where it is drawn down through the empty entry area. An edge that lives
+      inside the header row does not, and coverage alone cannot reject it when
+      the table has no data rows and its span *is* the header band.
     """
     table_height = bottom - top
     if table_height <= 0:
         return ()
+    reach_required = header_bottom + max(4.0, row_height)
 
-    groups: list[tuple[float, list[tuple[float, float]]]] = []
+    groups: list[tuple[float, list[tuple[float, float]], float]] = []
     for rule_page, x, r_top, r_bottom in rules:
         if rule_page != page:
             continue
@@ -550,18 +560,22 @@ def _rule_column_starts(
         clipped_bottom = min(bottom, r_bottom)
         if clipped_bottom <= clipped_top:
             continue
-        for group_x, intervals in groups:
+        for index, (group_x, intervals, reach) in enumerate(groups):
             if abs(x - group_x) <= _RULE_X_CLUSTER_TOLERANCE:
                 intervals.append((clipped_top, clipped_bottom))
+                groups[index] = (group_x, intervals, max(reach, r_bottom))
                 break
         else:
-            groups.append((x, [(clipped_top, clipped_bottom)]))
+            groups.append((x, [(clipped_top, clipped_bottom)], r_bottom))
 
     starts: list[float] = []
-    for x, intervals in groups:
+    for x, intervals, reach in groups:
+        if reach < reach_required:
+            continue
+        ordered = sorted(intervals)
         covered = 0.0
-        current_top, current_bottom = sorted(intervals)[0]
-        for interval_top, interval_bottom in sorted(intervals)[1:]:
+        current_top, current_bottom = ordered[0]
+        for interval_top, interval_bottom in ordered[1:]:
             if interval_top <= current_bottom:
                 current_bottom = max(current_bottom, interval_bottom)
                 continue
@@ -616,7 +630,14 @@ def detect_grids(line_boxes: list[LineBox], rules: tuple[RuleBox, ...] = ()) -> 
                 sorted(
                     {
                         *_body_column_starts(numbered, marker.x0),
-                        *_rule_column_starts(rules, page, table_top, table_bottom),
+                        *_rule_column_starts(
+                            rules,
+                            page,
+                            table_top,
+                            table_bottom,
+                            header_bottom=max(boxes[i].bottom for i in band),
+                            row_height=size,
+                        ),
                     }
                 )
             )

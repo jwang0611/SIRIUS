@@ -539,3 +539,21 @@ def test_sub_table_line_ids_covers_only_titled_grids():
         _cells([("1", 40, 47), ("糖尿病", 66, 102)], top=190.0, size=12.0),
     ]
     assert sub_table_line_ids(untitled) == frozenset()
+
+
+def test_control_edge_cannot_split_a_header_when_the_table_has_no_data_rows():
+    # Without data rows the table span *is* the header band, so a short control
+    # edge covers most of it. Coverage alone cannot reject it — reach must.
+    header = _cells([("No.", 40, 58), ("Visit", 66, 92), ("Name", 94.8, 124), ("Date", 200, 224)])
+    checkbox_edge = (0, 94.8, 172.0, 180.0)  # 8pt, entirely inside the header row
+
+    assert detect_grids([header], (checkbox_edge,))[0].columns == ["Visit Name", "Date"]
+
+
+def test_ruling_through_an_empty_entry_area_still_proves_a_column():
+    # The same table, ruled: a real column ruling is drawn down through the
+    # blank entry area, so it reaches well past the header.
+    header = _cells([("No.", 40, 58), ("Visit", 66, 92), ("Name", 94.8, 124), ("Date", 200, 224)])
+    column_rule = (0, 94.8, 168.0, 300.0)
+
+    assert detect_grids([header], (column_rule,))[0].columns == ["Visit", "Name", "Date"]

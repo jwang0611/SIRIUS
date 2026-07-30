@@ -192,3 +192,37 @@ def test_real_pdf_short_control_edge_does_not_split_a_header(tmp_path: Path):
 
     assert rules[0], "the short control edge must reach the coverage filter"
     assert detect_grids(boxes[0], rules[0])[0].columns == ["Visit Name", "Date"]
+
+
+def test_real_pdf_control_edge_cannot_split_a_header_without_data_rows(tmp_path: Path):
+    """The header-band-only table: coverage is satisfied, reach is not.
+
+    A table with no pre-printed rows spans just its header, so a checkbox edge
+    inside that row covers most of the span. Only the requirement that a column
+    ruling continue past the header separates the two.
+    """
+    pdf = tmp_path / "no_rows.pdf"
+    _write_table_pdf(
+        pdf,
+        [[("No.", 72), ("Visit Name", 110), ("Date", 200)]],
+        rules=[(133.8, 686, 696)],  # 10pt, inside the header row
+    )
+
+    boxes, _heights, rules = extract_all_line_boxes(str(pdf))
+
+    assert rules[0], "the edge must reach the extractor to make this meaningful"
+    assert detect_grids(boxes[0], rules[0])[0].columns == ["Visit Name", "Date"]
+
+
+def test_real_pdf_ruling_past_the_header_proves_a_column_without_data_rows(tmp_path: Path):
+    """The same table with a genuine column ruling drawn through the entry area."""
+    pdf = tmp_path / "no_rows_ruled.pdf"
+    _write_table_pdf(
+        pdf,
+        [[("No.", 72), ("Visit Name", 110), ("Date", 200)]],
+        rules=[(133.8, 560, 712)],
+    )
+
+    boxes, _heights, rules = extract_all_line_boxes(str(pdf))
+
+    assert detect_grids(boxes[0], rules[0])[0].columns == ["Visit", "Name", "Date"]
