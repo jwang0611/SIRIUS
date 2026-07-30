@@ -56,6 +56,8 @@ _AMBIGUOUS_GRID_MARKER_RE = re.compile(r"^no$", re.IGNORECASE)
 # header cell. Calibrated on this project's corpus: intra-cell gaps reach
 # 0.295 em, the tightest real column boundary is 0.512 em.
 _MAX_INTRA_CELL_GAP = 0.4
+# Sentinel for "this line has no marker word to skip".
+_NO_WORD = WordBox(text="", x0=float("-inf"), x1=float("-inf"))
 _GRID_ROW_NUMBER_RE = re.compile(r"^\d{1,3}$")
 # Marks that prove a line carries an answer/value, so it is a data-entry row
 # rather than a section heading.
@@ -370,15 +372,28 @@ def _numbered_rows(boxes: list[LineBox], body: list[int], marker_x: float) -> li
 
 
 def _body_column_starts(rows: list[LineBox], marker_x: float) -> tuple[float, ...]:
-    """Column left edges witnessed by the grid's own data rows."""
-    starts: list[float] = []
+    """Column left edges witnessed by the grid's own data rows.
+
+    Two safeguards keep this from arguing *against* a legitimate multi-word
+    header. A data cell may itself hold several words ("Visit 1"), so each row is
+    reduced to cells before its left edges are read — otherwise the second word
+    of a value lands under a header word and splits that header. And an edge only
+    counts once at least two rows agree on it, so a single stray value cannot
+    invent a column.
+    """
+    witnesses: list[tuple[float, int]] = []
     for row in rows:
-        for word in _words_of(row):
-            if abs(word.x0 - marker_x) <= 6.0:
+        row_marker = next((w for w in _words_of(row) if abs(w.x0 - marker_x) <= 6.0), None)
+        for cell in _header_cells(row, row_marker) if row_marker else _header_cells(row, _NO_WORD):
+            if abs(cell.x0 - marker_x) <= 6.0:
                 continue
-            if not any(abs(word.x0 - start) <= 3.0 for start in starts):
-                starts.append(word.x0)
-    return tuple(sorted(starts))
+            for index, (start, count) in enumerate(witnesses):
+                if abs(cell.x0 - start) <= 3.0:
+                    witnesses[index] = (start, count + 1)
+                    break
+            else:
+                witnesses.append((cell.x0, 1))
+    return tuple(sorted(start for start, count in witnesses if count >= 2))
 
 
 def _stitch_grid_columns(band: list[LineBox], marker: WordBox, column_starts: tuple[float, ...] = ()) -> list[str]:

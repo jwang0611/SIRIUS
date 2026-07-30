@@ -93,3 +93,42 @@ def test_real_pdf_carries_no_space_glyphs(tmp_path: Path):
 
     assert line.text == "Start Date"
     assert [word.text for word in line.words] == ["Start", "Date"]
+
+
+def test_real_pdf_multi_word_body_value_keeps_its_header_intact(tmp_path: Path):
+    """A value with a space must not argue against a multi-word header.
+
+    "Visit 1"'s second word lands under the header word "Name"; reading raw word
+    positions as column starts would split "Visit Name" and add a variable that
+    the CRF never had.
+    """
+    pdf = tmp_path / "body_cells.pdf"
+    _write_table_pdf(
+        pdf,
+        [
+            [("No.", 72), ("Visit Name", 110), ("Date", 200)],
+            [("1", 72), ("Visit 1", 110), ("2024-01-01", 200)],
+            [("2", 72), ("Visit 2", 110), ("2024-02-01", 200)],
+        ],
+    )
+
+    boxes, _heights = extract_all_line_boxes(str(pdf))
+
+    assert detect_grids(boxes[0])[0].columns == ["Visit Name", "Date"]
+
+
+def test_real_pdf_stable_body_rows_prove_a_tight_column(tmp_path: Path):
+    """Short values two rows deep are evidence that a close header word is a column."""
+    pdf = tmp_path / "tight.pdf"
+    _write_table_pdf(
+        pdf,
+        [
+            [("No.", 72), ("Date", 110), ("Time", 137)],  # 0.35 em apart
+            [("1", 72), ("Y", 110), ("N", 137)],
+            [("2", 72), ("Y", 110), ("N", 137)],
+        ],
+    )
+
+    boxes, _heights = extract_all_line_boxes(str(pdf))
+
+    assert detect_grids(boxes[0])[0].columns == ["Date", "Time"]
