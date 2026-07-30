@@ -45,3 +45,19 @@ def test_chars_without_geometry_are_skipped():
 
 def test_no_chars_yields_no_words():
     assert _chars_to_words([]) == ()
+
+
+def test_space_glyph_and_positional_gap_are_distinguished():
+    # "Start Date" is one cell split by a space; a table column boundary is set
+    # by position with no space glyph. Only the former may later be rejoined.
+    words = _chars_to_words(_chars([("A", 40.0, 48.0), (" ", 48.0, 51.0), ("B", 51.0, 59.0), ("C", 105.0, 113.0)]))
+
+    assert [(w.text, w.space_before) for w in words] == [("A", False), ("B", True), ("C", False)]
+
+
+def test_a_space_run_marks_only_the_next_word():
+    words = _chars_to_words(
+        _chars([("A", 40.0, 48.0), (" ", 48.0, 51.0), (" ", 51.0, 54.0), ("B", 54.0, 62.0), ("C", 62.0, 70.0)])
+    )
+
+    assert [(w.text, w.space_before) for w in words] == [("A", False), ("BC", True)]

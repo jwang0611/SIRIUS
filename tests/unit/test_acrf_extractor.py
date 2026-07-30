@@ -140,3 +140,33 @@ def test_llm_input_excludes_detail_table_text(stub_pdf, monkeypatch):
     assert seen, "the LLM assist should have run for this sparse form"
     assert "Result" not in seen[0]
     assert "Lab Detail" not in seen[0]
+
+
+def test_detail_table_columns_do_not_mask_a_sparse_parent(stub_pdf, monkeypatch):
+    """Sparsity is judged on the parent, which is what receives the labels."""
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "src.processors.acrf.llm_extractor.extract_fields_llm",
+        lambda page_text, **kw: seen.append(page_text) or ["Recovered Field"],
+    )
+    stub_pdf([_row([("Assessment Date", 109.5)], top=120.0), *_DETAIL_ONLY_FORM], form_name="Lab")
+
+    # Parent has 1 field, the detail table 2 — only the parent's count may count.
+    result = ext.extract_acrf("ignored.pdf", use_llm=True, client=object(), cfg=AcrfConfig(llm_min_fields=3))
+
+    assert seen, "the parent is sparse and must still reach the LLM"
+    assert result.stats["forms_via_llm"] == 1
+    assert ("Lab", "Recovered Field") in [(r.metadata_table, r.annotation_variable) for r in result.records]
+
+
+def test_container_form_skips_the_remote_call_instead_of_prompting_on_air(stub_pdf, monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "src.processors.acrf.llm_extractor.extract_fields_llm",
+        lambda page_text, **kw: calls.append(page_text) or [],
+    )
+    stub_pdf(_DETAIL_ONLY_FORM, form_name="Lab")
+
+    ext.extract_acrf("ignored.pdf", use_llm=True, client=object(), cfg=AcrfConfig(llm_min_fields=3))
+
+    assert calls == []

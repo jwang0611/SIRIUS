@@ -47,9 +47,11 @@ _LATIN_RE = re.compile(r"[A-Za-z]")
 _COMPLETE_LABEL_ENDINGS = ("：", ":", "？", "?", "。", "！", ".", "!")
 
 # The row-number column that opens a repeating table ("grid"). Its presence is
-# what distinguishes a table header row from an ordinary wrapped label. The
-# period on "No." is required: a bare "No" is the answer to a yes/no question.
-_GRID_MARKER_RE = re.compile(r"^(?:#|no\.|s/?n|序号|编号)$", re.IGNORECASE)
+# what distinguishes a table header row from an ordinary wrapped label.
+_GRID_MARKER_RE = re.compile(r"^(?:#|no\.?|s/?n|序号|编号)$", re.IGNORECASE)
+# A bare "No" is equally the answer to a yes/no question, so it opens a table
+# only with corroborating geometry: sibling header cells *and* numbered rows.
+_AMBIGUOUS_GRID_MARKER_RE = re.compile(r"^no$", re.IGNORECASE)
 _GRID_ROW_NUMBER_RE = re.compile(r"^\d{1,3}$")
 # Marks that prove a line carries an answer/value, so it is a data-entry row
 # rather than a section heading.
@@ -317,13 +319,13 @@ class _Grid:
 def _header_cells(line_box: LineBox, marker: WordBox) -> list[WordBox]:
     """One line's header words merged into table cells.
 
-    Only Latin runs are joined: "Start Date" is one column split by a space,
-    whereas CJK is set solid, so a gap between two CJK words is always a column
-    boundary. Chinese headers pack columns as tightly as 6pt at 12pt type — no
-    gap threshold alone separates that from a Latin word space, so the script is
-    what decides and the gap only bounds it. The row-number marker is dropped
-    before merging; it sits a few points from the first column and would
-    otherwise force the threshold implausibly tight.
+    Two words join only when a real space glyph separates them ("Start Date" is
+    one column typeset with a space, while adjacent Date/Time columns are set by
+    position with no space between), both are Latin (CJK is set solid, so any
+    gap between CJK words is a cell boundary), and the gap stays within a word
+    space — which rejects a column that happens to be padded with spaces. The
+    row-number marker is dropped before merging; it sits a few points from the
+    first column and would otherwise force the gap bound implausibly tight.
     """
     words = [w for w in _words_of(line_box) if w is not marker]
     if not words:
@@ -333,11 +335,21 @@ def _header_cells(line_box: LineBox, marker: WordBox) -> list[WordBox]:
     cells = [words[0]]
     for word in words[1:]:
         previous = cells[-1]
-        latin_pair = not _CJK_RE.search(previous.text) and not _CJK_RE.search(word.text)
-        if not latin_pair or word.x0 - previous.x1 > limit:
+        same_cell = (
+            word.space_before
+            and not _CJK_RE.search(previous.text)
+            and not _CJK_RE.search(word.text)
+            and word.x0 - previous.x1 <= limit
+        )
+        if not same_cell:
             cells.append(word)
             continue
-        cells[-1] = WordBox(text=_join_labels(previous.text, word.text), x0=previous.x0, x1=word.x1)
+        cells[-1] = WordBox(
+            text=_join_labels(previous.text, word.text),
+            x0=previous.x0,
+            x1=word.x1,
+            space_before=previous.space_before,
+        )
     return cells
 
 
@@ -498,6 +510,8 @@ def detect_grids(line_boxes: list[LineBox]) -> list[_Grid]:
             if not columns:
                 continue
             body = _grid_body(boxes, band[-1] + 1, marker.x0, interior_x)
+            if _AMBIGUOUS_GRID_MARKER_RE.match(marker.text.strip()) and not body:
+                continue
             title_box = _grid_title(boxes, band[0], interior_x, size)
 
             owned = [boxes[i] for i in band] + [boxes[i] for i in body]
@@ -516,15 +530,18 @@ def detect_grids(line_boxes: list[LineBox]) -> list[_Grid]:
     return grids
 
 
-def sub_table_line_ids(line_boxes: list[LineBox]) -> frozenset[int]:
-    """``id()`` of every line owned by a grid that becomes its own table.
+def sub_table_line_ids(line_boxes: list[LineBox], form_name: str | None = None) -> frozenset[int]:
+    """``id()`` of every line owned by a grid that becomes its *own* table.
 
     Callers that feed page text to another consumer (the LLM assist) use this to
-    keep a detail table's text out of its parent form.
+    keep a detail table's text out of its parent form. A grid whose heading just
+    repeats ``form_name`` is folded back into that form by the extractor, so its
+    lines stay — excluding them would hand the model an empty page.
     """
+    form_key = norm(form_name or "")
     owned: set[int] = set()
     for grid in detect_grids(line_boxes):
-        if grid.title:
+        if grid.title and norm(grid.title) != form_key:
             owned |= grid.consumed
     return frozenset(owned)
 

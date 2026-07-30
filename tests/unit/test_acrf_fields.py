@@ -376,11 +376,15 @@ def test_generic_answer_word_above_a_grid_never_names_a_table():
     assert sections[0].fields == ["Other", "Reason", "Date"]
 
 
-def _cells(words: list[tuple[str, float, float]], top: float = 170.0, size: float = 10.0) -> LineBox:
-    """A header line with explicit word extents, so gaps are realistic."""
-    boxes = tuple(WordBox(text=t, x0=x0, x1=x1) for t, x0, x1 in words)
+def _cells(words: list[tuple], top: float = 170.0, size: float = 10.0) -> LineBox:
+    """A header line with explicit word extents, so gaps are realistic.
+
+    Each word is ``(text, x0, x1)``, or ``(text, x0, x1, space_before)`` to mark
+    it as separated from the previous word by a real space glyph.
+    """
+    boxes = tuple(WordBox(text=w[0], x0=w[1], x1=w[2], space_before=bool(w[3:4] and w[3])) for w in words)
     return LineBox(
-        text=" ".join(t for t, _, _ in words),
+        text=" ".join(w[0] for w in words),
         page=0,
         x0=boxes[0].x0,
         top=top,
@@ -394,13 +398,59 @@ def _cells(words: list[tuple[str, float, float]], top: float = 170.0, size: floa
 def test_multi_word_english_grid_header_stays_one_column_per_cell():
     # "Start Date" is one column split by a space. Treating each word as its own
     # column would also mint a duplicate "Date" variable downstream.
-    header = _cells([("No.", 40, 58), ("Start", 66, 92), ("Date", 94.8, 120), ("End", 200, 220), ("Date", 222.8, 248)])
+    header = _cells(
+        [
+            ("No.", 40, 58),
+            ("Start", 66, 92),
+            ("Date", 94.8, 120, True),
+            ("End", 200, 220),
+            ("Date", 222.8, 248, True),
+        ]
+    )
     row_1 = _cells([("1", 40, 47), ("Headache", 66, 120)], top=190.0)
 
     grids = detect_grids([header, row_1])
 
     assert len(grids) == 1
     assert grids[0].columns == ["Start Date", "End Date"]
+
+
+def test_adjacent_narrow_english_columns_are_not_merged():
+    # Date/Time and Low/High sit closer than an intra-cell space, so gap alone
+    # cannot separate them — only the absence of a space glyph can.
+    header = _cells([("No.", 40, 58), ("Date", 66, 100), ("Time", 105, 130), ("Low", 140, 160), ("High", 164, 188)])
+    row_1 = _cells([("1", 40, 47), ("x", 66, 72)], top=190.0)
+
+    assert detect_grids([header, row_1])[0].columns == ["Date", "Time", "Low", "High"]
+
+
+def test_space_padded_column_is_not_merged_into_its_neighbour():
+    # Some exporters pad cells with spaces; the gap bound still separates them.
+    header = _cells([("No.", 40, 58), ("Date", 66, 100), ("Time", 140, 165, True)])
+    row_1 = _cells([("1", 40, 47), ("x", 66, 72)], top=190.0)
+
+    assert detect_grids([header, row_1])[0].columns == ["Date", "Time"]
+
+
+def test_bare_no_opens_a_grid_when_numbered_rows_corroborate_it():
+    # "No" is both an answer and an abbreviation for Number; geometry decides.
+    header = _cells([("No", 40, 55), ("Date", 66, 100), ("Result", 150, 190)])
+    row_1 = _cells([("1", 40, 47), ("x", 66, 72)], top=190.0)
+
+    assert detect_grids([header, row_1])[0].columns == ["Date", "Result"]
+
+
+def test_sub_table_line_ids_keeps_a_grid_named_after_its_own_form():
+    # The extractor folds such a grid back into the parent, so its text must
+    # stay in the parent's LLM prompt.
+    boxes = [
+        _row([("病理检查", 109.5)], top=140.0),
+        _cells([("#", 117, 122), ("检查项目", 144, 190)], top=170.0),
+        _cells([("1", 117, 122), ("x", 144, 150)], top=190.0),
+    ]
+
+    assert sub_table_line_ids(boxes, form_name="病理检查") == frozenset()
+    assert sub_table_line_ids(boxes, form_name="其他表") == frozenset(id(lb) for lb in boxes)
 
 
 def test_tightly_packed_cjk_grid_columns_are_never_merged():

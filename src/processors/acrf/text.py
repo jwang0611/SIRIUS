@@ -34,28 +34,43 @@ def _require_pdfplumber():  # type: ignore[no-untyped-def]
 
 
 def _chars_to_words(chars: list[dict]) -> tuple[WordBox, ...]:
-    """Group a line's characters into positioned words by horizontal gap."""
+    """Group a line's characters into positioned words.
+
+    Splits on a space glyph or on a horizontal gap, recording which of the two
+    caused each split so callers can tell a word break from a cell boundary.
+    """
     words: list[WordBox] = []
     buf: list[dict] = []
+    pending_space = False
 
-    def flush() -> None:
+    def flush(space_before: bool) -> bool:
+        """Emit the buffered word. Returns the ``space_before`` for the next one."""
+        nonlocal buf
         if not buf:
-            return
+            return space_before
         text = "".join(str(c.get("text") or "") for c in buf).strip()
         if text:
-            words.append(WordBox(text=text, x0=float(buf[0]["x0"]), x1=float(buf[-1]["x1"])))
-        buf.clear()
+            words.append(
+                WordBox(
+                    text=text,
+                    x0=float(buf[0]["x0"]),
+                    x1=float(buf[-1]["x1"]),
+                    space_before=space_before,
+                )
+            )
+        buf = []
+        return False
 
     for char in chars:
         if not isinstance(char.get("x0"), (int, float)) or not isinstance(char.get("x1"), (int, float)):
             continue
         if str(char.get("text") or "").isspace():
-            flush()
+            pending_space = flush(pending_space) or True
             continue
         if buf and float(char["x0"]) - float(buf[-1]["x1"]) > _WORD_GAP:
-            flush()
+            pending_space = flush(pending_space)
         buf.append(char)
-    flush()
+    flush(pending_space)
     return tuple(words)
 
 

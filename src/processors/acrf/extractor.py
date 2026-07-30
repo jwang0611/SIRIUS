@@ -100,22 +100,27 @@ def extract_acrf(
         # Only call the LLM when the deterministic pass came up short (avoids
         # sending every form to an external model), and MERGE its labels rather
         # than overwrite — a model omission must never drop a deterministic field.
-        # "Came up short" counts every section: a bookmark whose entire content
-        # is one detail table is fully covered, so there is nothing to recover.
-        recovered = sum(len(section.fields) for section in sections)
-        if llm_enabled and recovered < cfg.llm_min_fields:
+        # Sparsity is judged on the form that would receive the labels, so a
+        # detail table's columns cannot mask the parent's own missing fields.
+        if llm_enabled and len(fields) < cfg.llm_min_fields:
             from src.processors.acrf.llm_extractor import extract_fields_llm
 
             # Detail-table text is excluded: labels the model reads there would
             # be merged into the parent *and* emitted by the sub-table below.
-            owned = sub_table_line_ids(line_boxes)
+            owned = sub_table_line_ids(line_boxes, form_name=span.form_name)
             page_text = _page_text([lb for lb in line_boxes if id(lb) not in owned])[:_LLM_PAGE_TEXT_LIMIT]
-            llm_fields = extract_fields_llm(
-                page_text,
-                form_name=span.form_name,
-                client=client,
-                masker=masker,
-                language=language,
+            # A pure container form has nothing left to send once its detail
+            # tables are removed; skip the remote call rather than prompt on air.
+            llm_fields = (
+                extract_fields_llm(
+                    page_text,
+                    form_name=span.form_name,
+                    client=client,
+                    masker=masker,
+                    language=language,
+                )
+                if page_text.strip()
+                else []
             )
             if llm_fields:
                 fields = merge_field_lists(fields, llm_fields)
