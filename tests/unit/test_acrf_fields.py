@@ -9,6 +9,7 @@ from src.processors.acrf.fields import (
     detect_grids,
     extract_field_candidates,
     extract_form_sections,
+    sub_table_line_ids,
     validate_field_set,
 )
 from src.processors.acrf.models import AcrfConfig, LineBox, WordBox
@@ -373,3 +374,84 @@ def test_generic_answer_word_above_a_grid_never_names_a_table():
 
     assert [s.name for s in sections] == [None]
     assert sections[0].fields == ["Other", "Reason", "Date"]
+
+
+def _cells(words: list[tuple[str, float, float]], top: float = 170.0, size: float = 10.0) -> LineBox:
+    """A header line with explicit word extents, so gaps are realistic."""
+    boxes = tuple(WordBox(text=t, x0=x0, x1=x1) for t, x0, x1 in words)
+    return LineBox(
+        text=" ".join(t for t, _, _ in words),
+        page=0,
+        x0=boxes[0].x0,
+        top=top,
+        x1=boxes[-1].x1,
+        bottom=top + 12,
+        size=size,
+        words=boxes,
+    )
+
+
+def test_multi_word_english_grid_header_stays_one_column_per_cell():
+    # "Start Date" is one column split by a space. Treating each word as its own
+    # column would also mint a duplicate "Date" variable downstream.
+    header = _cells([("No.", 40, 58), ("Start", 66, 92), ("Date", 94.8, 120), ("End", 200, 220), ("Date", 222.8, 248)])
+    row_1 = _cells([("1", 40, 47), ("Headache", 66, 120)], top=190.0)
+
+    grids = detect_grids([header, row_1])
+
+    assert len(grids) == 1
+    assert grids[0].columns == ["Start Date", "End Date"]
+
+
+def test_tightly_packed_cjk_grid_columns_are_never_merged():
+    # Chinese headers pack columns as close as 6pt at 12pt type, which is inside
+    # any plausible word-space threshold — the script has to decide, not the gap.
+    header = _cells(
+        [("No.", 40, 60), ("检查结果", 230, 278), ("异常情况", 285, 333), ("临床意义判", 340, 400)],
+        size=12.0,
+    )
+    row_1 = _cells([("1", 40, 47), ("血压", 230, 254)], top=190.0, size=12.0)
+
+    assert detect_grids([header, row_1])[0].columns == ["检查结果", "异常情况", "临床意义判"]
+
+
+def test_sibling_sub_tables_keep_their_shared_column_names():
+    # Detail tables routinely repeat "Date"/"Result"; a shared de-dup set would
+    # let the first table swallow the second, emitting nothing for it at all.
+    boxes = [
+        _row([("Lab A Detail", 109.5)], top=140.0),
+        _cells([("#", 117, 122), ("Date", 144, 170), ("Result", 233, 265)], top=170.0),
+        _cells([("1", 117, 122), ("x", 144, 150)], top=190.0),
+        _row([("Lab B Detail", 109.5)], top=260.0),
+        _cells([("#", 117, 122), ("Date", 144, 170), ("Result", 233, 265)], top=290.0),
+        _cells([("1", 117, 122), ("y", 144, 150)], top=310.0),
+    ]
+
+    sections = extract_form_sections(boxes, set(), AcrfConfig())
+
+    assert [(s.name, s.fields) for s in sections] == [
+        ("Lab A Detail", ["Date", "Result"]),
+        ("Lab B Detail", ["Date", "Result"]),
+    ]
+
+
+def test_bare_no_answer_is_not_a_grid_marker():
+    # "No" in a right-hand answer column must not open a table; only "No." does.
+    answers = [_cells([("No", 398, 410)], top=104.0), _cells([("Yes", 398, 414)], top=128.0)]
+
+    assert detect_grids(answers) == []
+
+
+def test_sub_table_line_ids_covers_only_titled_grids():
+    titled = [
+        _row([("Lab Detail", 109.5)], top=140.0),
+        _cells([("#", 117, 122), ("Date", 144, 170)], top=170.0),
+        _cells([("1", 117, 122), ("x", 144, 150)], top=190.0),
+    ]
+    assert sub_table_line_ids(titled) == frozenset(id(lb) for lb in titled)
+
+    untitled = [
+        _cells([("No.", 40, 60), ("诊断", 66, 90)], top=170.0, size=12.0),
+        _cells([("1", 40, 47), ("糖尿病", 66, 102)], top=190.0, size=12.0),
+    ]
+    assert sub_table_line_ids(untitled) == frozenset()

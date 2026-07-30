@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from src.processors.acrf import extractor as ext
-from src.processors.acrf.models import FormSpan, LineBox, WordBox
+from src.processors.acrf.models import AcrfConfig, FormSpan, LineBox, WordBox
 
 
 def _row(words: list[tuple[str, float]], top: float, size: float = 10.0, page: int = 0) -> LineBox:
@@ -81,3 +81,62 @@ def test_grid_heading_repeating_the_form_name_keeps_its_columns(stub_pdf):
         ("病理检查", "检查结果"),
     ]
     assert result.stats["sub_forms"] == 0
+
+
+def _cells(words: list[tuple[str, float, float]], top: float, size: float = 10.0) -> LineBox:
+    boxes = tuple(WordBox(text=t, x0=x0, x1=x1) for t, x0, x1 in words)
+    return LineBox(
+        text=" ".join(t for t, _, _ in words),
+        page=0,
+        x0=boxes[0].x0,
+        top=top,
+        x1=boxes[-1].x1,
+        bottom=top + 12,
+        size=size,
+        words=boxes,
+    )
+
+
+_DETAIL_ONLY_FORM = [
+    _row([("Lab Detail", 109.5)], top=140.0),
+    _cells([("#", 117, 122), ("Date", 144, 170), ("Result", 233, 265)], top=170.0),
+    _cells([("1", 117, 122), ("x", 144, 150)], top=190.0),
+]
+
+
+def test_llm_is_not_called_when_a_detail_table_already_covers_the_form(stub_pdf, monkeypatch):
+    """A bookmark holding only a detail table is fully extracted, not sparse."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "src.processors.acrf.llm_extractor.extract_fields_llm",
+        lambda page_text, **kw: calls.append(page_text) or ["Date", "Result", "Invented"],
+    )
+    stub_pdf(_DETAIL_ONLY_FORM, form_name="Lab")
+
+    result = ext.extract_acrf("ignored.pdf", use_llm=True, client=object())
+
+    assert calls == []
+    assert result.stats["forms_via_llm"] == 0
+    # No detail column leaks into the parent bookmark form.
+    assert [(r.metadata_table, r.annotation_variable) for r in result.records] == [
+        ("Lab Detail", "Date"),
+        ("Lab Detail", "Result"),
+    ]
+
+
+def test_llm_input_excludes_detail_table_text(stub_pdf, monkeypatch):
+    """When the LLM does run, it must not see text owned by a sub-table."""
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "src.processors.acrf.llm_extractor.extract_fields_llm",
+        lambda page_text, **kw: seen.append(page_text) or [],
+    )
+    # Same detail table, plus a parent line that yields no field on its own.
+    stub_pdf([_row([("是", 109.5)], top=120.0), *_DETAIL_ONLY_FORM], form_name="Lab")
+    monkeypatch.setattr(ext, "_MAX_REPLACEMENT_RATIO", 1.0)
+
+    ext.extract_acrf("ignored.pdf", use_llm=True, client=object(), cfg=AcrfConfig(llm_min_fields=99))
+
+    assert seen, "the LLM assist should have run for this sparse form"
+    assert "Result" not in seen[0]
+    assert "Lab Detail" not in seen[0]

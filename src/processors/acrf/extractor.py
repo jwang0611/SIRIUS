@@ -11,7 +11,12 @@ import logging
 
 from src.processors.acrf import outline as _outline
 from src.processors.acrf import text as _text
-from src.processors.acrf.fields import extract_form_sections, merge_field_lists, validate_field_set
+from src.processors.acrf.fields import (
+    extract_form_sections,
+    merge_field_lists,
+    sub_table_line_ids,
+    validate_field_set,
+)
 from src.processors.acrf.models import AcrfConfig, ExtractionResult, FormSpan, LineBox
 from src.processors.acrf.records import assemble_records
 
@@ -95,10 +100,16 @@ def extract_acrf(
         # Only call the LLM when the deterministic pass came up short (avoids
         # sending every form to an external model), and MERGE its labels rather
         # than overwrite — a model omission must never drop a deterministic field.
-        if llm_enabled and len(fields) < cfg.llm_min_fields:
+        # "Came up short" counts every section: a bookmark whose entire content
+        # is one detail table is fully covered, so there is nothing to recover.
+        recovered = sum(len(section.fields) for section in sections)
+        if llm_enabled and recovered < cfg.llm_min_fields:
             from src.processors.acrf.llm_extractor import extract_fields_llm
 
-            page_text = _page_text(line_boxes)[:_LLM_PAGE_TEXT_LIMIT]
+            # Detail-table text is excluded: labels the model reads there would
+            # be merged into the parent *and* emitted by the sub-table below.
+            owned = sub_table_line_ids(line_boxes)
+            page_text = _page_text([lb for lb in line_boxes if id(lb) not in owned])[:_LLM_PAGE_TEXT_LIMIT]
             llm_fields = extract_fields_llm(
                 page_text,
                 form_name=span.form_name,

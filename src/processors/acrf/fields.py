@@ -47,8 +47,9 @@ _LATIN_RE = re.compile(r"[A-Za-z]")
 _COMPLETE_LABEL_ENDINGS = ("：", ":", "？", "?", "。", "！", ".", "!")
 
 # The row-number column that opens a repeating table ("grid"). Its presence is
-# what distinguishes a table header row from an ordinary wrapped label.
-_GRID_MARKER_RE = re.compile(r"^(?:#|no\.?|s/?n|序号|编号)$", re.IGNORECASE)
+# what distinguishes a table header row from an ordinary wrapped label. The
+# period on "No." is required: a bare "No" is the answer to a yes/no question.
+_GRID_MARKER_RE = re.compile(r"^(?:#|no\.|s/?n|序号|编号)$", re.IGNORECASE)
 _GRID_ROW_NUMBER_RE = re.compile(r"^\d{1,3}$")
 # Marks that prove a line carries an answer/value, so it is a data-entry row
 # rather than a section heading.
@@ -313,6 +314,33 @@ class _Grid:
     consumed: frozenset[int]  # id() of every LineBox the grid absorbs
 
 
+def _header_cells(line_box: LineBox, marker: WordBox) -> list[WordBox]:
+    """One line's header words merged into table cells.
+
+    Only Latin runs are joined: "Start Date" is one column split by a space,
+    whereas CJK is set solid, so a gap between two CJK words is always a column
+    boundary. Chinese headers pack columns as tightly as 6pt at 12pt type — no
+    gap threshold alone separates that from a Latin word space, so the script is
+    what decides and the gap only bounds it. The row-number marker is dropped
+    before merging; it sits a few points from the first column and would
+    otherwise force the threshold implausibly tight.
+    """
+    words = [w for w in _words_of(line_box) if w is not marker]
+    if not words:
+        return []
+    limit = max(3.0, (line_box.size or 10.0) * 0.6)
+
+    cells = [words[0]]
+    for word in words[1:]:
+        previous = cells[-1]
+        latin_pair = not _CJK_RE.search(previous.text) and not _CJK_RE.search(word.text)
+        if not latin_pair or word.x0 - previous.x1 > limit:
+            cells.append(word)
+            continue
+        cells[-1] = WordBox(text=_join_labels(previous.text, word.text), x0=previous.x0, x1=word.x1)
+    return cells
+
+
 def _stitch_grid_columns(band: list[LineBox], marker: WordBox) -> list[str]:
     """Rebuild column headers from a (possibly wrapped) header band.
 
@@ -321,9 +349,11 @@ def _stitch_grid_columns(band: list[LineBox], marker: WordBox) -> list[str]:
     """
     placed: list[list[tuple[float, WordBox]]] = []
     for line_box in band:
-        for word in _words_of(line_box):
-            if word is marker:
-                continue
+        # Merge each line's words into cells first. "No. Start Date End Date" is
+        # four words but two columns, and clustering words directly would split
+        # every multi-word English header — and then mint a duplicate "Date"
+        # variable downstream.
+        for word in _header_cells(line_box, marker):
             for column in placed:
                 if abs(column[0][1].x0 - word.x0) <= 3.0:
                     column.append((line_box.top, word))
@@ -486,6 +516,19 @@ def detect_grids(line_boxes: list[LineBox]) -> list[_Grid]:
     return grids
 
 
+def sub_table_line_ids(line_boxes: list[LineBox]) -> frozenset[int]:
+    """``id()`` of every line owned by a grid that becomes its own table.
+
+    Callers that feed page text to another consumer (the LLM assist) use this to
+    keep a detail table's text out of its parent form.
+    """
+    owned: set[int] = set()
+    for grid in detect_grids(line_boxes):
+        if grid.title:
+            owned |= grid.consumed
+    return frozenset(owned)
+
+
 def annotation_labels(line_boxes: list[LineBox]) -> list[str]:
     """Field labels recovered from aCRF annotations printed in the page body.
 
@@ -620,8 +663,13 @@ def extract_form_sections(
     events.sort(key=lambda e: e[0])
 
     sections: list[FormSection] = []
-    seen: set[str] = set()
+    # De-duplication is per output table, not global: sibling detail tables
+    # routinely repeat "Date" / "Result" / "检查项目", and a shared set would let
+    # the first table swallow every later table's columns — often emptying them
+    # so completely that the table is never emitted at all.
+    seen_by_table: dict[str | None, set[str]] = {}
     for _key, title, values in events:
+        seen = seen_by_table.setdefault(title, set())
         fresh = [v for v in values if norm(v) and norm(v) not in seen]
         seen.update(norm(v) for v in fresh)
         if not fresh:
