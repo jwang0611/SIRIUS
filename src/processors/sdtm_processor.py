@@ -43,6 +43,13 @@ ProgressCallback = Callable[[int, int, str | None, str | None], bool | None]
 
 logger = logging.getLogger(__name__)
 
+_JSON_RETRY_INSTRUCTION_VERSION = "json-repair-v1"
+_JSON_RETRY_INSTRUCTION = (
+    "\n\nThe previous response was empty or was not valid JSON. "
+    "Return exactly one valid JSON object that follows the requested schema. "
+    "Do not include explanations or Markdown code fences."
+)
+
 
 def _recommendation_source_excel_label(source: str | None) -> str:
     """Map ``domain_rec['source']`` to the user-facing Excel *Source* column.
@@ -773,6 +780,63 @@ class SDTMProcessor(
         # No shortcircuit — caller should proceed to Level 4
         return CascadeResult(recs=None, cascade_level=4, rag_contexts=rag_contexts, rag_info=rag_info)
 
+    @staticmethod
+    def _extract_json_content(response_text: str) -> str:
+        """Extract a JSON payload from an optional Markdown code fence."""
+        if "```json" in response_text:
+            return response_text.split("```json")[1].split("```")[0].strip()
+        if "```" in response_text:
+            return response_text.split("```")[1].strip()
+        return response_text
+
+    def _generate_content_with_json_retry(
+        self,
+        *,
+        prompt: str,
+        table_name: str,
+        variable_name: str,
+    ) -> str:
+        """Retry one empty or invalid JSON generation with a repair instruction."""
+
+        def generate(generation_prompt: str) -> str:
+            return self.client.generate_content(
+                prompt=generation_prompt,
+                max_output_tokens=self.generation_config.max_output_tokens,
+                temperature=self.generation_config.temperature,
+                top_p=self.generation_config.top_p,
+                top_k=self.generation_config.top_k,
+            )
+
+        response_text = generate(prompt)
+        if not response_text or not response_text.strip():
+            retry_reason = "empty_response"
+        else:
+            json_content = self._extract_json_content(response_text)
+            if not json_content.strip():
+                retry_reason = "missing_json"
+            else:
+                try:
+                    json.loads(json_content)
+                except json.JSONDecodeError:
+                    retry_reason = "invalid_json"
+                else:
+                    return response_text
+
+        print(f"Retrying AI generation once after {retry_reason.replace('_', ' ')} for {table_name} - {variable_name}")
+        if self.audit_logger:
+            self.audit_logger.log_llm_retry(
+                variable_data={
+                    "metadata_table": table_name,
+                    "metadata_variable": variable_name,
+                },
+                model_name=self.model_name,
+                retry_count=1,
+                reason=retry_reason,
+                instruction_version=_JSON_RETRY_INSTRUCTION_VERSION,
+            )
+        self.rate_limiter.wait()
+        return generate(f"{prompt}{_JSON_RETRY_INSTRUCTION}")
+
     # ==================== Core variable processing ====================
 
     def process_variable_pair(
@@ -819,6 +883,7 @@ class SDTMProcessor(
                     "variable_name": variable_name,  # required for Excel source_mapping lookup
                     "score": 1.0,
                     "source": "KB_NOT_SUBMITTED",
+                    "cascade_level": 0,
                     "priority": 0,
                 }
             ]
@@ -848,6 +913,7 @@ class SDTMProcessor(
             kb_context,
             all_variables,
             completed_table_mappings,
+            rag_contexts=cascade.rag_contexts,
         )
 
         if dry_run:
@@ -886,12 +952,10 @@ class SDTMProcessor(
             if self.log_ai_interactions:
                 self._log_ai_interaction(table_name, variable_name, "INPUT", prompt, "prompt")
 
-            response_text = self.client.generate_content(
+            response_text = self._generate_content_with_json_retry(
                 prompt=prompt,
-                max_output_tokens=self.generation_config.max_output_tokens,
-                temperature=self.generation_config.temperature,
-                top_p=self.generation_config.top_p,
-                top_k=self.generation_config.top_k,
+                table_name=table_name,
+                variable_name=variable_name,
             )
             api_end_time = time.time()
             api_duration = api_end_time - api_start_time
@@ -923,12 +987,7 @@ class SDTMProcessor(
                     "AI response empty",
                 )
 
-            if "```json" in response_text:
-                json_content = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                json_content = response_text.split("```")[1].strip()
-            else:
-                json_content = response_text
+            json_content = self._extract_json_content(response_text)
 
             if not json_content or json_content.strip() == "":
                 print(f"✗ No valid JSON content extracted for {table_name} - {variable_name}")
@@ -1260,6 +1319,7 @@ class SDTMProcessor(
                     "score": 0.0,
                     "priority": 999,
                     "source": "UNMAPPED",
+                    "cascade_level": None,
                     "unmapped_reason": "Variable not processed or missing from recommendations",
                     "num": num_value,
                 }
@@ -1365,6 +1425,7 @@ class SDTMProcessor(
         kb_context: dict[str, Any],
         all_table_variables: list[dict[str, Any]] | None = None,
         completed_table_mappings: list[dict[str, Any]] | None = None,
+        rag_contexts: list[Any] | None = None,
     ) -> str:
         """Create enhanced prompt with knowledge base context.
 
@@ -1374,6 +1435,8 @@ class SDTMProcessor(
             all_table_variables: All sibling variables in the same CRF table.
             completed_table_mappings: Already-mapped sibling results (for
                 table-level consistency in sequential mode).
+            rag_contexts: Retrieved Level-3 contexts to include when the
+                cascade falls through to Level 4 LLM inference.
         """
         if self.data_masker:
             variable_data = self.data_masker.mask_variable_data(variable_data)
@@ -1407,6 +1470,15 @@ class SDTMProcessor(
                 kb_section += f"- Domain context: {domain_info.get('domain', 'N/A')} ({domain_info.get('description', 'No description')})\n"
 
             base_prompt += kb_section
+
+        if rag_contexts and getattr(self, "rag_augmenter", None):
+            rag_section = self.rag_augmenter.build_context_block(
+                rag_contexts,
+                char_limit=self.rag_char_limit,
+                structured=True,
+            )
+            if rag_section:
+                base_prompt += f"\n\n{rag_section}"
 
         if kb_context.get("domain_hint"):
             base_prompt += f"\n\n**⚠️ Domain Hint (HIGHEST PRIORITY):** The target SDTM domain is `{kb_context['domain_hint']}` (inferred from annotation table). Use `{kb_context['domain_hint']}` domain variables."
@@ -1490,8 +1562,12 @@ class SDTMProcessor(
         cascade_level: int,
         processing_time_ms: float | None = None,
     ) -> None:
-        """Log mapping result to the audit trail (if audit is enabled)."""
-        if not self.audit_logger or not domain_recs:
+        """Stamp cascade provenance and write the audit record when enabled."""
+        if not domain_recs:
+            return
+        for rec in domain_recs:
+            rec["cascade_level"] = cascade_level
+        if not self.audit_logger:
             return
         for rec in domain_recs:
             validation_issues = []

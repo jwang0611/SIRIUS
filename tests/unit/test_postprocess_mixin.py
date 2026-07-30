@@ -202,6 +202,106 @@ class TestNormalizeDomainRecsBasic:
         assert out
         assert out[0]["testcd"] == "THDIAG"
 
+    def test_fa_supp_preserves_valid_structured_qnam(self):
+        host = _Host()
+        recs = [
+            {
+                "domain": "FA",
+                "sdtm_variable": "QVAL",
+                "score": 0.9,
+                "sdtm_variable_type": "supp",
+                "supp_dataset": "SUPPFA",
+                "supp_variable": "TUMSITE",
+                "testcd": "TUMLOC",
+            }
+        ]
+
+        out = host._normalize_domain_recs(
+            table_name="t",
+            variable_name="tumsite",
+            domain_recs=recs,
+            target_domain="FA",
+            enforce_domain=True,
+        )
+
+        assert out[0]["sdtm_variable"] == "QVAL"
+        assert out[0]["supp_dataset"] == "SUPPFA"
+        assert out[0]["supp_variable"] == "TUMSITE"
+
+    def test_supp_contract_repairs_qval_dataset_and_qnam(self):
+        host = _Host()
+        recs = [
+            {
+                "domain": "FA",
+                "sdtm_variable": "QNAM",
+                "score": 0.9,
+                "sdtm_variable_type": "supp",
+                "supp_dataset": "",
+                "supp_variable": "TULOC OTH",
+            }
+        ]
+
+        out = host._normalize_domain_recs(
+            table_name="t",
+            variable_name="tuloc_oth",
+            domain_recs=recs,
+            target_domain="FA",
+            enforce_domain=True,
+        )
+
+        assert out[0]["sdtm_variable"] == "QVAL"
+        assert out[0]["supp_dataset"] == "SUPPFA"
+        assert out[0]["supp_variable"] == "TULOCOTH"
+
+    def test_auto_corrected_supp_uses_raw_variable_as_qnam(self):
+        host = _Host()
+        recs = [
+            {
+                "domain": "AE",
+                "sdtm_variable": "AEBADVAR",
+                "score": 0.9,
+                "sdtm_variable_type": "standard",
+                "source": "LLM",
+            }
+        ]
+
+        out = host._normalize_domain_recs(
+            table_name="t",
+            variable_name="aexcustom",
+            domain_recs=recs,
+            target_domain="AE",
+            enforce_domain=True,
+        )
+
+        assert out[0]["sdtm_variable"] == "QVAL"
+        assert out[0]["supp_variable"] != "AEXCUSTO"
+        assert len(out[0]["supp_variable"]) <= 8
+        assert out[0]["supp_variable"].isalnum()
+
+    def test_comment_like_kb_composite_mapping_remains_authoritative(self):
+        host = _Host()
+        recs = [
+            {
+                "domain": "EC|EX",
+                "sdtm_variable": "ECSTDTC when ECMOOD=X|EXSTDTC",
+                "score": 0.99,
+                "source": "KB",
+                "kb_validated": True,
+            }
+        ]
+
+        out = host._normalize_domain_recs(
+            table_name="t",
+            variable_name="备注",
+            domain_recs=recs,
+            target_domain=None,
+            enforce_domain=False,
+        )
+
+        assert out[0]["domain"] == "EC|EX"
+        assert out[0]["sdtm_variable"] == "ECSTDTC when ECMOOD=X|EXSTDTC"
+        assert out[0]["sdtm_variable_type"] == "standard"
+
     def test_multi_domain_resolution(self):
         host = _Host()
         recs = [

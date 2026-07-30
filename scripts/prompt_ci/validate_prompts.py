@@ -17,7 +17,7 @@ Checks performed (7 types):
   4. Rule ref integrity - domain_rules and pattern_rules only reference existing IDs
   5. Example domain validity - all domains in examples exist in DOMAIN_RULES or
                                 DOMAIN_VARIABLES
-  6. Variable length    - SDTM output variables in examples are ≤8 characters
+  6. Output contract    - examples use pure variables and structured TESTCD/SUPP fields
   7. Version format     - each file's 'version' matches semver X.Y.Z
 """
 
@@ -264,31 +264,69 @@ def check_example_domains(exs: dict, rules: dict) -> tuple[bool, list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# Check 6: Variable length
+# Check 6: Structured output contract
 # ---------------------------------------------------------------------------
 
 
-def check_variable_length(exs: dict) -> tuple[bool, list[str]]:
+def check_example_output_contract(exs: dict) -> tuple[bool, list[str]]:
+    """Reject composite output strings and malformed TESTCD/SUPP fields."""
     msgs: list[str] = []
     ok = True
     for pattern, examples in exs.get("examples", {}).items():
         for ex in examples:
-            output: str = str(ex.get("output", ""))
-            # Skip conditional outputs like "FAORRES when FATESTCD=THDIA"
-            if " " in output or "=" in output:
-                continue
-            if len(output) > _MAX_VAR_LEN:
-                msgs.append(_err(f"[examples.{pattern}] output variable '{output}' exceeds {_MAX_VAR_LEN} chars"))
+            output = str(ex.get("output", "")).upper()
+            variable_type = str(ex.get("type", "")).lower()
+            testcd = str(ex.get("testcd", "")).upper()
+            supp_dataset = str(ex.get("supp_dataset", "")).upper()
+            supp_variable = str(ex.get("supp_variable", "")).upper()
+
+            if not _PURE_VAR_RE.fullmatch(output):
+                msgs.append(
+                    _err(
+                        f"[examples.{pattern}] output '{output}' must be one pure "
+                        f"SDTM variable (1-{_MAX_VAR_LEN} alphanumeric characters)"
+                    )
+                )
                 ok = False
-            # Also check qnam if present
-            qnam: str = str(ex.get("qnam", ""))
-            if qnam and len(qnam) > _MAX_VAR_LEN:
-                msgs.append(_err(f"[examples.{pattern}] qnam '{qnam}' exceeds {_MAX_VAR_LEN} chars"))
+            if variable_type not in {"standard", "supp"}:
+                msgs.append(_err(f"[examples.{pattern}] invalid type '{variable_type}'"))
+                ok = False
+            if testcd and not _PURE_VAR_RE.fullmatch(testcd):
+                msgs.append(
+                    _err(f"[examples.{pattern}] testcd '{testcd}' must be a pure 1-{_MAX_VAR_LEN} character code")
+                )
+                ok = False
+
+            if variable_type == "supp":
+                if output != "QVAL":
+                    msgs.append(_err(f"[examples.{pattern}] SUPP output must be QVAL"))
+                    ok = False
+                if not supp_dataset.startswith("SUPP") or len(supp_dataset) <= 4:
+                    msgs.append(_err(f"[examples.{pattern}] SUPP example requires structured supp_dataset"))
+                    ok = False
+                if not _PURE_VAR_RE.fullmatch(supp_variable):
+                    msgs.append(
+                        _err(f"[examples.{pattern}] SUPP example requires a pure structured supp_variable (QNAM)")
+                    )
+                    ok = False
+            elif supp_dataset or supp_variable:
+                msgs.append(_err(f"[examples.{pattern}] standard example cannot contain supp_dataset or supp_variable"))
+                ok = False
+
+            if ex.get("supp") or ex.get("qnam"):
+                msgs.append(
+                    _err(f"[examples.{pattern}] legacy SUPP keys are forbidden; use supp_dataset and supp_variable")
+                )
                 ok = False
 
     if ok:
-        msgs.append(_ok("All example variable names are within 8-character limit"))
+        msgs.append(_ok("All examples follow the structured output contract"))
     return ok, msgs
+
+
+def check_variable_length(exs: dict) -> tuple[bool, list[str]]:
+    """Backward-compatible entry point for the stronger output contract."""
+    return check_example_output_contract(exs)
 
 
 # ---------------------------------------------------------------------------
@@ -343,9 +381,9 @@ def main() -> int:
         print(m)
     all_ok = all_ok and dom_ok
 
-    # --- Check 6: Variable length ---
-    print("\n[6/6] Variable length (≤8 chars)")
-    var_ok, var_msgs = check_variable_length(exs)
+    # --- Check 6: Structured output contract ---
+    print("\n[6/6] Structured output contract")
+    var_ok, var_msgs = check_example_output_contract(exs)
     for m in var_msgs:
         print(m)
     all_ok = all_ok and var_ok

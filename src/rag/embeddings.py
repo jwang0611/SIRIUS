@@ -104,7 +104,11 @@ class OpenRouterEmbeddingClient:
         return vectors
 
 
-def build_embeddings(kb_path: str, model: str = "Qwen3-Embed") -> list[dict[str, Any]]:
+def build_embeddings(
+    kb_path: str,
+    model: str = "Qwen3-Embed",
+    batch_size: int = 100,
+) -> list[dict[str, Any]]:
     """
     从知识库读取并生成内存中的 Embeddings
 
@@ -126,8 +130,20 @@ def build_embeddings(kb_path: str, model: str = "Qwen3-Embed") -> list[dict[str,
     print(f"✅ 已加载 {len(chunks)} 个文本块。")
 
     # 2. 调用公司内网 OpenRouter
+    if batch_size <= 0:
+        raise ValueError("Embedding batch size must be positive")
+
     client = OpenRouterEmbeddingClient(model=model)
-    emb_list = client.embed_texts(texts)
+    emb_list: list[list[float]] = []
+    for batch_start in range(0, len(texts), batch_size):
+        batch_texts = texts[batch_start : batch_start + batch_size]
+        batch_embeddings = client.embed_texts(batch_texts)
+        if len(batch_embeddings) != len(batch_texts):
+            raise RuntimeError(
+                f"Embedding response count mismatch: expected {len(batch_texts)}, got {len(batch_embeddings)}"
+            )
+        emb_list.extend(batch_embeddings)
+        print(f"Embedding progress: {len(emb_list)}/{len(texts)}")
     embeddings_arr = np.array(emb_list, dtype=np.float32)
     dim = int(embeddings_arr.shape[1])
     print(f"✅ 生成完成：{len(chunks)} 个向量，每个维度 {dim}")

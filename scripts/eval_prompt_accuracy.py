@@ -11,10 +11,10 @@ Usage:
 
   # Step 2: Run baseline (old prompt) and improved (new prompt) on the benchmark
   python scripts/generate_sdtm_recommendations.py \
-      --input data/processed/benchmark_input.json \
+      --json-file data/processed/benchmark_input.json \
       --output data/output/baseline
   python scripts/generate_sdtm_recommendations.py \
-      --input data/processed/benchmark_input.json \
+      --json-file data/processed/benchmark_input.json \
       --output data/output/improved
 
   # Step 3: Compare results
@@ -47,9 +47,19 @@ from typing import TypeAlias
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.evaluation.ab_analysis import (  # noqa: E402
+    classify_scenarios,
+    count_quality_issues,
+    evaluate_acceptance,
+    paired_bootstrap,
+    paired_cohort_outcomes,
+)
+from src.evaluation.run_manifest import compare_shared_configuration, hash_file  # noqa: E402
+from src.processors.mapping_critic import MappingCritic  # noqa: E402
 from src.processors.sdtm_processor import compute_diff_status  # noqa: E402
 
 logger = logging.getLogger(__name__)
+AB_REPORT_SCHEMA_VERSION = "1.0.0"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,6 +67,14 @@ logger = logging.getLogger(__name__)
 
 MappingKey: TypeAlias = tuple[str, str, str, str]
 _KEY_FIELDS = ("annotation_table", "metadata_table", "annotation_variable", "metadata_variable")
+_VALIDATION_FLAGS = (
+    "invalid_domain_corrected",
+    "variable_name_corrected",
+    "variable_name_truncated",
+    "domain_prefix_mismatch",
+    "non_standard_variable",
+    "auto_corrected_to_supp",
+)
 
 
 def _normalize_variable(raw: str) -> str:
@@ -166,9 +184,18 @@ def load_ai_output(path: Path) -> list[dict]:
                             "metadata_variable": var_name,
                             "ai_domain": _normalize_domain(drec.get("domain", "")),
                             "ai_variable": _render_structured_variable(drec),
+                            "domain": _normalize_domain(drec.get("domain", "")),
+                            "sdtm_variable": str(drec.get("sdtm_variable", "") or "").strip(),
                             "score": drec.get("score", 0),
                             "source": drec.get("source", ""),
+                            "cascade_level": drec.get("cascade_level"),
                             "sdtm_variable_type": drec.get("sdtm_variable_type", ""),
+                            "supp_dataset": drec.get("supp_dataset", ""),
+                            "supp_variable": drec.get("supp_variable", ""),
+                            "testcd": drec.get("testcd", ""),
+                            "fallback_reason": drec.get("fallback_reason", ""),
+                            "validation_flags": {key: drec.get(key) for key in _VALIDATION_FLAGS if drec.get(key)},
+                            "consistency_issues": table_rec.get("consistency_issues", []),
                         }
                     )
         elif "annotation_table" in first:
@@ -181,8 +208,18 @@ def load_ai_output(path: Path) -> list[dict]:
                         "metadata_variable": entry.get("metadata_variable", ""),
                         "ai_domain": _normalize_domain(entry.get("SDTM_Domain", "")),
                         "ai_variable": _normalize_variable(entry.get("SDTM_Variable", "")),
+                        "domain": _normalize_domain(entry.get("SDTM_Domain", "")),
+                        "sdtm_variable": str(entry.get("SDTM_Variable", "") or "").strip(),
                         "score": entry.get("Score", 0),
                         "source": entry.get("Source", ""),
+                        "cascade_level": entry.get("cascade_level", entry.get("Cascade_Level")),
+                        "sdtm_variable_type": entry.get("sdtm_variable_type", ""),
+                        "supp_dataset": entry.get("supp_dataset", ""),
+                        "supp_variable": entry.get("supp_variable", ""),
+                        "testcd": entry.get("testcd", ""),
+                        "fallback_reason": entry.get("fallback_reason", ""),
+                        "validation_flags": {key: entry.get(key) for key in _VALIDATION_FLAGS if entry.get(key)},
+                        "consistency_issues": entry.get("consistency_issues", []),
                     }
                 )
 
@@ -207,6 +244,33 @@ def _dedup_rows(rows: list[dict]) -> list[dict]:
     return list(best.values())
 
 
+def _recompute_consistency_issues(rows: list[dict]) -> list[dict]:
+    """Apply the current MappingCritic equally to both A/B output arms."""
+    recommendations = [
+        {
+            **row,
+            "variable_name": row.get("metadata_variable", ""),
+            "annotation_table": row.get("annotation_table", ""),
+            "metadata_table": row.get("metadata_table", ""),
+        }
+        for row in rows
+    ]
+    original_mappings = [
+        {
+            "metadata_table": row.get("metadata_table", ""),
+            "metadata_variable": row.get("metadata_variable", ""),
+        }
+        for row in rows
+    ]
+    return [
+        issue.to_dict()
+        for issue in MappingCritic().criticize(
+            recommendations,
+            original_mappings,
+        )
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------
@@ -219,8 +283,9 @@ def evaluate(
 ) -> dict:
     """Compare AI rows against ground truth. Return metrics dict."""
     ai_rows = _dedup_rows(ai_rows)
+    ai_by_key = {_mapping_key(row): row for row in ai_rows}
     gt_size = len(gt)
-    ai_keys = {_mapping_key(row) for row in ai_rows}
+    ai_keys = set(ai_by_key)
     gt_keys = set(gt)
     missing_gt_keys = sorted(gt_keys - ai_keys)
     extra_ai_keys = sorted(ai_keys - gt_keys)
@@ -233,56 +298,76 @@ def evaluate(
         lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
     )
     source_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "match": 0, "domain_match": 0})
+    cascade_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "match": 0, "domain_match": 0})
     cohort_stats: dict[str, dict[str, int]] = defaultdict(
         lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
     )
+    scenario_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"gt_size": 0, "total": 0, "match": 0, "domain_match": 0}
+    )
     mismatches: list[dict] = []
+    row_results: list[dict] = []
 
-    for ref in gt.values():
+    def update_slice(stats: dict[str, int], *, exact: bool, domain_match: bool) -> None:
+        stats["total"] += 1
+        if exact:
+            stats["match"] += 1
+        if domain_match:
+            stats["domain_match"] += 1
+
+    for key, ref in gt.items():
+        ref_domain = _normalize_domain(ref.get("SDTM_Domain", ""))
+        ref_variable = _normalize_variable(ref.get("SDTM_Variable", ""))
         cohort = ref.get("evaluation_cohort") or ref.get("reference_source") or "UNSPECIFIED"
-        cohort_stats[cohort]["gt_size"] += 1
-        ref_domain = _normalize_domain(ref.get("SDTM_Domain", ""))
-        ref_variable = _normalize_variable(ref.get("SDTM_Variable", ""))
         domain_key = "NOT_SUBMITTED" if ref_variable == "NOT SUBMITTED" else (ref_domain or "UNKNOWN")
+        scenarios = classify_scenarios(ref)
+
+        cohort_stats[cohort]["gt_size"] += 1
         domain_stats[domain_key]["gt_size"] += 1
+        for scenario in scenarios:
+            scenario_stats[scenario]["gt_size"] += 1
 
-    for row in ai_rows:
-        key = _mapping_key(row)
-        ref = gt.get(key)
-        if ref is None:
+        row = ai_by_key.get(key)
+        if row is None:
+            statuses["missing"] += 1
+            row_results.append(
+                {
+                    "evaluation_id": ref.get("evaluation_id", ""),
+                    "cohort": cohort,
+                    "domain": domain_key,
+                    "source": None,
+                    "cascade_level": None,
+                    "scenarios": sorted(scenarios),
+                    "status": "missing",
+                    "exact_match": False,
+                    "domain_match": False,
+                }
+            )
             continue
-
-        ref_domain = _normalize_domain(ref.get("SDTM_Domain", ""))
-        ref_variable = _normalize_variable(ref.get("SDTM_Variable", ""))
         ai_domain = row["ai_domain"]
         ai_variable = row["ai_variable"]
 
         status = _mapping_status(ai_domain, ai_variable, ref_domain, ref_variable)
         statuses[status] += 1
         total += 1
-
         source = row.get("source", "LLM") or "LLM"
-        cohort = ref.get("evaluation_cohort") or ref.get("reference_source") or "UNSPECIFIED"
-        domain_key = "NOT_SUBMITTED" if ref_variable == "NOT SUBMITTED" else (ref_domain or "UNKNOWN")
+        cascade_level = row.get("cascade_level")
+        cascade_key = "UNRECORDED" if cascade_level is None else str(cascade_level)
+        exact = status == "match"
+        domain_match = status in {"match", "var_diff"}
 
-        domain_stats[domain_key]["total"] += 1
-        source_stats[source]["total"] += 1
-        cohort_stats[cohort]["total"] += 1
+        update_slice(domain_stats[domain_key], exact=exact, domain_match=domain_match)
+        update_slice(source_stats[source], exact=exact, domain_match=domain_match)
+        update_slice(cascade_stats[cascade_key], exact=exact, domain_match=domain_match)
+        update_slice(cohort_stats[cohort], exact=exact, domain_match=domain_match)
+        for scenario in scenarios:
+            update_slice(scenario_stats[scenario], exact=exact, domain_match=domain_match)
 
-        if status == "match":
+        if exact:
             matched += 1
             domain_matched += 1
-            domain_stats[domain_key]["match"] += 1
-            domain_stats[domain_key]["domain_match"] += 1
-            source_stats[source]["match"] += 1
-            source_stats[source]["domain_match"] += 1
-            cohort_stats[cohort]["match"] += 1
-            cohort_stats[cohort]["domain_match"] += 1
         elif status == "var_diff":
             domain_matched += 1
-            domain_stats[domain_key]["domain_match"] += 1
-            source_stats[source]["domain_match"] += 1
-            cohort_stats[cohort]["domain_match"] += 1
             mismatches.append(
                 {
                     "table": row["annotation_table"],
@@ -302,8 +387,22 @@ def evaluate(
                     "ref": f"{ref_domain}.{ref_variable}",
                 }
             )
+        row_results.append(
+            {
+                "evaluation_id": ref.get("evaluation_id", ""),
+                "cohort": cohort,
+                "domain": domain_key,
+                "source": source,
+                "cascade_level": cascade_level,
+                "scenarios": sorted(scenarios),
+                "status": status,
+                "exact_match": exact,
+                "domain_match": domain_match,
+            }
+        )
 
     coverage = total / gt_size if gt_size else 0
+    consistency_issues = _recompute_consistency_issues(ai_rows)
     return {
         "label": label,
         "gt_size": gt_size,
@@ -323,8 +422,75 @@ def evaluate(
         "statuses": dict(statuses),
         "domain_stats": dict(domain_stats),
         "source_stats": dict(source_stats),
+        "cascade_stats": dict(cascade_stats),
         "cohort_stats": dict(cohort_stats),
+        "scenario_stats": dict(scenario_stats),
+        "row_results": row_results,
+        "quality_issues": count_quality_issues(
+            ai_rows,
+            consistency_issues=consistency_issues,
+        ),
+        "cohort_policy": {
+            "KB_AGREE": {"diagnostic_only": False, "release_gate": True},
+            "KB_DISAGREE": {"diagnostic_only": True, "release_gate": False},
+            "AI_RECOMMENDATION": {"diagnostic_only": False, "release_gate": True},
+        },
         "mismatches": mismatches,
+    }
+
+
+def build_ab_report(
+    baseline: dict,
+    improved: dict,
+    *,
+    baseline_manifest: dict,
+    improved_manifest: dict,
+    required_tests: dict,
+    bootstrap_seed: int,
+    bootstrap_replicates: int,
+) -> dict:
+    """Build the complete machine-readable A/B evidence package."""
+    paired_outcomes = paired_cohort_outcomes(
+        baseline,
+        improved,
+        cohort="AI_RECOMMENDATION",
+    )
+    paired_analysis = paired_bootstrap(
+        paired_outcomes["baseline"],
+        paired_outcomes["improved"],
+        seed=bootstrap_seed,
+        replicates=bootstrap_replicates,
+    )
+    paired_analysis["cohort"] = "AI_RECOMMENDATION"
+    manifest_comparison = compare_shared_configuration(
+        baseline_manifest,
+        improved_manifest,
+    )
+    acceptance = evaluate_acceptance(
+        baseline,
+        improved,
+        paired=paired_analysis,
+        manifest_comparison=manifest_comparison,
+        required_tests=required_tests,
+    )
+    return {
+        "schema_version": AB_REPORT_SCHEMA_VERSION,
+        "manifests": {
+            "baseline": baseline_manifest,
+            "improved": improved_manifest,
+        },
+        "baseline": baseline,
+        "improved": improved,
+        "paired_analysis": paired_analysis,
+        "quality": {
+            "baseline": baseline["quality_issues"],
+            "improved": improved["quality_issues"],
+        },
+        "manifest_comparison": manifest_comparison,
+        "required_tests": required_tests,
+        "gates": acceptance["gates"],
+        "diagnostic_only_cohorts": acceptance["diagnostic_only_cohorts"],
+        "decision": acceptance["decision"],
     }
 
 
@@ -379,26 +545,68 @@ def print_report(metrics: dict, verbose: bool = False) -> None:
     ss = metrics["source_stats"]
     if ss:
         print("  Actual cascade source:")
-        print(f"  {'Source':<18} {'Total':>6} {'Exact':>6} {'Rate':>8}")
-        print(f"  {'-' * 36}")
+        print(f"  {'Source':<18} {'Total':>6} {'Exact':>6} {'Rate':>8} {'Domain':>8} {'Rate':>8}")
+        print(f"  {'-' * 54}")
         for source in sorted(ss.keys(), key=lambda s: -ss[s]["total"]):
             s = ss[source]
-            print(f"  {source:<18} {s['total']:>6} {s['match']:>6} {_pct(s['match'], s['total']):>8}")
+            print(
+                f"  {source:<18} {s['total']:>6} {s['match']:>6} "
+                f"{_pct(s['match'], s['total']):>8} {s['domain_match']:>8} "
+                f"{_pct(s['domain_match'], s['total']):>8}"
+            )
+        print()
+
+    cascade_stats = metrics["cascade_stats"]
+    if cascade_stats:
+        print("  Cascade level:")
+        print(f"  {'Level':<18} {'Total':>6} {'Exact':>6} {'Rate':>8} {'Domain':>8} {'Rate':>8}")
+        print(f"  {'-' * 54}")
+        for level in sorted(cascade_stats):
+            stats = cascade_stats[level]
+            print(
+                f"  {level:<18} {stats['total']:>6} {stats['match']:>6} "
+                f"{_pct(stats['match'], stats['total']):>8} "
+                f"{stats['domain_match']:>8} "
+                f"{_pct(stats['domain_match'], stats['total']):>8}"
+            )
         print()
 
     cs = metrics["cohort_stats"]
     if cs:
         print("  Held-out cohort:")
-        print(f"  {'Cohort':<20} {'GT':>5} {'Eval':>5} {'Coverage':>9} {'Exact':>6} {'Rate':>8}")
-        print(f"  {'-' * 61}")
+        print(
+            f"  {'Cohort':<20} {'GT':>5} {'Eval':>5} {'Coverage':>9} {'Exact':>6} {'Rate':>8} {'Domain':>7} {'Rate':>8}"
+        )
+        print(f"  {'-' * 78}")
         for cohort in sorted(cs.keys(), key=lambda c: -cs[c]["gt_size"]):
             s = cs[cohort]
             print(
                 f"  {cohort:<20} {s['gt_size']:>5} {s['total']:>5} "
                 f"{_pct(s['total'], s['gt_size']):>9} {s['match']:>6} "
-                f"{_pct(s['match'], s['gt_size']):>8}"
+                f"{_pct(s['match'], s['gt_size']):>8} {s['domain_match']:>7} "
+                f"{_pct(s['domain_match'], s['gt_size']):>8}"
             )
         print()
+
+    scenario_stats = metrics["scenario_stats"]
+    if scenario_stats:
+        print("  Special scenarios:")
+        print(f"  {'Scenario':<22} {'GT':>5} {'Eval':>5} {'Exact':>6} {'Rate':>8} {'Domain':>7} {'Rate':>8}")
+        print(f"  {'-' * 72}")
+        for scenario in sorted(scenario_stats):
+            stats = scenario_stats[scenario]
+            print(
+                f"  {scenario:<22} {stats['gt_size']:>5} {stats['total']:>5} "
+                f"{stats['match']:>6} {_pct(stats['match'], stats['gt_size']):>8} "
+                f"{stats['domain_match']:>7} "
+                f"{_pct(stats['domain_match'], stats['gt_size']):>8}"
+            )
+        print()
+
+    print("  Deterministic quality counters:")
+    for name, count in metrics["quality_issues"].items():
+        print(f"    {name}: {count}")
+    print()
 
     if verbose and metrics["missing_gt_keys"]:
         print("  Missing GT Outputs (showing first 30):")
@@ -611,6 +819,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ai-output", type=Path, help="Single AI output JSON to evaluate")
     parser.add_argument("--baseline", type=Path, help="Baseline AI output JSON (A/B mode)")
     parser.add_argument("--improved", type=Path, help="Improved AI output JSON (A/B mode)")
+    parser.add_argument("--baseline-manifest", type=Path, help="Baseline run manifest JSON")
+    parser.add_argument("--improved-manifest", type=Path, help="Improved run manifest JSON")
+    parser.add_argument("--report-json", type=Path, help="Write the complete A/B evidence report")
+    parser.add_argument(
+        "--bootstrap-seed",
+        type=int,
+        default=20260726,
+        help="Paired-bootstrap random seed (default: 20260726)",
+    )
+    parser.add_argument(
+        "--bootstrap-replicates",
+        type=int,
+        default=10_000,
+        help="Paired-bootstrap replicate count (default: 10000)",
+    )
+    parser.add_argument(
+        "--required-tests-json",
+        type=Path,
+        help="JSON evidence for the required offline validation commands",
+    )
+    parser.add_argument(
+        "--require-acceptance",
+        action="store_true",
+        help="Exit 1 unless every release gate accepts the improved run",
+    )
     parser.add_argument(
         "--ground-truth",
         type=Path,
@@ -621,7 +854,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--require-full-coverage",
         action="store_true",
-        help="Exit non-zero if any evaluated output covers less than 100% of ground truth",
+        help="Exit non-zero if any evaluated output covers less than 100%% of ground truth",
     )
 
     bench_group = parser.add_argument_group("benchmark generation")
@@ -646,6 +879,101 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_json_object(path: Path, *, label: str) -> dict:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Cannot load {label} JSON {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} JSON must contain an object: {path}")
+    return payload
+
+
+def _validate_run_evidence(
+    manifest: dict,
+    *,
+    label: str,
+    output_path: Path,
+    heldout_path: Path,
+) -> dict:
+    """Bind one successful clean manifest to the files being evaluated."""
+    errors: list[str] = []
+
+    if manifest.get("status") != "succeeded":
+        errors.append(f"{label} manifest terminal status must be 'succeeded'")
+
+    runner_record = manifest.get("runner", {})
+    if not runner_record.get("script_sha256"):
+        errors.append(f"{label} manifest is missing experiment-runner hash")
+
+    git_record = manifest.get("git", {})
+    if not git_record.get("sha") or git_record.get("dirty") is not False:
+        errors.append(f"{label} manifest must identify a clean Git revision")
+
+    prompts = manifest.get("prompts", {})
+    for component in ("template", "rules", "examples"):
+        record = prompts.get(component, {})
+        if not record.get("version") or not record.get("sha256"):
+            errors.append(f"{label} manifest is missing {component} prompt version/hash")
+
+    configuration = manifest.get("configuration", {})
+    if not configuration.get("provider") or not configuration.get("model"):
+        errors.append(f"{label} manifest is missing provider/model")
+    generation = configuration.get("generation", {})
+    if generation.get("temperature") != 0:
+        errors.append(f"{label} manifest temperature must be 0")
+    for section in ("rag", "concurrency", "cascade"):
+        if not isinstance(configuration.get(section), dict) or not configuration[section]:
+            errors.append(f"{label} manifest is missing {section} configuration")
+
+    inputs = manifest.get("inputs", {})
+    heldout_record = inputs.get("heldout", {})
+    actual_heldout_hash = hash_file(heldout_path, normalize_text=True)
+    if heldout_record.get("sha256") != actual_heldout_hash:
+        errors.append(f"{label} manifest held-out hash does not match --ground-truth")
+    try:
+        with heldout_path.open(encoding="utf-8") as handle:
+            heldout_rows = json.load(handle)
+        actual_heldout_rows = len(heldout_rows) if isinstance(heldout_rows, list) else -1
+    except (OSError, json.JSONDecodeError):
+        actual_heldout_rows = -1
+    if heldout_record.get("row_count") != actual_heldout_rows:
+        errors.append(f"{label} manifest held-out row count does not match --ground-truth")
+
+    benchmark_record = inputs.get("benchmark", {})
+    if not benchmark_record.get("sha256") or benchmark_record.get("row_count") != actual_heldout_rows:
+        errors.append(f"{label} manifest benchmark identity is incomplete")
+
+    knowledge_base = manifest.get("knowledge_base")
+    if not isinstance(knowledge_base, list) or not knowledge_base:
+        errors.append(f"{label} manifest has no knowledge-base hashes")
+    elif any(not record.get("path") or not record.get("sha256") for record in knowledge_base):
+        errors.append(f"{label} manifest contains an incomplete knowledge-base hash")
+
+    output_record = manifest.get("outputs", {}).get("json", {})
+    recorded_output_path = output_record.get("path")
+    try:
+        path_matches = Path(str(recorded_output_path)).resolve() == output_path.resolve()
+    except (OSError, TypeError, ValueError):
+        path_matches = False
+    if not path_matches:
+        errors.append(f"{label} manifest output JSON path does not match evaluated output")
+    actual_output_hash = hash_file(output_path, normalize_text=True)
+    if output_record.get("sha256") != actual_output_hash:
+        errors.append(f"{label} manifest output JSON hash does not match evaluated output")
+
+    return {"valid": not errors, "errors": errors}
+
+
+def _write_report(path: Path, report: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main() -> None:
     parser = build_parser()
 
@@ -653,6 +981,17 @@ def main() -> None:
 
     if not args.gen_benchmark and not args.ai_output and not (args.baseline and args.improved):
         parser.error("Provide --gen-benchmark, --ai-output, or --baseline + --improved")
+    if bool(args.baseline) != bool(args.improved):
+        parser.error("A/B mode requires both --baseline and --improved")
+    if (args.report_json or args.require_acceptance) and not (args.baseline and args.improved):
+        parser.error("--report-json and --require-acceptance are available only in A/B mode")
+    if args.report_json or args.require_acceptance:
+        if not args.baseline_manifest or not args.improved_manifest:
+            parser.error("A/B reporting requires --baseline-manifest and --improved-manifest")
+    if args.require_acceptance and not args.required_tests_json:
+        parser.error("--require-acceptance requires --required-tests-json")
+    if args.bootstrap_replicates <= 0:
+        parser.error("--bootstrap-replicates must be positive")
 
     if not args.ground_truth.exists():
         parser.error(f"Ground truth file not found: {args.ground_truth}")
@@ -665,19 +1004,13 @@ def main() -> None:
             seed=args.seed,
         )
         print("\nNext steps:")
-        print("  1. git stash  (save new code)")
-        print("  2. Run baseline:")
-        print("     python scripts/generate_sdtm_recommendations.py \\")
-        print(f"         --input {args.benchmark_output} --output data/output/eval_baseline")
-        print("  3. git stash pop  (restore new code)")
-        print("  4. Run improved:")
-        print("     python scripts/generate_sdtm_recommendations.py \\")
-        print(f"         --input {args.benchmark_output} --output data/output/eval_improved")
-        print("  5. Compare:")
-        print("     python scripts/eval_prompt_accuracy.py \\")
-        print(f"         --ground-truth {args.ground_truth} \\")
-        print("         --baseline data/output/eval_baseline_*.json \\")
-        print("         --improved data/output/eval_improved_*.json -v")
+        print("  1. Create clean baseline and improved worktrees at their pinned SHAs.")
+        print("  2. Run scripts/run_sdtm_experiment.py without --execute in each worktree.")
+        print("  3. Report the model, request estimate, endpoint, and cost risk for approval.")
+        print("  4. Only after explicit approval, repeat both commands with --execute.")
+        print("  5. Compare the two outputs with manifests and --require-acceptance.")
+        print(f"  Benchmark input: {args.benchmark_output}")
+        print("  See data/evaluation/README.md for the exact pinned commands.")
         return
 
     gt = load_ground_truth(args.ground_truth)
@@ -701,6 +1034,87 @@ def main() -> None:
         print_report(impr_metrics, verbose=args.verbose)
         print_comparison(base_metrics, impr_metrics)
         evaluated_metrics.extend([base_metrics, impr_metrics])
+
+        if args.report_json or args.require_acceptance:
+            try:
+                baseline_manifest = _load_json_object(
+                    args.baseline_manifest,
+                    label="baseline manifest",
+                )
+                improved_manifest = _load_json_object(
+                    args.improved_manifest,
+                    label="improved manifest",
+                )
+                required_tests = (
+                    _load_json_object(
+                        args.required_tests_json,
+                        label="required tests",
+                    )
+                    if args.required_tests_json
+                    else {
+                        "all_passed": False,
+                        "status": "NOT_PROVIDED",
+                        "commands": [],
+                    }
+                )
+                evidence_validation = {
+                    "baseline": _validate_run_evidence(
+                        baseline_manifest,
+                        label="baseline",
+                        output_path=args.baseline,
+                        heldout_path=args.ground_truth,
+                    ),
+                    "improved": _validate_run_evidence(
+                        improved_manifest,
+                        label="improved",
+                        output_path=args.improved,
+                        heldout_path=args.ground_truth,
+                    ),
+                }
+                evidence_errors = [error for result in evidence_validation.values() for error in result["errors"]]
+                if evidence_errors:
+                    raise ValueError("; ".join(evidence_errors))
+                report = build_ab_report(
+                    base_metrics,
+                    impr_metrics,
+                    baseline_manifest=baseline_manifest,
+                    improved_manifest=improved_manifest,
+                    required_tests=required_tests,
+                    bootstrap_seed=args.bootstrap_seed,
+                    bootstrap_replicates=args.bootstrap_replicates,
+                )
+                report["evidence_validation"] = evidence_validation
+            except ValueError as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                raise SystemExit(2) from exc
+
+            if args.report_json:
+                _write_report(args.report_json, report)
+                print(f"Machine-readable A/B report: {args.report_json}")
+
+            paired = report["paired_analysis"]
+            print(
+                "AI_RECOMMENDATION paired exact delta: "
+                f"{paired['observed_delta'] * 100:+.2f} pp "
+                f"(95% CI {paired['ci_95'][0] * 100:+.2f}, "
+                f"{paired['ci_95'][1] * 100:+.2f})"
+            )
+            print(f"Release decision: {report['decision']}")
+
+            if not report["manifest_comparison"]["equal"]:
+                print(
+                    "ERROR: Baseline and improved manifests do not share the "
+                    "same experiment configuration: " + ", ".join(report["manifest_comparison"]["differences"]),
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
+            if args.require_acceptance and report["decision"] != "ACCEPT":
+                failed = [gate["name"] for gate in report["gates"] if not gate["passed"]]
+                print(
+                    "ERROR: Improved run failed acceptance gates: " + ", ".join(failed),
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
 
     if args.require_full_coverage:
         incomplete = [metrics for metrics in evaluated_metrics if metrics["coverage"] < 1]
