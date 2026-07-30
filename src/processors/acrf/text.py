@@ -11,12 +11,14 @@ import statistics
 from collections import defaultdict
 
 from src.processors.acrf.fields import norm
-from src.processors.acrf.models import LineBox, WordBox
+from src.processors.acrf.models import LineBox, RuleBox, WordBox
 
 # Glyph gap (in points) above which two adjacent characters belong to different
 # words. CJK is set solid, so any real gap is meaningful; 1pt keeps kerning
 # noise from splitting a word while still separating table columns.
 _WORD_GAP = 1.0
+# Below this height a ruling is horizontal and carries no column information.
+_MIN_RULE_HEIGHT = 2.0
 
 
 class PdfBackendError(RuntimeError):
@@ -87,16 +89,39 @@ def _line_to_box(line: dict, page_index: int) -> LineBox | None:
     )
 
 
+def _page_column_rules(page: object) -> tuple[RuleBox, ...]:
+    """Vertical rules and cell-box edges on one page, as ``(x, top, bottom)``.
+
+    A blank CRF draws its entry boxes as vector graphics, so on a table whose
+    data rows hold nothing but a row number these edges are the only evidence of
+    where each column begins. Horizontal rules are skipped — they say nothing
+    about columns — and each rectangle contributes both of its vertical sides.
+    """
+    rules: set[RuleBox] = set()
+    for obj in list(getattr(page, "lines", []) or []) + list(getattr(page, "rects", []) or []):
+        try:
+            x0, x1 = float(obj["x0"]), float(obj["x1"])
+            top, bottom = float(obj["top"]), float(obj["bottom"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if bottom - top < _MIN_RULE_HEIGHT:
+            continue
+        rules.add((round(x0, 1), top, bottom))
+        rules.add((round(x1, 1), top, bottom))
+    return tuple(sorted(rules))
+
+
 def extract_all_line_boxes(
     pdf_path: str,
-) -> tuple[dict[int, list[LineBox]], dict[int, float]]:
-    """Return ``{page_index: [LineBox, ...]}`` and ``{page_index: page_height}``.
+) -> tuple[dict[int, list[LineBox]], dict[int, float], dict[int, tuple[RuleBox, ...]]]:
+    """Return per-page line boxes, page heights, and vertical rule geometry.
 
     Raises :class:`PdfBackendError` if the PDF cannot be opened.
     """
     pdfplumber = _require_pdfplumber()
     boxes_by_page: dict[int, list[LineBox]] = {}
     heights: dict[int, float] = {}
+    rules_by_page: dict[int, tuple[RuleBox, ...]] = {}
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for idx, page in enumerate(pdf.pages):
@@ -107,11 +132,15 @@ def extract_all_line_boxes(
                     lines = []
                 boxes = [b for line in lines if (b := _line_to_box(line, idx))]
                 boxes_by_page[idx] = boxes
+                try:
+                    rules_by_page[idx] = _page_column_rules(page)
+                except Exception:
+                    rules_by_page[idx] = ()
     except PdfBackendError:
         raise
     except Exception as exc:
         raise PdfBackendError(f"unreadable pdf text: {exc}") from exc
-    return boxes_by_page, heights
+    return boxes_by_page, heights, rules_by_page
 
 
 def replacement_char_ratio(line_boxes: list[LineBox]) -> float:

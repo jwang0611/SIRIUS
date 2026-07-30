@@ -13,7 +13,7 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 
-from src.processors.acrf.models import AcrfConfig, FormSection, LineBox, WordBox
+from src.processors.acrf.models import AcrfConfig, FormSection, LineBox, RuleBox, WordBox
 
 # --- normalisation ---------------------------------------------------------
 
@@ -58,6 +58,9 @@ _AMBIGUOUS_GRID_MARKER_RE = re.compile(r"^no$", re.IGNORECASE)
 _MAX_INTRA_CELL_GAP = 0.4
 # Sentinel for "this line has no marker word to skip".
 _NO_WORD = WordBox(text="", x0=float("-inf"), x1=float("-inf"))
+# How near a header word must be to a witnessed column start to be treated as
+# opening it. Cell rulings sit 2-5pt outside their text across the corpus.
+_COLUMN_START_TOLERANCE = 6.0
 _GRID_ROW_NUMBER_RE = re.compile(r"^\d{1,3}$")
 # Marks that prove a line carries an answer/value, so it is a data-entry row
 # rather than a section heading.
@@ -352,7 +355,7 @@ def _header_cells(line_box: LineBox, marker: WordBox, column_starts: tuple[float
             word.x0 - previous.x1 <= limit
             and not _CJK_RE.search(previous.text)
             and not _CJK_RE.search(word.text)
-            and not any(abs(word.x0 - start) <= 3.0 for start in column_starts)
+            and not any(abs(word.x0 - start) <= _COLUMN_START_TOLERANCE for start in column_starts)
         )
         if not same_cell:
             cells.append(word)
@@ -374,26 +377,20 @@ def _numbered_rows(boxes: list[LineBox], body: list[int], marker_x: float) -> li
 def _body_column_starts(rows: list[LineBox], marker_x: float) -> tuple[float, ...]:
     """Column left edges witnessed by the grid's own data rows.
 
-    Two safeguards keep this from arguing *against* a legitimate multi-word
-    header. A data cell may itself hold several words ("Visit 1"), so each row is
-    reduced to cells before its left edges are read — otherwise the second word
-    of a value lands under a header word and splits that header. And an edge only
-    counts once at least two rows agree on it, so a single stray value cannot
-    invent a column.
+    Each row is reduced to cells before its left edges are read. A data cell may
+    itself hold several words ("Visit 1"), and taking raw word positions would
+    put its second word under a header word and split that header. One row is
+    enough evidence — a grid may legitimately pre-print a single row.
     """
-    witnesses: list[tuple[float, int]] = []
+    starts: list[float] = []
     for row in rows:
-        row_marker = next((w for w in _words_of(row) if abs(w.x0 - marker_x) <= 6.0), None)
-        for cell in _header_cells(row, row_marker) if row_marker else _header_cells(row, _NO_WORD):
+        row_marker = next((w for w in _words_of(row) if abs(w.x0 - marker_x) <= 6.0), _NO_WORD)
+        for cell in _header_cells(row, row_marker):
             if abs(cell.x0 - marker_x) <= 6.0:
                 continue
-            for index, (start, count) in enumerate(witnesses):
-                if abs(cell.x0 - start) <= 3.0:
-                    witnesses[index] = (start, count + 1)
-                    break
-            else:
-                witnesses.append((cell.x0, 1))
-    return tuple(sorted(start for start, count in witnesses if count >= 2))
+            if not any(abs(cell.x0 - start) <= 3.0 for start in starts):
+                starts.append(cell.x0)
+    return tuple(sorted(starts))
 
 
 def _stitch_grid_columns(band: list[LineBox], marker: WordBox, column_starts: tuple[float, ...] = ()) -> list[str]:
@@ -523,11 +520,18 @@ def _grid_title(boxes: list[LineBox], band_start: int, interior_x: float, size: 
     return None
 
 
-def detect_grids(line_boxes: list[LineBox]) -> list[_Grid]:
+def _rule_column_starts(rules: tuple[RuleBox, ...], top: float, bottom: float) -> tuple[float, ...]:
+    """Rule x positions that cut through the vertical span of one table."""
+    return tuple(sorted({x for x, r_top, r_bottom in rules if r_bottom > top and r_top < bottom}))
+
+
+def detect_grids(line_boxes: list[LineBox], rules: tuple[RuleBox, ...] = ()) -> list[_Grid]:
     """Find every repeating table and recover its column labels.
 
     Returns one :class:`_Grid` per table found, each owning the header, data and
     (optional) heading lines so the caller can skip them during the label scan.
+    ``rules`` is the page's vertical ruling geometry, which witnesses column
+    boundaries on a blank CRF whose data cells are empty.
     """
     by_page: dict[int, list[LineBox]] = {}
     for line_box in line_boxes:
@@ -556,11 +560,19 @@ def detect_grids(line_boxes: list[LineBox]) -> list[_Grid]:
             # any line right of the marker column joins it.
             if _AMBIGUOUS_GRID_MARKER_RE.match(marker.text.strip()) and not numbered:
                 continue
-            columns = _stitch_grid_columns(
-                [boxes[i] for i in band],
-                marker,
-                _body_column_starts(numbered, marker.x0),
+            # Column evidence: the values the rows do carry, plus the ruling the
+            # blank entry boxes are drawn with. Either alone can be empty.
+            table_top = boxes[band[0]].top
+            table_bottom = boxes[body[-1]].bottom if body else boxes[band[-1]].bottom
+            column_starts = tuple(
+                sorted(
+                    {
+                        *_body_column_starts(numbered, marker.x0),
+                        *_rule_column_starts(rules, table_top, table_bottom),
+                    }
+                )
             )
+            columns = _stitch_grid_columns([boxes[i] for i in band], marker, column_starts)
             if not columns:
                 continue
             title_box = _grid_title(boxes, band[0], interior_x, size)
@@ -581,7 +593,11 @@ def detect_grids(line_boxes: list[LineBox]) -> list[_Grid]:
     return grids
 
 
-def sub_table_line_ids(line_boxes: list[LineBox], form_name: str | None = None) -> frozenset[int]:
+def sub_table_line_ids(
+    line_boxes: list[LineBox],
+    form_name: str | None = None,
+    rules: tuple[RuleBox, ...] = (),
+) -> frozenset[int]:
     """``id()`` of every line owned by a grid that becomes its *own* table.
 
     Callers that feed page text to another consumer (the LLM assist) use this to
@@ -591,7 +607,7 @@ def sub_table_line_ids(line_boxes: list[LineBox], form_name: str | None = None) 
     """
     form_key = norm(form_name or "")
     owned: set[int] = set()
-    for grid in detect_grids(line_boxes):
+    for grid in detect_grids(line_boxes, rules):
         if grid.title and norm(grid.title) != form_key:
             owned |= grid.consumed
     return frozenset(owned)
@@ -710,6 +726,7 @@ def extract_form_sections(
     cfg: AcrfConfig,
     page_height: float | None = None,
     form_name: str | None = None,
+    rules: tuple[RuleBox, ...] = (),
 ) -> list[FormSection]:
     """Split one form's lines into the bookmark form plus any titled sub-tables.
 
@@ -718,7 +735,7 @@ def extract_form_sections(
     heading — the source ALS models such a table as a separate form, so keeping
     them merged would collapse distinct tables into one.
     """
-    grids = detect_grids(line_boxes)
+    grids = detect_grids(line_boxes, rules)
     owned = frozenset().union(*(g.consumed for g in grids)) if grids else frozenset()
     body = [lb for lb in line_boxes if id(lb) not in owned]
 
@@ -764,6 +781,7 @@ def extract_field_candidates(
     cfg: AcrfConfig,
     page_height: float | None = None,
     form_name: str | None = None,
+    rules: tuple[RuleBox, ...] = (),
 ) -> list[str]:
     """Every field label for one form, flattened across sub-tables.
 

@@ -30,13 +30,13 @@ def _row(words: list[tuple[str, float]], top: float, size: float = 10.0, page: i
 def stub_pdf(monkeypatch: pytest.MonkeyPatch):
     """Install a fake single-form PDF made of the given line boxes."""
 
-    def install(boxes: list[LineBox], form_name: str = "生命体征") -> None:
+    def install(boxes: list[LineBox], form_name: str = "生命体征", rules: tuple = ()) -> None:
         monkeypatch.setattr(
             ext._outline,
             "parse_outline",
             lambda path, cfg: ([FormSpan(form_name=form_name, page_start=0, page_end=0)], [], 1),
         )
-        monkeypatch.setattr(ext._text, "extract_all_line_boxes", lambda path: ({0: boxes}, {0: 842.0}))
+        monkeypatch.setattr(ext._text, "extract_all_line_boxes", lambda path: ({0: boxes}, {0: 842.0}, {0: rules}))
         monkeypatch.setattr(ext._text, "detect_boilerplate", lambda *a, **k: set())
 
     return install

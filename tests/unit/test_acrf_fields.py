@@ -420,9 +420,9 @@ def test_adjacent_narrow_english_columns_are_not_merged():
     assert detect_grids([header, row_1])[0].columns == ["Date", "Time", "Low", "High"]
 
 
-def test_stable_body_column_start_splits_a_cell_at_an_intra_cell_gap():
-    # Direct layout evidence beats the gap: two rows agree that "Time" opens its
-    # own column, so it stays split despite sitting only 0.2 em from "Date".
+def test_body_column_start_splits_a_cell_at_an_intra_cell_gap():
+    # Direct layout evidence beats the gap: the data proves "Time" opens its own
+    # column, so it stays split despite sitting only 0.2 em from "Date".
     header = _cells([("No.", 40, 58), ("Date", 66, 100), ("Time", 102, 126)])
     rows = [
         _cells([("1", 40, 47), ("Y", 66, 73), ("N", 102, 109)], top=190.0),
@@ -430,14 +430,6 @@ def test_stable_body_column_start_splits_a_cell_at_an_intra_cell_gap():
     ]
 
     assert detect_grids([header, *rows])[0].columns == ["Date", "Time"]
-
-
-def test_a_single_body_row_is_not_enough_to_invent_a_column():
-    # One row could be a stray value; without corroboration the gap rule decides.
-    header = _cells([("No.", 40, 58), ("Date", 66, 100), ("Time", 102, 126)])
-    row_1 = _cells([("1", 40, 47), ("Y", 66, 73), ("N", 102, 109)], top=190.0)
-
-    assert detect_grids([header, row_1])[0].columns == ["Date Time"]
 
 
 def test_multi_word_body_value_does_not_split_its_header():

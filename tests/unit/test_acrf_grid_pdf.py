@@ -20,8 +20,17 @@ from src.processors.acrf.text import extract_all_line_boxes
 _FONT_SIZE = 11.0
 
 
-def _write_table_pdf(path: Path, rows: list[list[tuple[str, float]]]) -> None:
-    """Write a one-page PDF; ``rows`` is ``[[(cell_text, x), ...], ...]``."""
+def _write_table_pdf(
+    path: Path,
+    rows: list[list[tuple[str, float]]],
+    rules: list[tuple[float, float, float]] | None = None,
+) -> None:
+    """Write a one-page PDF.
+
+    ``rows`` is ``[[(cell_text, x), ...], ...]``; ``rules`` is
+    ``[(x, y_bottom, y_top), ...]`` in PDF space, drawn as stroked vertical
+    lines — the column rulings a blank CRF uses instead of printed values.
+    """
 
     def esc(text: str) -> str:
         return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
@@ -31,6 +40,7 @@ def _write_table_pdf(path: Path, rows: list[list[tuple[str, float]]]) -> None:
     for row in rows:
         operators += [f"BT /F1 {_FONT_SIZE} Tf 1 0 0 1 {x} {y} Tm ({esc(text)}) Tj ET" for text, x in row]
         y -= 30.0
+    operators += [f"{x} {y0} m {x} {y1} l S" for x, y0, y1 in rules or []]
     stream = "\n".join(operators).encode()
 
     objects: dict[int, bytes] = {
@@ -71,8 +81,8 @@ def test_real_pdf_recovers_multi_word_and_adjacent_narrow_columns(tmp_path: Path
         ],
     )
 
-    boxes, _heights = extract_all_line_boxes(str(pdf))
-    grids = detect_grids(boxes[0])
+    boxes, _heights, rules = extract_all_line_boxes(str(pdf))
+    grids = detect_grids(boxes[0], rules[0])
 
     assert len(grids) == 1
     assert grids[0].columns == ["Start Date", "End Date", "Low", "High"]
@@ -88,7 +98,7 @@ def test_real_pdf_carries_no_space_glyphs(tmp_path: Path):
     pdf = tmp_path / "spaces.pdf"
     _write_table_pdf(pdf, [[("Start Date", 110)]])
 
-    boxes, _heights = extract_all_line_boxes(str(pdf))
+    boxes, _heights, _rules = extract_all_line_boxes(str(pdf))
     line = boxes[0][0]
 
     assert line.text == "Start Date"
@@ -112,9 +122,9 @@ def test_real_pdf_multi_word_body_value_keeps_its_header_intact(tmp_path: Path):
         ],
     )
 
-    boxes, _heights = extract_all_line_boxes(str(pdf))
+    boxes, _heights, rules = extract_all_line_boxes(str(pdf))
 
-    assert detect_grids(boxes[0])[0].columns == ["Visit Name", "Date"]
+    assert detect_grids(boxes[0], rules[0])[0].columns == ["Visit Name", "Date"]
 
 
 def test_real_pdf_stable_body_rows_prove_a_tight_column(tmp_path: Path):
@@ -129,6 +139,35 @@ def test_real_pdf_stable_body_rows_prove_a_tight_column(tmp_path: Path):
         ],
     )
 
-    boxes, _heights = extract_all_line_boxes(str(pdf))
+    boxes, _heights, rules = extract_all_line_boxes(str(pdf))
 
-    assert detect_grids(boxes[0])[0].columns == ["Date", "Time"]
+    assert detect_grids(boxes[0], rules[0])[0].columns == ["Date", "Time"]
+
+
+def test_real_pdf_single_body_row_still_proves_a_column(tmp_path: Path):
+    """A grid may legitimately pre-print one row; that row is evidence enough."""
+    pdf = tmp_path / "one_row.pdf"
+    _write_table_pdf(pdf, [[("No.", 72), ("Date", 110), ("Time", 137)], [("1", 72), ("Y", 110), ("N", 137)]])
+
+    boxes, _heights, rules = extract_all_line_boxes(str(pdf))
+
+    assert detect_grids(boxes[0], rules[0])[0].columns == ["Date", "Time"]
+
+
+def test_real_pdf_vector_rules_prove_columns_when_cells_are_blank(tmp_path: Path):
+    """The common blank aCRF: rows hold only a number, boxes are vector graphics.
+
+    With no values to read, the drawn column rulings are the only evidence that
+    "Time" opens its own column rather than continuing "Date".
+    """
+    pdf = tmp_path / "ruled.pdf"
+    _write_table_pdf(
+        pdf,
+        [[("No.", 72), ("Date", 110), ("Time", 137)], [("1", 72)], [("2", 72)]],
+        rules=[(68, 635, 712), (106, 635, 712), (133, 635, 712), (170, 635, 712)],
+    )
+
+    boxes, _heights, rules = extract_all_line_boxes(str(pdf))
+
+    assert rules[0], "the stroked rulings must reach the extractor"
+    assert detect_grids(boxes[0], rules[0])[0].columns == ["Date", "Time"]

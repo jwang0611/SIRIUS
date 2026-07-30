@@ -79,6 +79,12 @@ class WordBox:
     x1: float
 
 
+# A vertical ruling or cell-box edge: ``(x, top, bottom)``. On a blank CRF the
+# entry boxes are vector graphics, so these edges are the only witness to where a
+# table column starts when the data rows hold nothing but a row number.
+RuleBox = tuple[float, float, float]
+
+
 @dataclass
 class LineBox:
     """One visual text line with position and font hints (page-top origin).

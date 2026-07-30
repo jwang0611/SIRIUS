@@ -17,7 +17,7 @@ from src.processors.acrf.fields import (
     sub_table_line_ids,
     validate_field_set,
 )
-from src.processors.acrf.models import AcrfConfig, ExtractionResult, FormSpan, LineBox
+from src.processors.acrf.models import AcrfConfig, ExtractionResult, FormSpan, LineBox, RuleBox
 from src.processors.acrf.records import assemble_records
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,13 @@ def _form_line_boxes(span: FormSpan, boxes_by_page: dict[int, list[LineBox]]) ->
     for page in range(span.page_start, span.page_end + 1):
         boxes.extend(boxes_by_page.get(page, []))
     return boxes
+
+
+def _form_rules(span: FormSpan, rules_by_page: dict[int, tuple[RuleBox, ...]]) -> tuple[RuleBox, ...]:
+    rules: list[RuleBox] = []
+    for page in range(span.page_start, span.page_end + 1):
+        rules.extend(rules_by_page.get(page, ()))
+    return tuple(rules)
 
 
 def _page_text(line_boxes: list[LineBox]) -> str:
@@ -61,7 +68,7 @@ def extract_acrf(
     spans, skipped, total_pages = _outline.parse_outline(pdf_path, cfg)
     result.skipped_forms = skipped
 
-    boxes_by_page, heights = _text.extract_all_line_boxes(pdf_path)
+    boxes_by_page, heights, rules_by_page = _text.extract_all_line_boxes(pdf_path)
     boilerplate = _text.detect_boilerplate(boxes_by_page, heights, cfg.header_footer_band)
 
     llm_enabled = bool(use_llm and client is not None)
@@ -84,12 +91,14 @@ def extract_acrf(
             continue
 
         page_height = heights.get(span.page_start)
+        rules = _form_rules(span, rules_by_page)
         sections = extract_form_sections(
             line_boxes,
             boilerplate,
             cfg,
             page_height,
             form_name=span.form_name,
+            rules=rules,
         )
         # A grid heading that merely repeats the bookmark name is not a separate
         # table; fold it back so its columns stay with the form.
@@ -107,7 +116,7 @@ def extract_acrf(
 
             # Detail-table text is excluded: labels the model reads there would
             # be merged into the parent *and* emitted by the sub-table below.
-            owned = sub_table_line_ids(line_boxes, form_name=span.form_name)
+            owned = sub_table_line_ids(line_boxes, form_name=span.form_name, rules=rules)
             page_text = _page_text([lb for lb in line_boxes if id(lb) not in owned])[:_LLM_PAGE_TEXT_LIMIT]
             # A pure container form has nothing left to send once its detail
             # tables are removed; skip the remote call rather than prompt on air.
