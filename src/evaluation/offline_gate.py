@@ -6,7 +6,27 @@ from typing import Any
 
 BASELINE_SCHEMA_VERSION = "sirius-eval-baseline/v1"
 REPORT_SCHEMA_VERSION = "sirius-offline-eval-report/v1"
-REDACTED_METRIC_FIELDS = {"label", "mismatches", "missing_gt_keys", "extra_ai_keys", "row_results"}
+REPORT_METRIC_FIELDS = {
+    "gt_size",
+    "total_evaluated",
+    "total_ai_rows",
+    "coverage",
+    "missing_gt_rows",
+    "extra_ai_rows",
+    "exact_match",
+    "domain_match",
+    "exact_rate",
+    "domain_rate",
+    "evaluated_exact_rate",
+    "evaluated_domain_rate",
+    "statuses",
+    "domain_stats",
+    "source_stats",
+    "source_counts",
+    "outcome_counts",
+    "supp",
+    "quality_issues",
+}
 RATE_PATHS = (
     "coverage",
     "exact_rate",
@@ -115,8 +135,8 @@ def evaluate_regression_gate(
 
 
 def redact_metrics_for_report(metrics: dict[str, Any]) -> dict[str, Any]:
-    """Remove row identities and artifact names from a persistent report."""
-    return {key: value for key, value in metrics.items() if key not in REDACTED_METRIC_FIELDS}
+    """Persist only an explicit allowlist of aggregate, controlled metrics."""
+    return {key: metrics[key] for key in REPORT_METRIC_FIELDS if key in metrics}
 
 
 def _rate(stats: dict[str, Any], numerator: str, denominator: str) -> str:

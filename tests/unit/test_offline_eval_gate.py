@@ -279,6 +279,7 @@ def test_offline_cli_writes_json_and_markdown_without_external_client(tmp_path, 
     assert report["regression_gate"]["passed"] is True
     assert "mismatches" not in report["metrics"]
     assert "row_results" not in report["metrics"]
+    assert "cascade_stats" not in report["metrics"]
     assert "Opaque panel" not in report_json.read_text()
     assert "SUPP F1" in report_markdown.read_text()
 
