@@ -57,9 +57,11 @@ __pycache__/
 .coverage.*
 htmlcov/
 coverage.xml
+coverage.json
 report*.xml
 .tox/
 .cache/
+*.egg-info/
 
 # Virtual envs
 .venv/
@@ -82,6 +84,11 @@ venv/
 
 # Temporary docs
 docs/
+!docs/
+docs/*
+!docs/adr/
+docs/adr/*
+!docs/adr/*.md
 
 CLAUDE.md
 !/CLAUDE.md

@@ -18,6 +18,7 @@ from scripts.run_sdtm_experiment import (
 from src.evaluation.run_manifest import (
     build_run_manifest,
     compare_shared_configuration,
+    finalize_run_manifest,
     hash_file,
     sanitize_endpoint,
 )
@@ -169,6 +170,8 @@ def test_build_manifest_pins_inputs_kb_prompts_and_has_no_sensitive_keys(tmp_pat
     assert manifest["git"] == {"sha": "abc123", "dirty": False}
     assert manifest["inputs"]["benchmark"]["row_count"] == 1
     assert manifest["inputs"]["heldout"]["row_count"] == 1
+    assert manifest["inputs"]["benchmark"]["path"] == "benchmark.json"
+    assert manifest["inputs"]["heldout"]["path"] == "heldout.json"
     assert [item["path"] for item in manifest["knowledge_base"]] == [
         "production.json",
         "rag.parquet",
@@ -192,6 +195,21 @@ def test_build_manifest_pins_inputs_kb_prompts_and_has_no_sensitive_keys(tmp_pat
     serialized = json.dumps(manifest)
     assert "user:secret" not in serialized
     assert "/private/" not in serialized
+
+
+def test_finalized_manifest_records_output_basename_only(tmp_path):
+    output = tmp_path / "customer-study-output.json"
+    output.write_text("[]\n", encoding="utf-8")
+
+    finalized = finalize_run_manifest(
+        {},
+        status="completed",
+        completed_at="2026-08-01T00:00:00Z",
+        output_json=output,
+    )
+
+    assert finalized["outputs"]["json"]["path"] == output.name
+    assert str(tmp_path) not in json.dumps(finalized)
 
 
 def _runner_args(tmp_path: Path):

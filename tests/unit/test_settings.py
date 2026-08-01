@@ -69,6 +69,14 @@ def test_default_model_keeps_legacy_openrouter_model_alias(clean_env, monkeypatc
     assert Settings.from_env().ai.default_model == "preferred/model"
 
 
+def test_exported_legacy_alias_outranks_dotenv_default(clean_env, monkeypatch, tmp_path):
+    (tmp_path / ".env").write_text("DEFAULT_MODEL=dotenv/model\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_MODEL", "environment/model")
+
+    assert Settings.from_env().ai.default_model == "environment/model"
+
+
 def test_cascade_rejects_incoherent_thresholds(clean_env, monkeypatch):
     monkeypatch.setenv("KB_MIN_CONFIDENCE", "0.9")
     monkeypatch.setenv("CASCADE_KB_HIGH_CONF", "0.5")

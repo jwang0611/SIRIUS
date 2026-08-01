@@ -22,7 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -192,21 +192,23 @@ class Settings(BaseSettings):
         import os
 
         # The nested settings models are hydrated from flat historical names
-        # below, so BaseSettings' env_file handling cannot populate them.
-        # Load the working directory's .env before reading os.environ and keep
-        # exported environment variables at the higher precedence.
-        load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
+        # below, so BaseSettings' env_file handling cannot populate them. Read
+        # the dotenv file without mutating os.environ: every exported variable,
+        # including a legacy alias, must outrank every value from .env.
         env = os.environ
+        dotenv = dotenv_values(Path.cwd() / ".env")
 
         def g(key: str, default: str | None = None) -> str | None:
-            val = env.get(key)
+            val = env.get(key, dotenv.get(key))
             if val is None or val == "":
                 return default
-            return val
+            return str(val)
 
         default_model = (
-            g("DEFAULT_MODEL")
-            or g("OPENROUTER_MODEL")  # Backward-compatible alias used by the legacy web path.
+            env.get("DEFAULT_MODEL")
+            or env.get("OPENROUTER_MODEL")  # Backward-compatible alias used by the legacy web path.
+            or dotenv.get("DEFAULT_MODEL")
+            or dotenv.get("OPENROUTER_MODEL")
             or "google/gemini-3-flash-preview"
         )
 

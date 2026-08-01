@@ -48,7 +48,10 @@ def _json_row_count(path: Path) -> int:
 
 def _input_record(path: Path) -> dict[str, Any]:
     return {
-        "path": str(path.resolve()),
+        # Manifests are shareable audit artifacts. Absolute workstation paths
+        # can contain user, study, or customer identifiers and are unnecessary
+        # once the content hash and logical input slot are recorded.
+        "path": path.name,
         "sha256": hash_file(path, normalize_text=True),
         "row_count": _json_row_count(path),
     }
@@ -208,7 +211,7 @@ def finalize_run_manifest(
     for name, path in (("json", output_json), ("xlsx", output_xlsx)):
         if path is not None and path.exists():
             outputs[name] = {
-                "path": str(path.resolve()),
+                "path": path.name,
                 "sha256": hash_file(path, normalize_text=path.suffix == ".json"),
             }
     finalized["outputs"] = outputs
