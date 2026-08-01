@@ -75,6 +75,23 @@ _VALIDATION_FLAGS = (
     "non_standard_variable",
     "auto_corrected_to_supp",
 )
+_REPORT_SOURCE_LABELS = {
+    "ECRF_DIRECT_MATCH",
+    "FALLBACK",
+    "KB",
+    "KB_DIRECT",
+    "KB_HIGH",
+    "KB_NOT_SUBMITTED",
+    "KB_SEMANTIC",
+    "LLM",
+    "LLM_REASONING",
+    "PROJECT_KB",
+    "RAG",
+    "RAG_HIGH",
+    "SESSION",
+    "UNMAPPED",
+    "USER_CORRECTION",
+}
 
 
 def _normalize_variable(raw: str) -> str:
@@ -96,6 +113,12 @@ def _normalize_domain(raw: str) -> str:
 def _normalize_key_part(raw: object) -> str:
     """Normalize one input-key component for stable matching."""
     return re.sub(r"\s+", " ", str(raw or "").strip()).casefold()
+
+
+def _report_source_label(raw: object) -> str:
+    """Constrain persisted strata to known audit labels."""
+    label = str(raw or "UNRECORDED").strip().upper()
+    return label if label in _REPORT_SOURCE_LABELS else "OTHER"
 
 
 def _mapping_key(entry: dict) -> MappingKey:
@@ -374,7 +397,7 @@ def evaluate(
         status = _mapping_status(ai_domain, ai_variable, ref_domain, ref_variable)
         statuses[status] += 1
         total += 1
-        source = row.get("source", "LLM") or "LLM"
+        source = _report_source_label(row.get("source", "LLM") or "LLM")
         cascade_level = row.get("cascade_level")
         cascade_key = "UNRECORDED" if cascade_level is None else str(cascade_level)
         exact = status == "match"
@@ -444,7 +467,7 @@ def evaluate(
     supp_precision = supp_tp / (supp_tp + supp_fp) if supp_tp + supp_fp else 0.0
     supp_recall = supp_tp / (supp_tp + supp_fn) if supp_tp + supp_fn else 0.0
     supp_f1 = 2 * supp_precision * supp_recall / (supp_precision + supp_recall) if supp_precision + supp_recall else 0.0
-    source_counts = Counter(str(row.get("source", "") or "UNRECORDED").upper() for row in ai_rows)
+    source_counts = Counter(_report_source_label(row.get("source")) for row in ai_rows)
     pending_outputs = sum(
         1
         for row in ai_rows

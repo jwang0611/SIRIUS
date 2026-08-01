@@ -134,6 +134,24 @@ def test_release_manifest_rejects_one_study_and_identifying_manifest_fields(tmp_
     assert report["valid"] is False
     assert any("at least two" in error for error in report["errors"])
     assert any("identifying fields" in error for error in report["errors"])
+    assert "must not be recorded" not in json.dumps(report)
+
+
+def test_invalid_manifest_values_and_domain_are_redacted(tmp_path):
+    manifest = _write_release_manifest(tmp_path, [[_row(1)], [_row(2)]])
+    payload = json.loads(manifest.read_text())
+    payload["datasets"][0]["dataset_id"] = "actual-study-name"
+    payload["datasets"][0]["source_class"] = "actual-sponsor-name"
+    payload["datasets"][0]["schema_version"] = "actual-protocol-name"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    report, _ = validate_dataset_manifest(manifest)
+
+    assert report["valid"] is False
+    serialized = json.dumps(report)
+    assert "actual-study-name" not in serialized
+    assert "actual-sponsor-name" not in serialized
+    assert "actual-protocol-name" not in serialized
 
 
 def test_injected_knowledge_overlap_fails_without_disclosing_metadata(tmp_path):
@@ -199,6 +217,15 @@ def test_evaluate_reports_supp_precision_recall_f1_and_pending_counts():
         "f1": 0.5,
     }
     assert metrics["outcome_counts"] == {"fallback_outputs": 1, "pending_outputs": 1}
+
+
+def test_evaluate_redacts_unknown_source_stratum():
+    row = _row(1)
+
+    metrics = evaluate([_ai(row, source="raw-study-name")], ground_truth_from_rows([row]))
+
+    assert set(metrics["source_stats"]) == {"OTHER"}
+    assert set(metrics["source_counts"]) == {"OTHER"}
 
 
 def test_regression_gate_fails_when_a_metric_is_lowered():

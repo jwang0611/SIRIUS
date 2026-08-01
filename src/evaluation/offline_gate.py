@@ -82,13 +82,13 @@ def evaluate_regression_gate(
             continue
         if set(baseline_counts) != set(current_counts):
             errors.append(f"baseline/current {section} counter names differ")
-        for name, before_value in sorted(baseline_counts.items()):
-            if name not in current_counts or name not in allowed_increase:
+        for name, after_value in sorted(current_counts.items()):
+            if name not in baseline_counts or name not in allowed_increase:
                 errors.append(f"Missing counter contract: {section}.{name}")
                 continue
             try:
-                before = int(before_value)
-                after = int(current_counts[name])
+                before = int(baseline_counts[name])
+                after = int(after_value)
                 tolerance = int(allowed_increase[name])
             except (TypeError, ValueError):
                 errors.append(f"Counter contract must be integer: {section}.{name}")

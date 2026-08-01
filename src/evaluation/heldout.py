@@ -23,6 +23,8 @@ from src.config.domain_semantic_map import (
     ANNOTATION_KEYWORD_DOMAIN_MAP,
     CHINESE_TABLE_DOMAIN_MAP,
     DOMAIN_KEYWORDS,
+    is_valid_domain,
+    strip_supp_prefix,
 )
 from src.evaluation.run_manifest import hash_file
 
@@ -63,6 +65,8 @@ FORBIDDEN_MANIFEST_KEYS = {
 }
 _OPAQUE_DATASET_ID = re.compile(r"^study-[0-9]{3,}$")
 _OPAQUE_EVALUATION_ID = re.compile(r"^EVAL-[0-9]{4,}$")
+_SCHEMA_VERSION = re.compile(r"^[a-z][a-z0-9_-]{1,31}/v[1-9][0-9]*$")
+_DOMAIN_SPLIT = re.compile(r"[|/;]")
 
 
 def _normalized(value: object) -> str:
@@ -128,7 +132,7 @@ def validate_dataset_manifest(
         errors.append(f"schema_version must be {MANIFEST_SCHEMA_VERSION!r}")
     unexpected_manifest_fields = sorted(set(manifest) - ALLOWED_MANIFEST_FIELDS)
     if unexpected_manifest_fields:
-        errors.append("manifest contains unsupported fields: " + ", ".join(unexpected_manifest_fields))
+        errors.append(f"manifest contains {len(unexpected_manifest_fields)} unsupported field(s)")
     profile = manifest.get("evaluation_profile")
     if require_release and profile != "release":
         errors.append("evaluation_profile must be 'release'")
@@ -136,7 +140,7 @@ def validate_dataset_manifest(
         errors.append("distinct_studies_confirmed must be true")
     forbidden_paths = _forbidden_manifest_paths(manifest)
     if forbidden_paths:
-        errors.append("manifest contains identifying fields: " + ", ".join(forbidden_paths))
+        errors.append(f"manifest contains identifying fields ({len(forbidden_paths)})")
 
     datasets = manifest.get("datasets")
     if not isinstance(datasets, list):
@@ -158,20 +162,22 @@ def validate_dataset_manifest(
             continue
         unexpected_dataset_fields = sorted(set(dataset) - ALLOWED_DATASET_FIELDS)
         if unexpected_dataset_fields:
-            errors.append(f"{label} contains unsupported fields: " + ", ".join(unexpected_dataset_fields))
+            errors.append(f"{label} contains {len(unexpected_dataset_fields)} unsupported field(s)")
         dataset_id = str(dataset.get("dataset_id", ""))
-        if not _OPAQUE_DATASET_ID.fullmatch(dataset_id):
+        dataset_id_valid = bool(_OPAQUE_DATASET_ID.fullmatch(dataset_id))
+        if not dataset_id_valid:
             errors.append(f"{label}.dataset_id must use the opaque form study-NNN")
         if dataset_id in seen_dataset_ids:
-            errors.append(f"duplicate dataset_id: {dataset_id or '<empty>'}")
+            errors.append(f"duplicate dataset_id at {label}")
         seen_dataset_ids.add(dataset_id)
 
         source_class = str(dataset.get("source_class", "")).strip()
         schema_version = str(dataset.get("schema_version", "")).strip()
         if source_class not in ALLOWED_SOURCE_CLASSES:
             errors.append(f"{label}.source_class must be one of {sorted(ALLOWED_SOURCE_CLASSES)}")
-        if not schema_version:
-            errors.append(f"{label}.schema_version is required")
+        schema_version_valid = bool(_SCHEMA_VERSION.fullmatch(schema_version))
+        if not schema_version_valid:
+            errors.append(f"{label}.schema_version must use the opaque form name/vN")
         if dataset.get("deidentified") is not True:
             errors.append(f"{label}.deidentified must be true")
         if dataset.get("authorized_for_engineering") is not True:
@@ -183,7 +189,7 @@ def validate_dataset_manifest(
             continue
         source_path = Path(raw_file)
         if source_path.is_absolute() or source_path.name != raw_file or source_path.name != f"{dataset_id}.json":
-            errors.append(f"{label}.file must be the colocated opaque name {dataset_id}.json")
+            errors.append(f"{label}.file must be a colocated opaque study-NNN.json name")
             continue
         if not source_path.is_absolute():
             source_path = manifest_path.parent / source_path
@@ -213,19 +219,24 @@ def validate_dataset_manifest(
             row_label = f"{label} row {row_index + 1}"
             unexpected = sorted(set(row) - ALLOWED_ROW_FIELDS)
             if unexpected:
-                errors.append(f"{row_label} contains non-metadata fields: {', '.join(unexpected)}")
+                errors.append(f"{row_label} contains {len(unexpected)} non-metadata field(s)")
             if any(not str(row.get(field, "") or "").strip() for field in KEY_FIELDS):
                 errors.append(f"{row_label} has an incomplete four-field input identity")
             variable = str(row.get("SDTM_Variable", "") or "").strip()
             domain = str(row.get("SDTM_Domain", "") or "").strip()
             if not variable or (not domain and variable.upper() != "NOT SUBMITTED"):
                 errors.append(f"{row_label} has incomplete SDTM ground truth")
+            domain_tokens = [token.strip().upper() for token in _DOMAIN_SPLIT.split(domain) if token.strip()]
+            if domain_tokens and any(
+                not (is_valid_domain(token) or is_valid_domain(strip_supp_prefix(token))) for token in domain_tokens
+            ):
+                errors.append(f"{row_label} contains an invalid SDTM domain")
             evaluation_id = str(row.get("evaluation_id", "") or "").strip()
             if not _OPAQUE_EVALUATION_ID.fullmatch(evaluation_id):
                 errors.append(f"{row_label}.evaluation_id must use the opaque form EVAL-NNNN")
             qualified_id = f"{dataset_id}:{evaluation_id}"
             if qualified_id in seen_evaluation_ids:
-                errors.append(f"duplicate evaluation_id within {dataset_id or label}")
+                errors.append(f"duplicate evaluation_id within {label}")
             seen_evaluation_ids.add(qualified_id)
             key = mapping_key(row)
             if key in seen_keys:
@@ -235,9 +246,9 @@ def validate_dataset_manifest(
 
         dataset_reports.append(
             {
-                "dataset_id": dataset_id,
-                "source_class": source_class,
-                "schema_version": schema_version,
+                "dataset_id": dataset_id if dataset_id_valid else "INVALID",
+                "source_class": source_class if source_class in ALLOWED_SOURCE_CLASSES else "INVALID",
+                "schema_version": schema_version if schema_version_valid else "INVALID",
                 "deidentified": dataset.get("deidentified") is True,
                 "authorized_for_engineering": dataset.get("authorized_for_engineering") is True,
                 "sha256": actual_hash,
@@ -339,7 +350,7 @@ def scan_for_leakage(
                 "overlap_count": 0,
                 "overlaps": [],
                 "sources": sources,
-                "errors": [f"Cannot inspect knowledge source: {exc}"],
+                "errors": [f"Cannot inspect knowledge source ({type(exc).__name__})"],
             }
         sources.append({"source_ref": source_ref, "sha256": source_hash, "mapping_rows": len(source_rows)})
         for source_row in source_rows:
