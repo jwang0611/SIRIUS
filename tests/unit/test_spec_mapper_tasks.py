@@ -421,12 +421,16 @@ def test_same_session_same_output_name_isolated_by_job(spec_workspace: Path) -> 
             job_manager.create_job(job_id, owner_session_id=session_id)
             session_manager.add_job(session_id, job_id)
 
+        def lightweight_init(_self, *_args, **_kwargs) -> None:
+            """Skip template-version I/O, which is unrelated to job isolation."""
+
         def overlapping_process(self, *args, **kwargs):
             """Produce a minimal artifact after proving both jobs overlap.
 
-            Real workbook mapping is covered by the other tests in this module.
-            Keeping this isolation test lightweight prevents runner speed from
-            turning its deadlock guard into a flaky performance deadline.
+            Real mapper initialization and workbook mapping are covered by the
+            other tests in this module. Keeping this isolation test lightweight
+            prevents runner speed from turning its deadlock guard into a flaky
+            performance deadline.
             """
             barrier.wait(timeout=5)
             output_file = kwargs["output_file"]
@@ -470,6 +474,7 @@ def test_same_session_same_output_name_isolated_by_job(spec_workspace: Path) -> 
             )
 
         with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(SpecMapper, "__init__", lightweight_init)
             mp.setattr(SpecMapper, "process", overlapping_process)
             threads = [
                 threading.Thread(target=run, args=(jobs[0], "job-a"), name="job-a"),
