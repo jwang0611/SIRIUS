@@ -44,7 +44,12 @@ jobs:
         run: ruff format --check .
 
       - name: Offline evaluation gate contracts
-        run: pytest tests/unit/test_offline_eval_gate.py -q
+        run: |
+          if [[ -f uv.lock ]] && command -v uv >/dev/null 2>&1; then
+            uv run --locked pytest tests/unit/test_offline_eval_gate.py -q
+          else
+            python -m pytest tests/unit/test_offline_eval_gate.py -q
+          fi
 
       - name: Pytest
         # smoke_test.py is a manual integration harness (needs data fixtures /
