@@ -19,6 +19,7 @@ import re
 from typing import Any
 
 from src.clients.base_client import BaseAIClient
+from src.infrastructure.data_masker import DataMasker
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class LLMInferenceService:
         temperature: float = 0.7,
     ) -> None:
         self.client = client
-        self.data_masker = data_masker
+        self.data_masker = data_masker or DataMasker()
         self.max_output_tokens = int(max_output_tokens)
         self.temperature = float(temperature)
 
@@ -126,6 +127,6 @@ class LLMInferenceService:
             return prompt
         try:
             return self.data_masker.mask_text(prompt)
-        except Exception:
-            logger.exception("DataMasker failed; falling back to raw prompt")
-            return prompt
+        except Exception as exc:
+            logger.error("DataMasker failed; model call blocked (%s)", type(exc).__name__)
+            raise LLMInferenceServiceError("data masking failed; model call blocked") from exc

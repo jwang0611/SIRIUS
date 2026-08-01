@@ -131,7 +131,7 @@ RATE_LIMIT_READ=120/minute
 # 审计辅助日志开关（当前不等同于 Part 11 / GxP 合规系统）
 AUDIT_LOG_ENABLED=true
 
-# PHI/PII 数据脱敏开关 (LLM 调用前自动脱敏)
+# 遗留兼容配置。所有远端 LLM/embedding 调用均强制脱敏；false 会被忽略并告警。
 DATA_MASKING_ENABLED=true
 
 # ================================
@@ -141,12 +141,12 @@ DATA_MASKING_ENABLED=true
 # 日志级别 (DEBUG/INFO/WARNING/ERROR)
 LOG_LEVEL=INFO
 
-# 是否保存完整AI交互日志 (prompt + response)
+# 是否保存 AI 交互元数据（仅长度、SHA-256、生成配置、耗时；不含 prompt/response）
 # 日志保存在 data/output/logs/ai_interactions_YYYYMMDD.log
-# 临床上下文可能包含敏感信息，因此默认关闭；仅在受控环境显式开启。
+# Web 任务始终关闭；命令行场景默认也关闭。
 SDTM_LOG_AI=false
 
-# 是否保存KB匹配事件日志 (知识库查询细节)
+# 是否保存脱敏后的 KB 聚合事件（不含查询词、表名、变量名或原始记录）
 SAVE_AI_INTERACTIONS=false
 
 # ================================

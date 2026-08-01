@@ -309,12 +309,17 @@ class SDTMProcessor(
         max_workers: int | None = None,
         enable_parallel: bool | None = None,
         session_id: str | None = None,
+        checkpoint_context: dict[str, Any] | None = None,
     ):
         self.client = client
         self.model_name = model_name
         self.generation_config = generation_config or GenerationConfig()
         self.rag_config = rag_config or {}
         self.session_id = session_id
+        self.checkpoint_context = checkpoint_context
+        self.reference_kb_files = (
+            list(self.rag_config["extra_kb_files"]) if "extra_kb_files" in self.rag_config else None
+        )
 
         # Parallel processing configuration
         if enable_parallel is not None:
@@ -402,14 +407,15 @@ class SDTMProcessor(
         else:
             self.audit_logger = None
 
-        # Data masker for PHI/PII redaction before LLM calls
+        # Data masker for PHI/PII redaction before any remote model call.
+        # DATA_MASKING_ENABLED is retained as a legacy settings field, but an
+        # outbound clinical-data boundary must never be disabled at runtime.
         masking_enabled = os.getenv("DATA_MASKING_ENABLED", "1").lower() in ("1", "true", "yes", "on")
-        if masking_enabled:
-            from src.infrastructure.data_masker import DataMasker
+        from src.infrastructure.data_masker import DataMasker
 
-            self.data_masker = DataMasker()
-        else:
-            self.data_masker = None
+        self.data_masker = DataMasker()
+        if not masking_enabled:
+            logger.warning("DATA_MASKING_ENABLED=false ignored; outbound masking is mandatory")
 
         # Domain inference helpers (DomainInferenceMixin)
         self.semantic_keyword_domain_map = normalize_semantic_map(ANNOTATION_KEYWORD_DOMAIN_MAP)
@@ -455,6 +461,7 @@ class SDTMProcessor(
                     knowledge_base_path=kb_base_path,
                     extra_kb_files=extra_kb_files,
                     log_ai_interactions=self.log_ai_interactions,
+                    data_masker=self.data_masker,
                 )
                 kb_sources = self.kb_query.get_kb_sources()
                 total_records = kb_sources.get("total_records", 0)
@@ -500,6 +507,7 @@ class SDTMProcessor(
                     top_k=top_k,
                     cache_dir=self.rag_config.get("cache_dir"),
                     extra_kb_files=rag_extra_kb_files,
+                    data_masker=self.data_masker,
                 )
                 rag_stats = self.rag_augmenter.get_stats()
                 if rag_stats["session_docs"] > 0:
@@ -1498,6 +1506,11 @@ class SDTMProcessor(
                 if self.debug:
                     print(f"   🧠 KB hints injected for {variable_name} (domain={primary_domain})")
 
+        # Final fail-closed boundary: sibling metadata, KB examples, and RAG
+        # context are assembled by separate components, so redact the complete
+        # payload immediately before any caller may send or persist it.
+        if self.data_masker:
+            base_prompt = self.data_masker.mask_text(base_prompt)
         return base_prompt
 
     def _make_rag_query(self, variable_data: dict[str, Any]) -> str:
@@ -1517,6 +1530,8 @@ class SDTMProcessor(
             parts.append(str(variable_label))
 
         query = " ".join(parts).strip()
+        if self.data_masker:
+            query = self.data_masker.mask_text(query)
 
         if self.debug:
             print(f"   🔍 RAG query: {query}")
@@ -2161,9 +2176,15 @@ class SDTMProcessor(
                 excel_rows.append(row)
 
         excel_output = output_file + ".xlsx"
-        from src.processors.project_ingest import load_session_reference_kb
+        from src.processors.project_ingest import (
+            load_reference_kb_files,
+            load_session_reference_kb,
+        )
 
-        reference_kb = load_session_reference_kb(self.session_id) if self.session_id else None
+        if self.reference_kb_files is not None:
+            reference_kb = load_reference_kb_files(self.reference_kb_files)
+        else:
+            reference_kb = load_session_reference_kb(self.session_id) if self.session_id else None
         excel_rows = attach_reference_diff(excel_rows, reference_kb)
         if excel_rows:
             df = pd.DataFrame(excel_rows)

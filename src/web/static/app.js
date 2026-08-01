@@ -417,25 +417,53 @@ if (document.readyState === 'loading') {
 
 // ==================== Session Management ====================
 // 生成或恢复 Session ID，用于隔离不同用户的文件和任务
+function createSessionId() {
+  if (!globalThis.crypto?.randomUUID) {
+    throw new Error('Secure session ID generation is unavailable');
+  }
+  return 'sess_' + globalThis.crypto.randomUUID();
+}
+
 function getSessionId() {
   let sessionId = sessionStorage.getItem('sirius_session_id');
   if (!sessionId) {
-    sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    sessionId = createSessionId();
     sessionStorage.setItem('sirius_session_id', sessionId);
   }
   return sessionId;
 }
 
-const SESSION_ID = getSessionId();
+let SESSION_ID = getSessionId();
+let suppressUnloadCleanup = false;
+
+function rotateSessionId() {
+  SESSION_ID = createSessionId();
+  sessionStorage.setItem('sirius_session_id', SESSION_ID);
+}
+
+function restartWithFreshSession() {
+  suppressUnloadCleanup = true;
+  rotateSessionId();
+  setTimeout(() => window.location.reload(), 100);
+}
 
 async function initSession() {
   try {
-    await fetch('api/session/init', {
+    let response = await fetchWithSession('api/session/init', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: SESSION_ID })
     });
-    console.log('[Session] Initialized:', SESSION_ID);
+    if (response.status === 409) {
+      rotateSessionId();
+      response = await fetchWithSession('api/session/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: SESSION_ID })
+      });
+    }
+    if (!response.ok) throw new Error(`Session init failed (${response.status})`);
+    console.log('[Session] Initialized');
   } catch (e) {
     console.warn('[Session] Init failed:', e);
   }
@@ -449,6 +477,48 @@ function fetchWithSession(url, options = {}) {
   };
   return fetch(url, options);
 }
+
+async function downloadWithSession(url) {
+  const response = await fetchWithSession(url);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(formatApiErrorBody(body) || "下载失败");
+  }
+
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = decodeURIComponent(encodedMatch?.[1] || plainMatch?.[1] || "download");
+  const objectUrl = URL.createObjectURL(await response.blob());
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+// Direct <a href> navigation cannot attach X-Session-ID. Use authenticated
+// fetch + Blob downloads for every session-owned job artifact.
+document.addEventListener("click", async (event) => {
+  const trigger = event.target instanceof Element
+    ? event.target.closest("[data-session-download]")
+    : null;
+  if (!trigger) return;
+  event.preventDefault();
+  trigger.disabled = true;
+  try {
+    await downloadWithSession(trigger.dataset.sessionDownload);
+  } catch (error) {
+    showToast({ type: "error", title: "下载失败", message: error.message });
+  } finally {
+    trigger.disabled = false;
+  }
+});
 
 /** FastAPI 422/500 的 `detail` 常为对象或数组，直接当 Error 消息会得到 "[object Object]"。 */
 function formatApiErrorBody(err) {
@@ -468,20 +538,24 @@ function formatApiErrorBody(err) {
 
 // 页面关闭时安排延迟清理（给刷新操作留出取消窗口）
 function scheduleCleanupOnUnload() {
-  const data = JSON.stringify({ session_id: SESSION_ID });
-  const blob = new Blob([data], { type: 'application/json' });
-  navigator.sendBeacon('api/session/schedule-cleanup', blob);
-  console.log('[Session] Scheduled cleanup for:', SESSION_ID);
+  if (suppressUnloadCleanup) return;
+  fetchWithSession('api/session/schedule-cleanup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: SESSION_ID }),
+    keepalive: true
+  }).catch(() => {});
+  console.log('[Session] Scheduled cleanup');
 }
 
 // 立即取消待执行的清理（不等待 DOMContentLoaded，尽早执行！）
 (function cancelPendingCleanupImmediately() {
-  fetch('api/session/cancel-cleanup', {
+  fetchWithSession('api/session/cancel-cleanup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: SESSION_ID })
   }).then(() => {
-    console.log('[Session] Cancelled pending cleanup for:', SESSION_ID);
+    console.log('[Session] Cancelled pending cleanup');
   }).catch(() => {});
 })();
 
@@ -492,31 +566,35 @@ async function manualCleanupSession() {
   }
 
   try {
-    const response = await fetch('api/session/cleanup', {
+    const response = await fetchWithSession('api/session/cleanup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: SESSION_ID })
     });
     const result = await response.json();
 
-    if (result.status === 'success') {
+    if (result.status === 'draining') {
+      showToast({
+        type: 'warning',
+        title: '正在安全终止任务',
+        message: `${result.deferred_jobs || 0} 个运行中任务已取消；正在创建新会话`
+      });
+      restartWithFreshSession();
+    } else if (result.status === 'retrying') {
+      showToast({
+        type: 'warning',
+        title: '清理正在重试',
+        message: '部分资源将在后台自动重试；正在创建新会话'
+      });
+      restartWithFreshSession();
+    } else if (result.status === 'success') {
       showToast({
         type: 'success',
         title: '清理完成',
-        message: `已清理 ${result.cleaned_files} 个文件，${result.cleaned_jobs} 个任务`
+        message: `已清理 ${result.cleaned_files} 个文件，${result.cleaned_jobs} 个任务；正在创建新会话`
       });
 
-      if (typeof loadProcessedFiles === 'function') loadProcessedFiles();
-      if (typeof loadALSFiles === 'function') loadALSFiles();
-
-      const newSessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      sessionStorage.setItem('sirius_session_id', newSessionId);
-
-      setTimeout(() => {
-        if (confirm('清理完成。是否刷新页面以开始新的会话？')) {
-          window.location.reload();
-        }
-      }, 500);
+      restartWithFreshSession();
     } else {
       throw new Error(result.detail || '清理失败');
     }
@@ -874,7 +952,7 @@ if (sheetConfirmBtn) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "转换失败");
-      statusExample.textContent = `✅ 转换完成，输出目录：${data.output_dir}`;
+      statusExample.textContent = "✅ 转换完成";
       showToast({ type: "success", title: "转换成功", message: `Sheet "${sheet}" 已转换完成，已自动刷新映射文件列表` });
       loadProcessedFiles();
     } catch (err) {
@@ -940,6 +1018,7 @@ async function pollJob(jobId) {
     const stateLabels = {
       pending: "⏳ 等待中",
       running: "🔄 处理中",
+      cancelling: "⏳ 正在安全终止",
       completed: "✅ 已完成",
       completed_with_errors: "⚠️ 已完成，需复核",
       failed: "❌ 失败",
@@ -974,8 +1053,8 @@ async function pollJob(jobId) {
             <h3>${needsReview ? "⚠️ 推荐已生成，请先人工复核" : "✅ 推荐生成成功！"}</h3>
             ${summary}
             <div class="download-buttons">
-              <a href="api/jobs/${jobId}/download?format=excel" target="_blank" class="download-btn">📥 下载 Excel</a>
-              <a href="api/jobs/${jobId}/download?format=json" target="_blank" class="download-btn">📥 下载 JSON</a>
+              <button type="button" data-session-download="api/jobs/${jobId}/download?format=excel" class="download-btn">📥 下载 Excel</button>
+              <button type="button" data-session-download="api/jobs/${jobId}/download?format=json" class="download-btn">📥 下载 JSON</button>
             </div>
           </div>
         `;
@@ -987,6 +1066,11 @@ async function pollJob(jobId) {
     if (data.state === "failed") {
       if (downloadArea) downloadArea.textContent = `❌ ${data.message}`;
       pollTimer && clearTimeout(pollTimer);
+      return;
+    }
+
+    if (data.state === "cancelled") {
+      finalizeCancelledRecommendation(data);
       return;
     }
 
@@ -1038,6 +1122,17 @@ runJobBtn?.addEventListener("click", async () => {
 const resumeJobBtn = document.getElementById("resume-job");
 let lastCancelledJobFile = null;
 
+function finalizeCancelledRecommendation(data) {
+  if (progressText) progressText.textContent = data.message || "任务已终止";
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = null;
+  currentJobId = null;
+  if (data.can_resume && data.json_file) {
+    lastCancelledJobFile = data.json_file;
+    if (resumeJobBtn) resumeJobBtn.style.display = "inline-flex";
+  }
+}
+
 cancelJobBtn?.addEventListener("click", async () => {
   if (!currentJobId) {
     showToast({ type: "info", title: "无任务运行", message: "当前没有运行中的任务" });
@@ -1045,21 +1140,20 @@ cancelJobBtn?.addEventListener("click", async () => {
   }
   try {
     const response = await fetchWithSession(`api/jobs/${currentJobId}/cancel`, { method: "POST" });
+    if (!response.ok) throw new Error("无法终止任务");
     const data = await response.json();
 
-    if (progressText) progressText.textContent = "任务已终止，进度已保存";
-    clearTimeout(pollTimer);
-    pollTimer = null;
-    currentJobId = null;
-
-    if (data.can_resume && data.json_file) {
-      lastCancelledJobFile = data.json_file;
-      if (resumeJobBtn) {
-        resumeJobBtn.style.display = "inline-flex";
-      }
+    if (data.status === "cancelling") {
+      if (progressText) progressText.textContent = data.message || "任务正在安全终止...";
+      showToast({ type: "info", title: "正在安全终止", message: "任务退出并保存检查点后会显示最终状态" });
+      return;
     }
 
-    showToast({ type: "success", title: "任务已终止", message: "进度已保存，可以点击「恢复任务」继续" });
+    if (data.status === "cancelled") {
+      finalizeCancelledRecommendation(data);
+      const message = data.can_resume ? "进度已保存，可以点击「恢复任务」继续" : "任务已安全终止";
+      showToast({ type: "success", title: "任务已终止", message });
+    }
   } catch (err) {
     if (progressText) progressText.textContent = `终止失败：${err.message}`;
   }
@@ -1350,7 +1444,7 @@ function pollSpecJob(jobId) {
           const issues = Array.isArray(job.spec_issues) ? job.spec_issues : [];
           const issuesTotal = Number(job.spec_issues_total) || issues.length;
           let issuesHtml = "";
-          if (needsReview && issues.length) {
+          if (issues.length) {
             const rows = issues.map((it) => {
               const loc = [it.sheet, it.row != null ? `行 ${it.row}` : "", it.column != null ? `列 ${it.column}` : ""]
                 .filter(Boolean)
@@ -1372,21 +1466,21 @@ function pollSpecJob(jobId) {
               ? `问题明细（显示 ${issues.length} / 共 ${issuesTotal}）`
               : `问题明细（${issuesTotal}）`;
             const downloadIssues = hasIssuesFile
-              ? `<p><a href="api/jobs/${jobId}/download-issues" class="download-btn download-btn-sm">📄 下载完整问题明细 (JSON，共 ${issuesTotal} 项)</a></p>`
+              ? `<p><button type="button" data-session-download="api/jobs/${jobId}/download-issues" class="download-btn download-btn-sm">📄 下载完整问题明细 (JSON，共 ${issuesTotal} 项)</button></p>`
               : "";
             issuesHtml = `<details class="spec-issues"><summary>${summaryLabel}</summary><ul>${rows}${truncNote}</ul>${downloadIssues}</details>`;
           }
 
           // completed_with_errors still yields a downloadable workbook for manual review.
           let downloadButtons = `
-            <a href="api/jobs/${jobId}/download?format=excel" class="download-btn">📥 下载 Spec Excel</a>
+            <button type="button" data-session-download="api/jobs/${jobId}/download?format=excel" class="download-btn">📥 下载 Spec Excel</button>
           `;
           downloadButtons += `
             <button onclick="window.location.reload()" class="download-btn">🔄 刷新页面</button>
           `;
           const heading = needsReview ? "⚠️ Spec 已生成，请先人工复核" : "✅ Spec 生成成功！";
           const reviewNote = needsReview
-            ? `<p>部分写入未成功或被跳过，已生成的 Excel 仍可下载供人工复核。</p>`
+              ? `<p>存在警告、跳过或失败项，已生成的 Excel 仍可下载供人工复核。</p>`
             : "";
           specDownloadArea.innerHTML = `
             <div class="success-message">
@@ -1400,7 +1494,7 @@ function pollSpecJob(jobId) {
         }
 
         if (needsReview) {
-          showToast({ type: "warning", title: "Spec 已生成，需复核", message: "部分写入未成功，请下载后人工复核" });
+          showToast({ type: "warning", title: "Spec 已生成，需复核", message: "存在警告、跳过或失败项，请下载后人工复核" });
         } else {
           showToast({ type: "success", title: "Spec 生成成功", message: "SDTM 规范文档已生成完成" });
         }
@@ -1410,6 +1504,11 @@ function pollSpecJob(jobId) {
         const failMsg = typeof job.message === "string" ? job.message : String(job.message ?? "");
         if (specProgressText) specProgressText.textContent = `错误: ${failMsg}`;
         showToast({ type: "error", title: "Spec 生成失败", message: failMsg });
+      } else if (job.state === "cancelled") {
+        clearInterval(specPollTimer);
+        if (specProgressPct) specProgressPct.textContent = "已终止";
+        if (specProgressText) specProgressText.textContent = job.message || "Spec Mapper 任务已终止";
+        showToast({ type: "info", title: "Spec 任务已终止", message: job.message || "任务已安全终止" });
       }
 
     } catch (error) {
@@ -1436,8 +1535,10 @@ deleteAlsFileBtn?.addEventListener("click", async () => {
   }
 
   try {
-    const response = await fetchWithSession(`api/als-files/${encodeURIComponent(selectedFile)}`, {
-      method: "DELETE"
+    const response = await fetchWithSession("api/als-files", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: selectedFile })
     });
 
     if (!response.ok) {

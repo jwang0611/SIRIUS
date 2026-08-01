@@ -72,6 +72,59 @@ def test_env_fallback_when_no_overrides(task_mocks, mappings_file, monkeypatch):
     mock_client_cls.assert_called_once_with(api_key="env-key", base_url="https://env.example.com/v1")
 
 
+def test_web_task_uses_only_snapshotted_kb_and_enables_masked_audit(
+    task_mocks,
+    mappings_file,
+    monkeypatch,
+    tmp_path,
+):
+    """The worker must not re-read mutable live KB state after job creation."""
+    from src.web.tasks import _run_recommendations_job
+
+    _, mock_processor_cls, _ = task_mocks
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    kb_snapshot = tmp_path / "project_snapshot.parquet"
+    kb_snapshot.write_bytes(b"immutable-kb")
+    snapshots = [str(kb_snapshot)]
+
+    _run_recommendations_job(
+        job_id="job-snapshot",
+        json_file=mappings_file,
+        session_id="session-a",
+        kb_files_snapshot=snapshots,
+    )
+
+    kwargs = mock_processor_cls.call_args.kwargs
+    assert kwargs["rag_config"]["extra_kb_files"] == snapshots
+    assert kwargs["session_id"] == "session-a"
+    assert kwargs["log_ai_interactions"] is False
+    assert kwargs["checkpoint_context"]["knowledge_base"][0]["sha256"]
+
+
+def test_explicit_empty_kb_snapshot_never_falls_back_to_live_session_state(
+    task_mocks,
+    mappings_file,
+    monkeypatch,
+):
+    from src.web.tasks import _run_recommendations_job, session_manager
+
+    _, mock_processor_cls, _ = task_mocks
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+
+    def fail_live_lookup(_session_id: str):
+        raise AssertionError("live KB state must not be read")
+
+    monkeypatch.setattr(session_manager, "get_kb_files", fail_live_lookup)
+    _run_recommendations_job(
+        job_id="job-empty-snapshot",
+        json_file=mappings_file,
+        session_id="session-empty",
+        kb_files_snapshot=[],
+    )
+
+    assert mock_processor_cls.call_args.kwargs["rag_config"]["extra_kb_files"] == []
+
+
 def test_custom_endpoint_without_token_does_not_leak_env_key(task_mocks, mappings_file, monkeypatch):
     """P0 回归：非默认 endpoint + 无请求 token → 失败，绝不用服务器 env 密钥构造客户端。"""
     from src.web.tasks import _run_recommendations_job

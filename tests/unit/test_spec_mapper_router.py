@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+
+from src.web.session_manager import session_manager
 
 
 @pytest.fixture
@@ -36,13 +39,12 @@ class TestSpecMapperRun:
         mock_ingest.return_value = MagicMock()
         mock_ingest.return_value.__str__ = lambda self: "/tmp/kb/project_web.parquet"
 
-        out_dir = tmp_path / "data" / "output"
         tpl_dir = tmp_path / "data" / "knowledge_base" / "template_spec"
-        out_dir.mkdir(parents=True)
         tpl_dir.mkdir(parents=True)
-        (out_dir / "fixture_als.xlsx").write_bytes(b"")
-        (tpl_dir / "fixture_template.xlsx").write_bytes(b"")
         monkeypatch.chdir(tmp_path)
+        out_dir = session_manager.get_session_als_dir("sess_123")
+        (out_dir / "fixture_als.xlsx").write_bytes(b"als-marker")
+        (tpl_dir / "fixture_template.xlsx").write_bytes(b"template-marker")
 
         payload = {
             "als_file": "fixture_als.xlsx",
@@ -90,18 +92,27 @@ class TestSpecMapperRun:
     def test_run_valid_request_calls_ingest_before_job_start(
         self, client: TestClient, patch_ingest_and_job: Any, tmp_path, monkeypatch
     ):
-        mock_ingest, mock_job, _ = patch_ingest_and_job
-        mock_ingest.return_value = MagicMock()
-        mock_ingest.return_value.__str__ = lambda self: "/tmp/kb/project_test.parquet"
+        mock_ingest, mock_job, mock_jm = patch_ingest_and_job
+        call_order: list[str] = []
+
+        def record_ingest(**_kwargs):
+            call_order.append("ingest")
+            return MagicMock()
+
+        def record_job(**_kwargs):
+            call_order.append("job")
+            return True
+
+        mock_ingest.side_effect = record_ingest
+        mock_job.side_effect = record_job
 
         # Handler requires these paths to exist (404 otherwise). CI has no local fixtures.
-        out_dir = tmp_path / "data" / "output"
         tpl_dir = tmp_path / "data" / "knowledge_base" / "template_spec"
-        out_dir.mkdir(parents=True)
         tpl_dir.mkdir(parents=True)
-        (out_dir / "fixture_als.xlsx").write_bytes(b"")
-        (tpl_dir / "fixture_template.xlsx").write_bytes(b"")
         monkeypatch.chdir(tmp_path)
+        out_dir = session_manager.get_session_als_dir("sess_123")
+        (out_dir / "fixture_als.xlsx").write_bytes(b"als-marker")
+        (tpl_dir / "fixture_template.xlsx").write_bytes(b"template-marker")
 
         payload = {
             "als_file": "fixture_als.xlsx",
@@ -124,18 +135,162 @@ class TestSpecMapperRun:
         assert mock_ingest.call_args.kwargs["session_id"] == "sess_123"
         assert mock_ingest.call_args.kwargs["project_name"] == "TestProject"
         assert mock_ingest.call_args.kwargs["sheet_name"] == "Sheet1"
+        assert mock_ingest.call_args.kwargs["_writer_locked"] is True
 
         mock_job.assert_called_once()
-        # Ensure ingest was called before job start by call order
-        assert mock_ingest.call_count == 1
-        assert mock_job.call_count == 1
+        assert mock_jm.create_job.call_args.kwargs["owner_session_id"] == "sess_123"
+        assert mock_job.call_args.kwargs["session_id"] == "sess_123"
+        snapshot = mock_ingest.call_args.kwargs["als_file_path"]
+        assert Path(mock_job.call_args.kwargs["als_file"]) == snapshot.resolve()
+        original = session_manager.get_session_als_dir("sess_123") / "fixture_als.xlsx"
+        assert snapshot != original
+        original.write_bytes(b"replacement")
+        assert snapshot.read_bytes() == b"als-marker"
+        template_snapshot = Path(mock_job.call_args.kwargs["template_file"])
+        assert template_snapshot.read_bytes() == b"template-marker"
+        # Both KB ingestion and the worker consume immutable job inputs, and
+        # ingestion must complete before the worker is launched.
+        assert call_order == ["ingest", "job"]
+
+    def test_unknown_project_ingest_error_is_generic(
+        self, client: TestClient, patch_ingest_and_job: Any, tmp_path, monkeypatch
+    ):
+        mock_ingest, mock_job, _ = patch_ingest_and_job
+        mock_ingest.side_effect = RuntimeError("secret metadata at /server/private/path")
+        tpl_dir = tmp_path / "data" / "knowledge_base" / "template_spec"
+        tpl_dir.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        out_dir = session_manager.get_session_als_dir("sess_123")
+        (out_dir / "fixture_als.xlsx").write_bytes(b"als-marker")
+        (tpl_dir / "fixture_template.xlsx").write_bytes(b"template-marker")
+
+        response = client.post(
+            "/api/spec-mapper/run",
+            json={
+                "als_file": "fixture_als.xlsx",
+                "template_file": "fixture_template.xlsx",
+                "output_name": "out",
+            },
+            headers={"X-Session-ID": "sess_123"},
+        )
+        assert response.status_code == 500
+        assert response.json() == {"detail": "项目 KB 回注失败，请查看服务端日志。"}
+        assert "secret metadata" not in response.text
+        assert "/server/private/path" not in response.text
+        mock_job.assert_not_called()
+        session_spec_root = tmp_path / "data/spec_output/sessions" / session_manager.session_dir_key("sess_123")
+        assert not list(session_spec_root.glob("*"))
+
+    def test_rejected_project_ingest_returns_422_and_removes_snapshots(
+        self,
+        client: TestClient,
+        patch_ingest_and_job: Any,
+        tmp_path,
+        monkeypatch,
+    ):
+        mock_ingest, mock_job, _ = patch_ingest_and_job
+        mock_ingest.side_effect = ValueError("raw workbook detail")
+        monkeypatch.chdir(tmp_path)
+        session_id = "spec-ingest-rejected"
+        als_dir = session_manager.get_session_als_dir(session_id)
+        als_dir.joinpath("fixture_als.xlsx").write_bytes(b"als-marker")
+        template_dir = tmp_path / "data/knowledge_base/template_spec"
+        template_dir.mkdir(parents=True)
+        template_dir.joinpath("fixture_template.xlsx").write_bytes(b"template-marker")
+
+        response = client.post(
+            "/api/spec-mapper/run",
+            json={
+                "als_file": "fixture_als.xlsx",
+                "template_file": "fixture_template.xlsx",
+                "output_name": "out",
+            },
+            headers={"X-Session-ID": session_id},
+        )
+
+        assert response.status_code == 422
+        assert "raw workbook detail" not in response.text
+        mock_job.assert_not_called()
+        session_spec_root = tmp_path / "data/spec_output/sessions" / session_manager.session_dir_key(session_id)
+        assert not list(session_spec_root.glob("*"))
+
+    def test_worker_start_failure_restores_previous_project_shard_and_removes_snapshots(
+        self,
+        client: TestClient,
+        patch_ingest_and_job: Any,
+        tmp_path,
+        monkeypatch,
+    ):
+        mock_ingest, mock_job, _ = patch_ingest_and_job
+        monkeypatch.chdir(tmp_path)
+        session_id = "spec-start-rollback"
+        als_dir = session_manager.get_session_als_dir(session_id)
+        als_dir.joinpath("fixture_als.xlsx").write_bytes(b"als-marker")
+        template_dir = tmp_path / "data/knowledge_base/template_spec"
+        template_dir.mkdir(parents=True)
+        template_dir.joinpath("fixture_template.xlsx").write_bytes(b"template-marker")
+        project_shard = session_manager.get_session_kb_dir(session_id) / "project_web.parquet"
+        project_shard.write_bytes(b"old-project-kb")
+
+        def replace_project_shard(**_kwargs):
+            project_shard.write_bytes(b"new-project-kb")
+            return project_shard
+
+        mock_ingest.side_effect = replace_project_shard
+        mock_job.return_value = False
+
+        response = client.post(
+            "/api/spec-mapper/run",
+            json={
+                "als_file": "fixture_als.xlsx",
+                "template_file": "fixture_template.xlsx",
+                "output_name": "out",
+            },
+            headers={"X-Session-ID": session_id},
+        )
+
+        assert response.status_code == 409
+        assert project_shard.read_bytes() == b"old-project-kb"
+        session_spec_root = tmp_path / "data/spec_output/sessions" / session_manager.session_dir_key(session_id)
+        assert not list(session_spec_root.glob("*"))
+
+    def test_session_cannot_start_spec_from_another_sessions_als(
+        self, client: TestClient, patch_ingest_and_job: Any, tmp_path, monkeypatch
+    ):
+        mock_ingest, mock_job, _ = patch_ingest_and_job
+        session_a = "spec-owner-a"
+        session_b = "spec-owner-b"
+        tpl_dir = tmp_path / "data" / "knowledge_base" / "template_spec"
+        tpl_dir.mkdir(parents=True)
+        (tpl_dir / "fixture_template.xlsx").write_bytes(b"template")
+        monkeypatch.chdir(tmp_path)
+        session_manager.get_or_create(session_a)
+        owner_file = session_manager.get_session_als_dir(session_a) / "private.xlsx"
+        owner_file.write_bytes(b"private")
+        session_manager.add_file(session_a, str(owner_file))
+
+        try:
+            response = client.post(
+                "/api/spec-mapper/run",
+                json={
+                    "als_file": "private.xlsx",
+                    "template_file": "fixture_template.xlsx",
+                    "output_name": "forbidden",
+                },
+                headers={"X-Session-ID": session_b},
+            )
+            assert response.status_code == 404
+            mock_ingest.assert_not_called()
+            mock_job.assert_not_called()
+        finally:
+            session_manager.cleanup_session(session_a)
+            session_manager.cleanup_session(session_b)
 
 
 def test_convert_invalid_workbook_returns_safe_422(client: TestClient, tmp_path, monkeypatch):
-    documents_dir = tmp_path / "data" / "knowledge_base" / "documents"
-    documents_dir.mkdir(parents=True)
-    (documents_dir / "invalid.xlsx").write_bytes(b"not-an-excel-workbook")
     monkeypatch.chdir(tmp_path)
+    session_dir = session_manager.get_session_kb_dir("sess_123")
+    (session_dir / "invalid.xlsx").write_bytes(b"not-an-excel-workbook")
 
     from src.web.security import InvalidWorkbookError
 
@@ -146,6 +301,7 @@ def test_convert_invalid_workbook_returns_safe_422(client: TestClient, tmp_path,
         response = client.post(
             "/api/convert-als2sdtm",
             json={"file_path": "invalid.xlsx", "sheet_name": "eCRF"},
+            headers={"X-Session-ID": "sess_123"},
         )
 
     assert response.status_code == 422
