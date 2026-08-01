@@ -490,7 +490,7 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 
 - [x] A2 / A3 / A4 / A6：外部调用重试、错误状态可见、Spec 真实阶段进度、配置与文档校准（PR #11）。
 - [x] 一致性清理：Spec Mapper 默认 sheet 统一为 `Sheet1`（显式参数 > `ALS_DEFAULT_SHEET` > 配置）、删除未调用的旧并行路径，并为 `when` / `if` / `|` / `/` / `//` DSL 增加专属单测。
-- [ ] A1：等待维护者提供合规、去标识化且与 KB/规则不相交的 held-out metadata 数据；在此之前不调整 prompt、阈值或默认模型。
+- [ ] A1：离线评估、泄漏检测、SUPP/质量指标与显式基线门禁已实现；等待维护者提供至少两个不同研究的合规、去标识化且与 KB/规则不相交的 held-out metadata 数据后激活真实发布门禁（见 [`docs/evaluation-release-gate.md`](./docs/evaluation-release-gate.md)）。
 - [x] A5：Spec 实际写入统计、结构化 warnings/errors 与两个真实模板族的端到端保护（见下方更新日志）。
 - [ ] A7：运行时/开发依赖拆分、精确 lockfile 和 CI 安装/类型/覆盖率门禁。
 

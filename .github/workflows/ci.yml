@@ -43,6 +43,9 @@ jobs:
       - name: Ruff format check
         run: ruff format --check .
 
+      - name: Offline evaluation gate contracts
+        run: pytest tests/unit/test_offline_eval_gate.py -q
+
       - name: Pytest
         # smoke_test.py is a manual integration harness (needs data fixtures /
         # live services); it is excluded from the automated gate.

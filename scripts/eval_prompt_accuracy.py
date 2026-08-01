@@ -138,6 +138,12 @@ def load_ground_truth(path: Path) -> dict[MappingKey, dict]:
     if not isinstance(data, list):
         raise ValueError(f"Ground truth must be a JSON list: {path}")
 
+    return ground_truth_from_rows(data)
+
+
+def ground_truth_from_rows(data: list[dict]) -> dict[MappingKey, dict]:
+    """Build ground truth from already validated metadata-only rows."""
+
     gt: dict[MappingKey, dict] = {}
     for entry in data:
         key = _mapping_key(entry)
@@ -149,6 +155,19 @@ def load_ground_truth(path: Path) -> dict[MappingKey, dict]:
             raise ValueError(f"Duplicate ground-truth input key at {evaluation_id}: {key}")
         gt[key] = entry
     return gt
+
+
+def _is_supp_mapping(row: dict, *, reference: bool = False) -> bool:
+    domain_field = "SDTM_Domain" if reference else "domain"
+    variable_field = "SDTM_Variable" if reference else "ai_variable"
+    domain = str(row.get(domain_field) or row.get("ai_domain") or "").strip().upper()
+    variable = str(row.get(variable_field) or row.get("sdtm_variable") or "").strip().upper()
+    variable_type = str(row.get("sdtm_variable_type", "") or "").strip().lower()
+    return (
+        domain.startswith("SUPP")
+        or variable_type == "supp"
+        or ((variable == "QVAL" or "QVAL" in variable) and "QNAM=" in variable)
+    )
 
 
 def load_ai_output(path: Path) -> list[dict]:
@@ -206,12 +225,12 @@ def load_ai_output(path: Path) -> list[dict]:
                         "annotation_table": entry.get("annotation_table", ""),
                         "annotation_variable": entry.get("annotation_variable", ""),
                         "metadata_variable": entry.get("metadata_variable", ""),
-                        "ai_domain": _normalize_domain(entry.get("SDTM_Domain", "")),
-                        "ai_variable": _normalize_variable(entry.get("SDTM_Variable", "")),
-                        "domain": _normalize_domain(entry.get("SDTM_Domain", "")),
-                        "sdtm_variable": str(entry.get("SDTM_Variable", "") or "").strip(),
-                        "score": entry.get("Score", 0),
-                        "source": entry.get("Source", ""),
+                        "ai_domain": _normalize_domain(entry.get("ai_domain", entry.get("SDTM_Domain", ""))),
+                        "ai_variable": _normalize_variable(entry.get("ai_variable", entry.get("SDTM_Variable", ""))),
+                        "domain": _normalize_domain(entry.get("domain", entry.get("SDTM_Domain", ""))),
+                        "sdtm_variable": str(entry.get("sdtm_variable", entry.get("SDTM_Variable", "")) or "").strip(),
+                        "score": entry.get("score", entry.get("Score", 0)),
+                        "source": entry.get("source", entry.get("Source", "")),
                         "cascade_level": entry.get("cascade_level", entry.get("Cascade_Level")),
                         "sdtm_variable_type": entry.get("sdtm_variable_type", ""),
                         "supp_dataset": entry.get("supp_dataset", ""),
@@ -307,6 +326,9 @@ def evaluate(
     )
     mismatches: list[dict] = []
     row_results: list[dict] = []
+    supp_tp = 0
+    supp_fp = 0
+    supp_fn = 0
 
     def update_slice(stats: dict[str, int], *, exact: bool, domain_match: bool) -> None:
         stats["total"] += 1
@@ -330,6 +352,8 @@ def evaluate(
         row = ai_by_key.get(key)
         if row is None:
             statuses["missing"] += 1
+            if _is_supp_mapping(ref, reference=True):
+                supp_fn += 1
             row_results.append(
                 {
                     "evaluation_id": ref.get("evaluation_id", ""),
@@ -355,6 +379,14 @@ def evaluate(
         cascade_key = "UNRECORDED" if cascade_level is None else str(cascade_level)
         exact = status == "match"
         domain_match = status in {"match", "var_diff"}
+        expected_supp = _is_supp_mapping(ref, reference=True)
+        predicted_supp = _is_supp_mapping(row)
+        if expected_supp and predicted_supp:
+            supp_tp += 1
+        elif predicted_supp:
+            supp_fp += 1
+        elif expected_supp:
+            supp_fn += 1
 
         update_slice(domain_stats[domain_key], exact=exact, domain_match=domain_match)
         update_slice(source_stats[source], exact=exact, domain_match=domain_match)
@@ -398,11 +430,29 @@ def evaluate(
                 "status": status,
                 "exact_match": exact,
                 "domain_match": domain_match,
+                "expected_supp": expected_supp,
+                "predicted_supp": predicted_supp,
             }
         )
 
+    for key in extra_ai_keys:
+        if _is_supp_mapping(ai_by_key[key]):
+            supp_fp += 1
+
     coverage = total / gt_size if gt_size else 0
     consistency_issues = _recompute_consistency_issues(ai_rows)
+    supp_precision = supp_tp / (supp_tp + supp_fp) if supp_tp + supp_fp else 0.0
+    supp_recall = supp_tp / (supp_tp + supp_fn) if supp_tp + supp_fn else 0.0
+    supp_f1 = 2 * supp_precision * supp_recall / (supp_precision + supp_recall) if supp_precision + supp_recall else 0.0
+    source_counts = Counter(str(row.get("source", "") or "UNRECORDED").upper() for row in ai_rows)
+    pending_outputs = sum(
+        1
+        for row in ai_rows
+        if any(
+            str(row.get(field, "") or "").strip().upper().endswith("_PENDING")
+            for field in ("sdtm_variable", "ai_variable")
+        )
+    )
     return {
         "label": label,
         "gt_size": gt_size,
@@ -425,6 +475,19 @@ def evaluate(
         "cascade_stats": dict(cascade_stats),
         "cohort_stats": dict(cohort_stats),
         "scenario_stats": dict(scenario_stats),
+        "source_counts": dict(source_counts),
+        "outcome_counts": {
+            "fallback_outputs": source_counts["FALLBACK"],
+            "pending_outputs": pending_outputs,
+        },
+        "supp": {
+            "true_positive": supp_tp,
+            "false_positive": supp_fp,
+            "false_negative": supp_fn,
+            "precision": supp_precision,
+            "recall": supp_recall,
+            "f1": supp_f1,
+        },
         "row_results": row_results,
         "quality_issues": count_quality_issues(
             ai_rows,
@@ -521,6 +584,13 @@ def print_report(metrics: dict, verbose: bool = False) -> None:
     print(f"  Exact among evaluated: {metrics['exact_match']}/{total} = {_pct(metrics['exact_match'], total)}")
     print(f"  Domain + Var Diff:     {metrics['statuses'].get('var_diff', 0)}")
     print(f"  Domain Diff:           {metrics['statuses'].get('domain_diff', 0)}")
+    supp = metrics["supp"]
+    print(
+        "  SUPP P/R/F1:          "
+        f"{supp['precision'] * 100:.1f}% / {supp['recall'] * 100:.1f}% / {supp['f1'] * 100:.1f}%"
+    )
+    print(f"  FALLBACK outputs:      {metrics['outcome_counts']['fallback_outputs']}")
+    print(f"  *_PENDING outputs:     {metrics['outcome_counts']['pending_outputs']}")
     if metrics["coverage"] < 1:
         print("  WARNING: Coverage is below 100%; missing outputs count as non-matches in headline rates.")
     print()
