@@ -413,7 +413,6 @@ def test_same_session_same_output_name_isolated_by_job(spec_workspace: Path) -> 
     jobs: list[str] = []
     expected_sheet: dict[str, str] = {}
     barrier = threading.Barrier(2)
-    real_process = SpecMapper.process
 
     try:
         for _ in range(2):
@@ -423,19 +422,40 @@ def test_same_session_same_output_name_isolated_by_job(spec_workspace: Path) -> 
             session_manager.add_job(session_id, job_id)
 
         def overlapping_process(self, *args, **kwargs):
+            """Produce a minimal artifact after proving both jobs overlap.
+
+            Real workbook mapping is covered by the other tests in this module.
+            Keeping this isolation test lightweight prevents runner speed from
+            turning its deadlock guard into a flaky performance deadline.
+            """
             barrier.wait(timeout=5)
-            stats = real_process(self, *args, **kwargs)
+            output_file = kwargs["output_file"]
+            workbook = Workbook()
+            workbook.save(output_file)
+            workbook.close()
+
             sheet = "DM" if threading.current_thread().name.endswith("a") else "EG"
-            stats["write_result"]["warnings"].append(
-                {
-                    "code": "supp_multi_source",
-                    "stage": "supp_rows",
-                    "operation": "insert_supp_row",
-                    "sheet": sheet,
-                }
-            )
-            stats["actual"]["warnings"] += 1
-            return stats
+            return {
+                "als_records": 3,
+                "actual": {
+                    "attempted": 1,
+                    "written": 1,
+                    "skipped": 0,
+                    "warnings": 1,
+                    "errors": 0,
+                },
+                "write_result": {
+                    "errors": [],
+                    "warnings": [
+                        {
+                            "code": "supp_multi_source",
+                            "stage": "supp_rows",
+                            "operation": "insert_supp_row",
+                            "sheet": sheet,
+                        }
+                    ],
+                },
+            }
 
         def run(job_id: str, thread_name: str) -> None:
             expected_sheet[job_id] = "DM" if thread_name.endswith("a") else "EG"
@@ -458,8 +478,8 @@ def test_same_session_same_output_name_isolated_by_job(spec_workspace: Path) -> 
             for thread in threads:
                 thread.start()
             for thread in threads:
-                thread.join(timeout=30)
-                assert not thread.is_alive()
+                thread.join(timeout=10)
+            assert not [thread.name for thread in threads if thread.is_alive()]
 
         job_a = job_manager.get_job(jobs[0])
         job_b = job_manager.get_job(jobs[1])
