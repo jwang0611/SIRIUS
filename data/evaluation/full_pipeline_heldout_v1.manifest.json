@@ -1,5 +1,11 @@
 {
   "dataset": "full_pipeline_heldout_v1",
+  "evaluation_profile": "characterization_only",
+  "release_gate_eligible": false,
+  "release_gate_blockers": [
+    "single_source_workbook",
+    "production_knowledge_base_overlap"
+  ],
   "purpose": "End-to-end cascade evaluation containing both production-KB overlaps and records that require AI recommendation.",
   "limitations": "This dataset measures full-pipeline performance and must not be reported as a prompt-only generalization benchmark. KB_DISAGREE rows require adjudication and are diagnostic, not a clean KB-path regression gate.",
   "source": {

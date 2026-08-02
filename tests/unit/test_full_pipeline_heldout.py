@@ -83,6 +83,12 @@ def test_manifest_is_bound_to_current_production_kb():
     manifest = _load_json(MANIFEST_PATH)
     actual_hash = _sha256_with_lf_endings(KB_PATH)
 
+    assert manifest["evaluation_profile"] == "characterization_only"
+    assert manifest["release_gate_eligible"] is False
+    assert set(manifest["release_gate_blockers"]) == {
+        "single_source_workbook",
+        "production_knowledge_base_overlap",
+    }
     assert manifest["production_kb"]["sha256"] == actual_hash
     assert manifest["source"]["workbook_sha256"] == ("92883e555254fa93e455f58938a662ce9b4cf678d52c83beb284e98bf7fbd414")
     assert manifest["curation"]["included_rows"] == 490

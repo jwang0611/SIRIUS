@@ -1,7 +1,9 @@
 # Evaluation datasets
 
-`full_pipeline_heldout_v1.json` is a curated, metadata-only benchmark for the
-complete SIRIUS cascade. It deliberately contains three cohorts:
+`full_pipeline_heldout_v1.json` is a curated, metadata-only characterization
+benchmark for the complete SIRIUS cascade. It is **not eligible for a release
+gate**: it comes from one source workbook and deliberately includes production
+KB overlaps. It contains three cohorts:
 
 - `KB_AGREE` (107 rows): the four input fields and normalized SDTM mapping
   agree with the production KB. This is the clean deterministic KB-path
@@ -168,3 +170,7 @@ flag, it exits non-zero for CI or other gating contexts.
 The ground-truth path is intentionally explicit. Never copy this dataset into
 the production KB or prompt examples without first retiring it as held-out and
 creating a newly versioned benchmark.
+
+The strict two-study, no-leak release procedure is documented in
+`docs/evaluation-release-gate.md`. Do not relabel this characterization dataset
+or use its results to create a release baseline.
