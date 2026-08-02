@@ -27,6 +27,7 @@ from src.config.domain_semantic_map import (
     strip_supp_prefix,
 )
 from src.evaluation.run_manifest import hash_file
+from src.knowledge_base.exact_match_utils import normalize_deep
 
 MANIFEST_SCHEMA_VERSION = "sirius-heldout-manifest/v1"
 ALLOWED_MANIFEST_FIELDS = {"schema_version", "evaluation_profile", "distinct_studies_confirmed", "datasets"}
@@ -67,6 +68,13 @@ _OPAQUE_DATASET_ID = re.compile(r"^study-[0-9]{3,}$")
 _OPAQUE_EVALUATION_ID = re.compile(r"^EVAL-[0-9]{4,}$")
 _SCHEMA_VERSION = re.compile(r"^[a-z][a-z0-9_-]{1,31}/v[1-9][0-9]*$")
 _DOMAIN_SPLIT = re.compile(r"[|/;]")
+_KNOWLEDGE_SUFFIXES = {".json", ".jsonl", ".yaml", ".yml", ".csv", ".tsv", ".parquet", ".xlsx", ".xls"}
+_TEXT_KNOWLEDGE_SUFFIXES = {".json", ".jsonl", ".yaml", ".yml", ".csv", ".tsv"}
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_KNOWN_NON_MAPPING_SOURCES = {
+    (_PROJECT_ROOT / "data/knowledge_base/structured/sdtm_spec_enhanced.json").resolve(),
+    (_PROJECT_ROOT / "data/knowledge_base/structured/sdtm_spec_enhanced.parquet").resolve(),
+}
 
 
 def _normalized(value: object) -> str:
@@ -76,6 +84,26 @@ def _normalized(value: object) -> str:
 def mapping_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
     """Return the canonical four-field input identity."""
     return tuple(_normalized(row.get(field)) for field in KEY_FIELDS)  # type: ignore[return-value]
+
+
+def deep_mapping_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Return the production matcher's aggressive four-field identity."""
+    return tuple(normalize_deep(row.get(field)) for field in KEY_FIELDS)  # type: ignore[return-value]
+
+
+def _mapping_key_variants(row: dict[str, Any]) -> set[tuple[str, str, str, str]]:
+    return {key for key in (mapping_key(row), deep_mapping_key(row)) if all(key)}
+
+
+def _semantic_pair_variants(row: dict[str, Any]) -> set[tuple[str, str]]:
+    return {
+        pair
+        for pair in (
+            (_normalized(row.get("annotation_table")), _normalized(row.get("annotation_variable"))),
+            (normalize_deep(row.get("annotation_table")), normalize_deep(row.get("annotation_variable"))),
+        )
+        if all(pair)
+    }
 
 
 def mapping_fingerprint(row: dict[str, Any]) -> str:
@@ -238,10 +266,10 @@ def validate_dataset_manifest(
             if qualified_id in seen_evaluation_ids:
                 errors.append(f"duplicate evaluation_id within {label}")
             seen_evaluation_ids.add(qualified_id)
-            key = mapping_key(row)
-            if key in seen_keys:
+            key_variants = _mapping_key_variants(row)
+            if seen_keys.intersection(key_variants):
                 errors.append(f"duplicate input identity across held-out datasets: {mapping_fingerprint(row)}")
-            seen_keys.add(key)
+            seen_keys.update(key_variants)
             all_rows.append({**row, "evaluation_id": qualified_id})
 
         dataset_reports.append(
@@ -258,7 +286,7 @@ def validate_dataset_manifest(
 
     report = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
-        "evaluation_profile": profile,
+        "evaluation_profile_valid": profile == "release",
         "manifest_sha256": manifest_fingerprint(manifest_path),
         "dataset_count": len(datasets),
         "row_count": len(all_rows),
@@ -278,6 +306,17 @@ def _iter_mapping_rows(value: Any) -> Iterable[dict[str, Any]]:
                 canonical[field] = matched
         if all(field in canonical for field in KEY_FIELDS):
             yield canonical
+        prompt_input = value.get("input")
+        if isinstance(prompt_input, str) and value.get("domain") and value.get("output"):
+            prompt_parts = re.split(r"[/／]", prompt_input, maxsplit=1)
+            if len(prompt_parts) == 2 and all(part.strip() for part in prompt_parts):
+                table, variable = (part.strip() for part in prompt_parts)
+                yield {
+                    "annotation_table": table,
+                    "metadata_table": table,
+                    "annotation_variable": variable,
+                    "metadata_variable": variable,
+                }
         for nested in value.values():
             yield from _iter_mapping_rows(nested)
     elif isinstance(value, list):
@@ -290,27 +329,53 @@ def _load_knowledge_rows(path: Path) -> list[dict[str, Any]]:
     if suffix == ".json":
         payload = json.loads(path.read_text(encoding="utf-8"))
         return list(_iter_mapping_rows(payload))
+    if suffix == ".jsonl":
+        return list(_iter_mapping_rows(pd.read_json(path, lines=True).to_dict(orient="records")))
     if suffix in {".yaml", ".yml"}:
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))
         return list(_iter_mapping_rows(payload))
     if suffix == ".parquet":
         return list(_iter_mapping_rows(pd.read_parquet(path).to_dict(orient="records")))
+    if suffix in {".csv", ".tsv"}:
+        return list(
+            _iter_mapping_rows(pd.read_csv(path, sep="\t" if suffix == ".tsv" else ",").to_dict(orient="records"))
+        )
     if suffix in {".xlsx", ".xls"}:
         sheets = pd.read_excel(path, sheet_name=None)
         return [row for frame in sheets.values() for row in _iter_mapping_rows(frame.to_dict(orient="records"))]
-    return []
+    raise ValueError("Unsupported knowledge source format")
 
 
 def _knowledge_files(roots: Iterable[Path]) -> list[Path]:
-    supported = {".json", ".yaml", ".yml", ".parquet", ".xlsx", ".xls"}
     files: set[Path] = set()
     for root in roots:
         resolved = root.resolve()
-        if resolved.is_file() and resolved.suffix.casefold() in supported:
+        if resolved.is_file():
+            if resolved.suffix.casefold() not in _KNOWLEDGE_SUFFIXES:
+                raise ValueError("Knowledge root contains an unsupported source file")
             files.add(resolved)
         elif resolved.is_dir():
-            files.update(path.resolve() for path in resolved.rglob("*") if path.suffix.casefold() in supported)
+            candidates = [
+                path.resolve() for path in resolved.rglob("*") if path.is_file() and not path.name.startswith(".")
+            ]
+            unsupported = [path for path in candidates if path.suffix.casefold() not in _KNOWLEDGE_SUFFIXES]
+            if unsupported:
+                raise ValueError(f"Knowledge root contains {len(unsupported)} unsupported source file(s)")
+            files.update(candidates)
     return sorted(files)
+
+
+def _semantic_keyword_matches(row: dict[str, Any], keywords: set[str]) -> bool:
+    fields = [_normalized(row.get(field)) for field in KEY_FIELDS]
+    for keyword in keywords:
+        if len(keyword) <= 3:
+            if keyword in fields:
+                return True
+            if keyword.isascii() and any(keyword in re.findall(r"[a-z0-9]+", field) for field in fields):
+                return True
+        elif any(keyword in field for field in fields):
+            return True
+    return False
 
 
 def scan_for_leakage(
@@ -326,22 +391,33 @@ def scan_for_leakage(
             "valid": False,
             "overlap_count": 0,
             "overlaps": [],
+            "semantic_coverage_count": 0,
+            "semantic_coverage": [],
             "sources": [],
             "errors": ["Knowledge roots do not exist at argument positions: " + ", ".join(missing_roots)],
         }
-    heldout_by_key = {mapping_key(row): mapping_fingerprint(row) for row in rows}
-    heldout_by_semantic_pair = {
-        (_normalized(row.get("annotation_table")), _normalized(row.get("annotation_variable"))): mapping_fingerprint(
-            row
-        )
-        for row in rows
-    }
+    heldout_by_key = {key: mapping_fingerprint(row) for row in rows for key in _mapping_key_variants(row)}
+    heldout_by_semantic_pair = {pair: mapping_fingerprint(row) for row in rows for pair in _semantic_pair_variants(row)}
     hits: set[tuple[str, str, str]] = set()
+    semantic_coverage_hits: set[tuple[str, str, str]] = set()
     sources: list[dict[str, Any]] = []
 
-    for path in _knowledge_files(roots):
+    try:
+        knowledge_files = _knowledge_files(roots)
+    except ValueError as exc:
+        return {
+            "valid": False,
+            "overlap_count": 0,
+            "overlaps": [],
+            "semantic_coverage_count": 0,
+            "semantic_coverage": [],
+            "sources": [],
+            "errors": [str(exc)],
+        }
+
+    for path in knowledge_files:
         try:
-            source_hash = hash_file(path, normalize_text=path.suffix.casefold() in {".json", ".yaml", ".yml"})
+            source_hash = hash_file(path, normalize_text=path.suffix.casefold() in _TEXT_KNOWLEDGE_SUFFIXES)
             source_ref = f"knowledge:{source_hash[:12]}"
             source_rows = _load_knowledge_rows(path)
         except (OSError, ValueError, json.JSONDecodeError, yaml.YAMLError) as exc:
@@ -349,22 +425,39 @@ def scan_for_leakage(
                 "valid": False,
                 "overlap_count": 0,
                 "overlaps": [],
+                "semantic_coverage_count": 0,
+                "semantic_coverage": [],
                 "sources": sources,
                 "errors": [f"Cannot inspect knowledge source ({type(exc).__name__})"],
             }
-        sources.append({"source_ref": source_ref, "sha256": source_hash, "mapping_rows": len(source_rows)})
+        allowlisted_non_mapping = path.resolve() in _KNOWN_NON_MAPPING_SOURCES
+        sources.append(
+            {
+                "source_ref": source_ref,
+                "sha256": source_hash,
+                "mapping_rows": len(source_rows),
+                "allowlisted_non_mapping": allowlisted_non_mapping,
+            }
+        )
+        if not source_rows and not allowlisted_non_mapping:
+            return {
+                "valid": False,
+                "overlap_count": 0,
+                "overlaps": [],
+                "semantic_coverage_count": 0,
+                "semantic_coverage": [],
+                "sources": sources,
+                "errors": ["Knowledge source produced zero inspectable mapping rows"],
+            }
         for source_row in source_rows:
-            key = mapping_key(source_row)
-            fingerprint = heldout_by_key.get(key)
-            if fingerprint:
-                hits.add((fingerprint, "knowledge_exact", source_ref))
-            semantic_pair = (
-                _normalized(source_row.get("annotation_table")),
-                _normalized(source_row.get("annotation_variable")),
-            )
-            fingerprint = heldout_by_semantic_pair.get(semantic_pair)
-            if fingerprint:
-                hits.add((fingerprint, "knowledge_semantic_pair", source_ref))
+            for key in _mapping_key_variants(source_row):
+                fingerprint = heldout_by_key.get(key)
+                if fingerprint:
+                    hits.add((fingerprint, "knowledge_exact", source_ref))
+            for semantic_pair in _semantic_pair_variants(source_row):
+                fingerprint = heldout_by_semantic_pair.get(semantic_pair)
+                if fingerprint:
+                    hits.add((fingerprint, "knowledge_semantic_pair", source_ref))
 
     exact_tables = {_normalized(key) for key in CHINESE_TABLE_DOMAIN_MAP}
     keywords = {_normalized(keyword) for keyword in ANNOTATION_KEYWORD_DOMAIN_MAP if _normalized(keyword)}
@@ -374,20 +467,25 @@ def scan_for_leakage(
     for row in rows:
         fingerprint = mapping_fingerprint(row)
         table = _normalized(row.get("annotation_table"))
-        combined = " ".join(_normalized(row.get(field)) for field in KEY_FIELDS)
         if table in exact_tables:
             hits.add((fingerprint, "semantic_table_exact", "domain_semantic_map.py"))
-        if any(keyword in combined for keyword in keywords):
-            hits.add((fingerprint, "semantic_keyword", "domain_semantic_map.py"))
+        if _semantic_keyword_matches(row, keywords):
+            semantic_coverage_hits.add((fingerprint, "semantic_keyword", "domain_semantic_map.py"))
 
     overlaps = [
         {"input_sha256": fingerprint, "kind": kind, "source_ref": source_ref}
         for fingerprint, kind, source_ref in sorted(hits)
     ]
+    semantic_coverage = [
+        {"input_sha256": fingerprint, "kind": kind, "source_ref": source_ref}
+        for fingerprint, kind, source_ref in sorted(semantic_coverage_hits)
+    ]
     return {
         "valid": not overlaps,
         "overlap_count": len(overlaps),
         "overlaps": overlaps,
+        "semantic_coverage_count": len(semantic_coverage),
+        "semantic_coverage": semantic_coverage,
         "sources": sources,
         "errors": [],
     }

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,11 +20,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from scripts.eval_prompt_accuracy import evaluate, ground_truth_from_rows, load_ai_output  # noqa: E402
 from src.evaluation.heldout import scan_for_leakage, validate_dataset_manifest  # noqa: E402
 from src.evaluation.offline_gate import (  # noqa: E402
+    EVIDENCE_SCHEMA_VERSION,
     REPORT_SCHEMA_VERSION,
     evaluate_regression_gate,
     redact_metrics_for_report,
     render_markdown_report,
 )
+from src.evaluation.run_manifest import hash_file, prompt_records  # noqa: E402
 
 DEFAULT_KNOWLEDGE_ROOTS = (
     PROJECT_ROOT / "data/knowledge_base/structured",
@@ -55,8 +58,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--report-json", type=Path, required=True)
     parser.add_argument("--report-markdown", type=Path, required=True)
-    parser.add_argument(
-        "--require-gate", action="store_true", help="Fail unless the reviewed regression baseline passes"
+    gate = parser.add_mutually_exclusive_group()
+    gate.add_argument(
+        "--require-gate",
+        action="store_true",
+        dest="require_gate",
+        default=True,
+        help="Require a passing reviewed baseline (default)",
+    )
+    gate.add_argument(
+        "--no-gate",
+        action="store_false",
+        dest="require_gate",
+        help="Diagnostic replay only; do not require a baseline or passing gate",
     )
     return parser
 
@@ -76,18 +90,45 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def collect_replay_evidence(ai_output: Path) -> dict:
+    """Bind replay metrics to the exact output, clean checkout, and prompts."""
+    try:
+        git_sha = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        git_status = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError("Cannot collect Git evidence for offline replay") from exc
+    return {
+        "schema_version": EVIDENCE_SCHEMA_VERSION,
+        "ai_output": {"sha256": hash_file(ai_output)},
+        "git": {"sha": git_sha, "dirty": bool(git_status.strip())},
+        "prompts": prompt_records(PROJECT_ROOT),
+    }
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     if args.validate_only:
-        if args.ai_output or args.baseline or args.require_gate:
-            parser.error("--validate-only cannot be combined with --ai-output, --baseline, or --require-gate")
+        if args.ai_output or args.baseline:
+            parser.error("--validate-only cannot be combined with --ai-output or --baseline")
         if not args.benchmark_output:
             parser.error("--validate-only requires --benchmark-output")
     elif not args.ai_output:
         parser.error("replay mode requires --ai-output")
-    if args.require_gate and not args.baseline:
-        raise SystemExit("--require-gate requires --baseline")
+    if not args.validate_only and args.require_gate and not args.baseline:
+        parser.error("replay mode requires --baseline unless --no-gate is supplied")
 
     try:
         integrity, rows = validate_dataset_manifest(args.dataset_manifest, require_release=True)
@@ -100,6 +141,7 @@ def main() -> None:
             ],
         )
         metrics = None
+        evidence = None
         gate = {"evaluated": False, "passed": False, "gates": [], "errors": []}
         if integrity["valid"] and leakage["valid"] and args.validate_only:
             benchmark = [
@@ -111,12 +153,14 @@ def main() -> None:
             ]
             _write(args.benchmark_output, json.dumps(benchmark, ensure_ascii=False, indent=2) + "\n")
         elif integrity["valid"] and leakage["valid"]:
+            evidence = collect_replay_evidence(args.ai_output)
             metrics = evaluate(load_ai_output(args.ai_output), ground_truth_from_rows(rows), label=args.ai_output.name)
             if args.baseline:
                 gate = evaluate_regression_gate(
                     metrics,
                     _load_object(args.baseline),
                     dataset_manifest_sha256=integrity["manifest_sha256"],
+                    current_evidence=evidence,
                 )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -127,6 +171,7 @@ def main() -> None:
         "mode": "validation_only" if args.validate_only else "offline_replay",
         "dataset_integrity": integrity,
         "leakage": leakage,
+        "evidence": evidence,
         "metrics": redact_metrics_for_report(metrics) if metrics is not None else None,
         "regression_gate": gate,
     }
@@ -136,7 +181,7 @@ def main() -> None:
     if not integrity["valid"] or not leakage["valid"]:
         print("ERROR: release dataset or leakage contract failed", file=sys.stderr)
         raise SystemExit(1)
-    if args.require_gate and not gate["passed"]:
+    if not args.validate_only and args.require_gate and not gate["passed"]:
         print("ERROR: regression gate failed", file=sys.stderr)
         raise SystemExit(1)
 

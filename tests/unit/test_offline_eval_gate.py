@@ -15,7 +15,11 @@ from src.evaluation.heldout import (
     scan_for_leakage,
     validate_dataset_manifest,
 )
-from src.evaluation.offline_gate import BASELINE_SCHEMA_VERSION, evaluate_regression_gate
+from src.evaluation.offline_gate import (
+    BASELINE_SCHEMA_VERSION,
+    EVIDENCE_SCHEMA_VERSION,
+    evaluate_regression_gate,
+)
 
 
 def _row(index: int, *, supp: bool = False) -> dict:
@@ -85,10 +89,24 @@ def _write_release_manifest(tmp_path: Path, studies: list[list[dict]]) -> Path:
     return manifest
 
 
-def _baseline(metrics: dict, manifest_hash: str) -> dict:
+def _evidence(*, dirty: bool = False) -> dict:
+    return {
+        "schema_version": EVIDENCE_SCHEMA_VERSION,
+        "ai_output": {"sha256": "b" * 64},
+        "git": {"sha": "a" * 40, "dirty": dirty},
+        "prompts": {
+            "template": {"version": "1.2.0", "sha256": "c" * 64},
+            "rules": {"version": "1.2.0", "sha256": "d" * 64},
+            "examples": {"version": "1.1.0", "sha256": "e" * 64},
+        },
+    }
+
+
+def _baseline(metrics: dict, manifest_hash: str, *, evidence: dict | None = None) -> dict:
     return {
         "schema_version": BASELINE_SCHEMA_VERSION,
         "dataset_manifest_sha256": manifest_hash,
+        "evidence": evidence or _evidence(),
         "metrics": {
             "coverage": metrics["coverage"],
             "exact_rate": metrics["exact_rate"],
@@ -143,6 +161,14 @@ def test_invalid_manifest_values_and_domain_are_redacted(tmp_path):
     payload["datasets"][0]["dataset_id"] = "actual-study-name"
     payload["datasets"][0]["source_class"] = "actual-sponsor-name"
     payload["datasets"][0]["schema_version"] = "actual-protocol-name"
+    payload["evaluation_profile"] = "secret-evaluation-profile"
+    second_study = tmp_path / "study-002.json"
+    second_rows = json.loads(second_study.read_text())
+    second_rows[0]["SDTM_Domain"] = "NOT_A_DOMAIN"
+    second_study.write_text(json.dumps(second_rows) + "\n", encoding="utf-8")
+    import hashlib
+
+    payload["datasets"][1]["sha256"] = hashlib.sha256(second_study.read_bytes()).hexdigest()
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
     report, _ = validate_dataset_manifest(manifest)
@@ -152,6 +178,8 @@ def test_invalid_manifest_values_and_domain_are_redacted(tmp_path):
     assert "actual-study-name" not in serialized
     assert "actual-sponsor-name" not in serialized
     assert "actual-protocol-name" not in serialized
+    assert "secret-evaluation-profile" not in serialized
+    assert any("invalid SDTM domain" in error for error in report["errors"])
 
 
 def test_injected_knowledge_overlap_fails_without_disclosing_metadata(tmp_path):
@@ -189,6 +217,91 @@ def test_chinese_project_kb_columns_and_semantic_pair_overlap_are_detected(tmp_p
 
     assert report["valid"] is False
     assert any(overlap["kind"] == "knowledge_semantic_pair" for overlap in report["overlaps"])
+
+
+def test_production_deep_normalization_variants_are_detected(tmp_path):
+    heldout = _row(1)
+    heldout.update(
+        {
+            "annotation_table": "AE_TERM",
+            "metadata_table": "AE-FORM",
+            "annotation_variable": "AE TERM (verbatim)",
+            "metadata_variable": "AE_TERM",
+        }
+    )
+    source = {**heldout, "annotation_table": "AETERM", "metadata_table": "AEFORM"}
+    source["annotation_variable"] = "AE TERM"
+    source["metadata_variable"] = "AETERM"
+    kb = tmp_path / "project-kb.json"
+    kb.write_text(json.dumps([source]), encoding="utf-8")
+
+    report = scan_for_leakage([heldout], knowledge_roots=[kb])
+
+    assert report["valid"] is False
+    assert any(overlap["kind"] == "knowledge_exact" for overlap in report["overlaps"])
+
+
+def test_semantic_keyword_coverage_is_informational_and_short_tokens_are_bounded(tmp_path):
+    knowledge = tmp_path / "empty-kb"
+    knowledge.mkdir()
+    covered = _row(1)
+    covered["annotation_variable"] = "adverse event reaction"
+
+    coverage_report = scan_for_leakage([covered], knowledge_roots=[knowledge])
+    short_token_report = scan_for_leakage(
+        [
+            {
+                **_row(2),
+                "annotation_table": "opaque",
+                "metadata_table": "opaque",
+                "annotation_variable": "opaque",
+                "metadata_variable": "opaque",
+            }
+        ],
+        knowledge_roots=[knowledge],
+    )
+
+    assert coverage_report["valid"] is True
+    assert coverage_report["semantic_coverage_count"] >= 1
+    assert short_token_report["semantic_coverage_count"] == 0
+
+
+@pytest.mark.parametrize(("suffix", "separator"), [(".jsonl", None), (".csv", ","), (".tsv", "\t")])
+def test_supported_project_knowledge_text_formats_are_inspected(tmp_path, suffix, separator):
+    row = _row(1)
+    kb = tmp_path / f"project-kb{suffix}"
+    if suffix == ".jsonl":
+        kb.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    else:
+        fields = ["annotation_table", "metadata_table", "annotation_variable", "metadata_variable"]
+        kb.write_text(separator.join(fields) + "\n" + separator.join(str(row[field]) for field in fields) + "\n")
+
+    report = scan_for_leakage([row], knowledge_roots=[kb])
+
+    assert report["valid"] is False
+    assert report["overlap_count"] >= 1
+
+
+def test_unsupported_and_zero_mapping_knowledge_sources_fail_closed(tmp_path):
+    unsupported = tmp_path / "README.txt"
+    unsupported.write_text("not inspectable", encoding="utf-8")
+    unsupported_report = scan_for_leakage([_row(1)], knowledge_roots=[unsupported])
+    empty_mapping = tmp_path / "project-kb.json"
+    empty_mapping.write_text(json.dumps({"unrelated": "data"}), encoding="utf-8")
+    empty_report = scan_for_leakage([_row(1)], knowledge_roots=[empty_mapping])
+
+    assert unsupported_report["valid"] is False
+    assert unsupported_report["errors"]
+    assert empty_report["valid"] is False
+    assert "zero inspectable" in empty_report["errors"][0]
+
+
+def test_prompt_examples_are_inspected_as_mapping_sources():
+    prompt_examples = Path("src/prompts/examples/pattern_examples.yaml")
+
+    report = scan_for_leakage([_row(1)], knowledge_roots=[prompt_examples])
+
+    assert report["sources"][0]["mapping_rows"] > 0
 
 
 def test_missing_knowledge_root_fails_closed(tmp_path):
@@ -234,10 +347,32 @@ def test_regression_gate_fails_when_a_metric_is_lowered():
     baseline = _baseline(metrics, "a" * 64)
     regressed = {**metrics, "exact_rate": metrics["exact_rate"] - 0.01}
 
-    result = evaluate_regression_gate(regressed, baseline, dataset_manifest_sha256="a" * 64)
+    result = evaluate_regression_gate(
+        regressed,
+        baseline,
+        dataset_manifest_sha256="a" * 64,
+        current_evidence=_evidence(),
+    )
 
     assert result["passed"] is False
     assert next(gate for gate in result["gates"] if gate["metric"] == "exact_rate")["passed"] is False
+
+
+def test_regression_gate_rejects_dirty_or_unbound_replay_evidence():
+    rows = [_row(1)]
+    metrics = evaluate([_ai(row) for row in rows], ground_truth_from_rows(rows))
+    baseline = _baseline(metrics, "a" * 64)
+
+    result = evaluate_regression_gate(
+        metrics,
+        baseline,
+        dataset_manifest_sha256="a" * 64,
+        current_evidence=_evidence(dirty=True),
+    )
+
+    assert result["passed"] is False
+    assert result["evidence"] == {"baseline_valid": True, "current_valid": False}
+    assert any("git.dirty" in error for error in result["errors"])
 
 
 def test_offline_cli_writes_json_and_markdown_without_external_client(tmp_path, monkeypatch):
@@ -253,6 +388,7 @@ def test_offline_cli_writes_json_and_markdown_without_external_client(tmp_path, 
     baseline.write_text(json.dumps(_baseline(metrics, manifest_fingerprint(manifest))), encoding="utf-8")
     report_json = tmp_path / "report.json"
     report_markdown = tmp_path / "report.md"
+    monkeypatch.setattr("scripts.run_offline_eval_gate.collect_replay_evidence", lambda _path: _evidence())
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -269,7 +405,6 @@ def test_offline_cli_writes_json_and_markdown_without_external_client(tmp_path, 
             str(report_json),
             "--report-markdown",
             str(report_markdown),
-            "--require-gate",
         ],
     )
 
@@ -282,6 +417,7 @@ def test_offline_cli_writes_json_and_markdown_without_external_client(tmp_path, 
     assert "cascade_stats" not in report["metrics"]
     assert "Opaque panel" not in report_json.read_text()
     assert "SUPP F1" in report_markdown.read_text()
+    assert report["evidence"]["ai_output"]["sha256"] == "b" * 64
 
 
 def test_validate_only_preflights_before_writing_benchmark(tmp_path, monkeypatch):
@@ -340,6 +476,7 @@ def test_offline_cli_rejects_leakage_before_scoring(tmp_path, monkeypatch):
             str(report_json),
             "--report-markdown",
             str(report_markdown),
+            "--no-gate",
         ],
     )
 
@@ -348,3 +485,27 @@ def test_offline_cli_rejects_leakage_before_scoring(tmp_path, monkeypatch):
 
     assert exc_info.value.code == 1
     assert json.loads(report_json.read_text())["metrics"] is None
+
+
+def test_replay_without_baseline_is_a_usage_error_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_offline_eval_gate.py",
+            "--dataset-manifest",
+            str(tmp_path / "manifest.json"),
+            "--ai-output",
+            str(tmp_path / "replay.json"),
+            "--project-knowledge-root",
+            str(tmp_path),
+            "--report-json",
+            str(tmp_path / "report.json"),
+            "--report-markdown",
+            str(tmp_path / "report.md"),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 2

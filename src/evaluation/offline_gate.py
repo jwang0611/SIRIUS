@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-BASELINE_SCHEMA_VERSION = "sirius-eval-baseline/v1"
-REPORT_SCHEMA_VERSION = "sirius-offline-eval-report/v1"
+BASELINE_SCHEMA_VERSION = "sirius-eval-baseline/v2"
+REPORT_SCHEMA_VERSION = "sirius-offline-eval-report/v2"
+EVIDENCE_SCHEMA_VERSION = "sirius-eval-evidence/v1"
+PROMPT_COMPONENTS = {"template", "rules", "examples"}
 REPORT_METRIC_FIELDS = {
     "gt_size",
     "total_evaluated",
@@ -35,6 +38,37 @@ RATE_PATHS = (
     "supp.recall",
     "supp.f1",
 )
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
+
+
+def _validate_evidence(evidence: Any, *, label: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(evidence, dict):
+        return [f"{label}.evidence must be an object"]
+    if evidence.get("schema_version") != EVIDENCE_SCHEMA_VERSION:
+        errors.append(f"{label}.evidence.schema_version must be {EVIDENCE_SCHEMA_VERSION!r}")
+
+    ai_output = evidence.get("ai_output")
+    if not isinstance(ai_output, dict) or not _SHA256.fullmatch(str(ai_output.get("sha256", ""))):
+        errors.append(f"{label}.evidence.ai_output.sha256 must be a SHA-256 digest")
+
+    git = evidence.get("git")
+    if not isinstance(git, dict) or not _GIT_SHA.fullmatch(str(git.get("sha", ""))):
+        errors.append(f"{label}.evidence.git.sha must be a Git object ID")
+    if not isinstance(git, dict) or git.get("dirty") is not False:
+        errors.append(f"{label}.evidence.git.dirty must be false")
+
+    prompts = evidence.get("prompts")
+    if not isinstance(prompts, dict) or set(prompts) != PROMPT_COMPONENTS:
+        errors.append(f"{label}.evidence.prompts must contain template, rules, and examples")
+        return errors
+    for component, record in sorted(prompts.items()):
+        if not isinstance(record, dict) or not str(record.get("version", "")).strip():
+            errors.append(f"{label}.evidence.prompts.{component}.version is required")
+        if not isinstance(record, dict) or not _SHA256.fullmatch(str(record.get("sha256", ""))):
+            errors.append(f"{label}.evidence.prompts.{component}.sha256 must be a SHA-256 digest")
+    return errors
 
 
 def _read_path(value: dict[str, Any], path: str) -> Any:
@@ -51,6 +85,7 @@ def evaluate_regression_gate(
     baseline: dict[str, Any],
     *,
     dataset_manifest_sha256: str,
+    current_evidence: dict[str, Any],
 ) -> dict[str, Any]:
     """Compare a replay to an explicitly reviewed, hash-bound baseline."""
     errors: list[str] = []
@@ -58,6 +93,10 @@ def evaluate_regression_gate(
         errors.append(f"baseline schema_version must be {BASELINE_SCHEMA_VERSION!r}")
     if baseline.get("dataset_manifest_sha256") != dataset_manifest_sha256:
         errors.append("baseline is not bound to the evaluated dataset manifest")
+    baseline_evidence_errors = _validate_evidence(baseline.get("evidence"), label="baseline")
+    current_evidence_errors = _validate_evidence(current_evidence, label="current")
+    errors.extend(baseline_evidence_errors)
+    errors.extend(current_evidence_errors)
 
     recorded = baseline.get("metrics")
     tolerances = baseline.get("max_regression")
@@ -129,6 +168,10 @@ def evaluate_regression_gate(
     return {
         "evaluated": True,
         "passed": not errors and all(gate["passed"] for gate in gates),
+        "evidence": {
+            "baseline_valid": not baseline_evidence_errors,
+            "current_valid": not current_evidence_errors,
+        },
         "gates": gates,
         "errors": errors,
     }
@@ -158,8 +201,26 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- Ground-truth rows: {integrity['row_count']}",
         f"- Dataset contract: {'PASS' if integrity['valid'] else 'FAIL'}",
         f"- Leakage check: {'PASS' if leakage['valid'] else 'FAIL'} ({leakage['overlap_count']} overlaps)",
+        f"- Semantic-map coverage: {leakage.get('semantic_coverage_count', 0)} rows (informational)",
         "",
     ]
+    evidence = report.get("evidence")
+    if isinstance(evidence, dict):
+        lines.extend(
+            [
+                "## Replay evidence",
+                "",
+                f"- AI output SHA-256: `{evidence['ai_output']['sha256']}`",
+                f"- Git revision: `{evidence['git']['sha']}`",
+                f"- Clean checkout: {'YES' if evidence['git']['dirty'] is False else 'NO'}",
+                "- Prompt components: "
+                + ", ".join(
+                    f"{name} {record['version']} (`{record['sha256']}`)"
+                    for name, record in sorted(evidence["prompts"].items())
+                ),
+                "",
+            ]
+        )
     metrics = report.get("metrics")
     if not isinstance(metrics, dict):
         reason = (

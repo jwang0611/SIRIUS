@@ -69,7 +69,7 @@ def _knowledge_base_records(kb_root: Path) -> list[dict[str, str]]:
     return records
 
 
-def _prompt_records(code_root: Path) -> dict[str, dict[str, str]]:
+def prompt_records(code_root: Path) -> dict[str, dict[str, str]]:
     records: dict[str, dict[str, str]] = {}
     for component, relative_path in _PROMPT_PATHS.items():
         path = code_root / relative_path
@@ -116,7 +116,7 @@ def build_run_manifest(
             "heldout": _input_record(heldout_path),
         },
         "knowledge_base": _knowledge_base_records(kb_root),
-        "prompts": _prompt_records(code_root),
+        "prompts": prompt_records(code_root),
         "configuration": {
             "provider": provider,
             "model": model,
