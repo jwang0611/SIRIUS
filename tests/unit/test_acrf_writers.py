@@ -101,6 +101,24 @@ def test_llm_merges_and_never_overwrites_deterministic(acrf_pdf_builder, tmp_pat
     assert fields == {"Subject ID", "Date of Birth", "Sex", "Age"}  # nothing dropped
 
 
+def test_extraction_stats_count_forms_without_fields(acrf_pdf_builder, tmp_path: Path):
+    pdf = tmp_path / "partial.pdf"
+    acrf_pdf_builder(
+        pdf,
+        [
+            ("Empty Form", "Empty Form", []),
+            ("Demographics", "Demographics", ["Subject ID"]),
+        ],
+    )
+
+    result = extract_acrf(str(pdf))
+
+    assert result.stats["forms_total"] == 2
+    assert result.stats["forms_with_fields"] == 1
+    assert result.stats["forms_without_fields"] == 1
+    assert "form 'Empty Form': no fields extracted" in result.warnings
+
+
 def test_writers_neutralize_formula_injection_without_mutating_content(tmp_path: Path):
     labels = ['=HYPERLINK("http://evil","x")', "+1", "-2", "@cmd", "normal"]
     recs = assemble_records([("Form", labels)], AcrfConfig())

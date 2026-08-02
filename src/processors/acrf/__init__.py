@@ -12,8 +12,10 @@ from src.processors.acrf.models import (
     AcrfConfig,
     AcrfRecord,
     ExtractionResult,
+    FormSection,
     FormSpan,
     LineBox,
+    WordBox,
 )
 from src.processors.acrf.writers import (
     write_als2sdtm_xlsx,
@@ -25,8 +27,10 @@ __all__ = [
     "AcrfConfig",
     "AcrfRecord",
     "ExtractionResult",
+    "FormSection",
     "FormSpan",
     "LineBox",
+    "WordBox",
     "extract_acrf",
     "write_als2sdtm_xlsx",
     "write_processed_json",
