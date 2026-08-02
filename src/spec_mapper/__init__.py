@@ -672,11 +672,20 @@ class SpecMapper:
         because recoverable status comes from the return value rather than a
         mid-mutation exception, a partially-mutated workbook is never saved with
         an inaccurate count.
+
+        A batch method may also pass over SOME of its planned items (a
+        configured variable missing from the sheet, or already present). Such
+        an item is invisible in the return count alone, so the writer queues it
+        and this guard drains the queue after every call and records one
+        structured skip per item — otherwise a partially-skipping batch would
+        report ``attempted == written`` and no issue at all.
         """
         stage_res = result.stage(stage)
+        writer = getattr(fn, "__self__", None)
         try:
             ret = fn(*args, **kwargs)
         except RecoverableWriteError as exc:
+            self._drain_pending_skips(stage_res, stage, writer)
             stage_res.record_error(
                 WriteIssue(
                     code=guard_code,
@@ -688,16 +697,55 @@ class SpecMapper:
             )
             self.logger.warning("Write op '%s' failed on sheet '%s' (%s)", operation, guard_sheet, type(exc).__name__)
             return None
+        except Exception:
+            # An unexpected exception still propagates (it is not a recoverable
+            # write failure), but the queue must not survive it: a leftover skip
+            # would be drained by the NEXT guarded call and attributed to the
+            # wrong stage and operation.
+            self._drain_pending_skips(stage_res, stage, writer)
+            raise
 
         mutated = ret if isinstance(ret, int) else (1 if ret else 0)
         if mutated > 0:
             # Record the REAL mutation count: batch methods (wrap_text, source
             # columns, fixed rules, ...) may mutate N > 1 cells in one call.
             stage_res.record_written(mutated)
-        else:
-            # Exception-free but no mutation: surface as a skip, not a write.
+        # Per-item skips reported by the call itself are more precise than the
+        # whole-call 'no_op' fallback, which is only used when the call reported
+        # neither a mutation nor a skipped item.
+        item_skips = self._drain_pending_skips(stage_res, stage, writer)
+        if mutated <= 0 and not item_skips:
+            # Exception-free, no mutation, nothing reported: surface as a skip.
             stage_res.record_skipped(WriteIssue(code="no_op", stage=stage, operation=operation, sheet=guard_sheet))
         return ret
+
+    def _drain_pending_skips(self, stage_res: StageWriteResult, stage: str, writer: Any) -> list[WriteIssue]:
+        """Record every per-item skip the writer queued during one call.
+
+        Returns the drained issues (empty when the guarded callable was not a
+        bound :class:`ExcelWriter` method, e.g. in tests).
+
+        Duck-typed on purpose: ``ExcelWriter`` is a module global that tests
+        patch out, so ``isinstance`` against it would raise once patched. A
+        writer double that returns something other than a list of issues is
+        treated as "nothing queued" rather than crashing the write stage.
+        """
+        drain = getattr(writer, "drain_pending_skips", None)
+        if not callable(drain):
+            return []
+        issues = drain(stage)
+        if not isinstance(issues, list):
+            return []
+        for issue in issues:
+            stage_res.record_skipped(issue)
+            self.logger.info(
+                "Skipped '%s' on sheet '%s' during '%s' (%s)",
+                issue.variable,
+                issue.sheet,
+                issue.operation,
+                issue.code,
+            )
+        return issues
 
     def _insert_unmatched_rows(self, writer: ExcelWriter, unmatched_records: list[dict]) -> StageWriteResult:
         """Insert rows for SDTM variables that exist in ALS but not in template.

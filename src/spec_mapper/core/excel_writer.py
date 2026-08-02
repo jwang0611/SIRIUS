@@ -63,10 +63,51 @@ class ExcelWriter:
         # Track sheets that have been modified (for tab highlighting)
         self.modified_sheets: set[str] = set()
 
+        # Per-item skips made *inside* a batch write method whose public return
+        # value is only a mutation count. Without this queue such an item is
+        # invisible in the job result (the batch reports attempted == written
+        # and no issue). The caller drains it right after each call — see
+        # :meth:`drain_pending_skips` and ``SpecMapper._guard``.
+        self.pending_skips: list[WriteIssue] = []
+
         # Optional {source_label: translated_label} map applied whenever a Source
         # (F) column value is written. Used to render the IG 3.4 (English)
         # template's Source column in English; empty = no translation (v3.2).
         self.source_label_overrides: dict[str, str] = {}
+
+    def _record_pending_skip(
+        self,
+        code: str,
+        operation: str,
+        sheet: str | None = None,
+        variable: str | None = None,
+    ) -> None:
+        """Queue one per-item skip performed inside a batch write method.
+
+        ``stage`` is left empty on purpose: the writer knows the operation,
+        the sheet and the variable, but only the caller knows which write
+        stage the call belongs to. :meth:`drain_pending_skips` stamps it.
+
+        Contract: only methods invoked through ``SpecMapper._guard`` may queue
+        skips here, because the guard is what drains them. A method that
+        returns its own :class:`StageWriteResult` must record skips on that
+        result instead.
+        """
+        self.pending_skips.append(
+            WriteIssue(code=code, stage="", operation=operation, sheet=sheet, variable=variable or None)
+        )
+
+    def drain_pending_skips(self, stage: str) -> list[WriteIssue]:
+        """Return and clear the per-item skips queued since the last drain.
+
+        Each returned issue is stamped with *stage* so it can be recorded on
+        the matching :class:`StageWriteResult`.
+        """
+        issues = self.pending_skips
+        self.pending_skips = []
+        for issue in issues:
+            issue.stage = stage
+        return issues
 
     def _src_label(self, value: str | None) -> str | None:
         """Translate a Source (F column) label via ``source_label_overrides``."""
@@ -1354,7 +1395,10 @@ class ExcelWriter:
             highlight: If True, apply yellow background (default: True)
 
         Idempotent: variables whose name already exists in the sheet are skipped,
-        so re-running the pipeline never appends duplicate rows.
+        so re-running the pipeline never appends duplicate rows. Each such skip
+        is queued on :attr:`pending_skips` (``variable_already_present``) so it
+        stays visible in the job result instead of hiding behind
+        ``attempted == written``.
 
         Returns:
             The number of variables actually inserted (0 if all already existed).
@@ -1393,6 +1437,12 @@ class ExcelWriter:
             var_name = str(var.get("name", "")).strip().upper()
             if var_name and var_name in existing_names:
                 logger.debug(f"External coding variable '{var_name}' already present in '{sheet_name}', skipping")
+                self._record_pending_skip(
+                    code="variable_already_present",
+                    operation="add_external_coding_variables",
+                    sheet=sheet_name,
+                    variable=var_name,
+                )
                 continue
             # Copy format from previous row
             copy_from_row = insert_row - 1 if insert_row > 14 else 14
@@ -1505,6 +1555,14 @@ class ExcelWriter:
             start_row: Starting row for search (default: 14)
             highlight: If True, apply yellow background (default: True)
 
+        A configured variable that is not present in the sheet cannot be
+        updated; that skip is queued on :attr:`pending_skips`
+        (``variable_not_found``) so it stays visible in the job result instead
+        of hiding behind ``attempted == written``.
+
+        Returns:
+            The number of variables actually updated.
+
         Raises:
             ValueError: If sheet doesn't exist
         """
@@ -1525,6 +1583,12 @@ class ExcelWriter:
             var_name = var.get("name", "").upper()
             if var_name not in var_name_to_row:
                 logger.debug(f"Variable '{var_name}' not found in '{sheet_name}', skipping")
+                self._record_pending_skip(
+                    code="variable_not_found",
+                    operation="update_existing_variables",
+                    sheet=sheet_name,
+                    variable=var_name,
+                )
                 continue
 
             row_idx = var_name_to_row[var_name]

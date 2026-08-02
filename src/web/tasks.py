@@ -613,7 +613,7 @@ _SPEC_ISSUE_CAP = 50
 # schema and machine-readable values deliberately small: mapper bugs or future
 # extensions must not accidentally serialize raw source values or exception
 # messages into the job payload / issues JSON.
-_SPEC_ISSUE_FIELDS = ("code", "stage", "operation", "sheet", "row", "column", "detail")
+_SPEC_ISSUE_FIELDS = ("code", "stage", "operation", "sheet", "row", "column", "variable", "detail")
 _SPEC_ISSUE_STAGES = frozenset(
     {
         "cell_updates",
@@ -646,6 +646,8 @@ _SPEC_ISSUE_CODES = frozenset(
         "style_update_failed",
         "supp_label_too_long",
         "supp_multi_source",
+        "variable_already_present",
+        "variable_not_found",
         "write_failed",
     }
 )
@@ -674,6 +676,11 @@ _SPEC_ISSUE_OPERATIONS = frozenset(
 _SPEC_ISSUE_DETAILS = frozenset({"RecoverableWriteError", "sheet_not_found"})
 _SPEC_ISSUE_STRUCTURAL_SHEETS = frozenset({"CONTENT", "CODELIST", "RELREC", "XXTEST"})
 _SPEC_ISSUE_DOMAIN_SHEET_RE = re.compile(r"[A-Z][A-Z0-9_]{1,15}\Z")
+# Per-item skips name the configured SDTM variable they passed over. Bound to
+# the CDISC 8-character variable-name limit (every name in the packaged
+# external_coding_variables config is <= 8), so a longer free-form token — the
+# shape a mapper bug or an injected value would have — is dropped, not echoed.
+_SPEC_ISSUE_VARIABLE_RE = re.compile(r"[A-Z][A-Z0-9_]{0,7}\Z")
 
 # Absolute (or 2+ segment) filesystem paths, redacted from the downloadable log.
 _ABS_PATH_RE = re.compile(r"(?:[A-Za-z]:\\[^\s'\"]*|(?:/[^\s'\"/]+){2,})")
@@ -726,6 +733,17 @@ def _all_spec_issues(stats: dict) -> list[dict]:
             return value
         return None
 
+    def safe_variable(value: object) -> str | None:
+        """Accept only an SDTM/template variable identifier.
+
+        A per-item skip names the *configured* variable it passed over
+        (``AEDECOD``), never a subject value. Anything that does not look like
+        a CDISC identifier is dropped rather than echoed.
+        """
+        if not isinstance(value, str):
+            return None
+        return value if _SPEC_ISSUE_VARIABLE_RE.fullmatch(value) else None
+
     def serialize(issue: object) -> dict | None:
         if not isinstance(issue, dict):
             return None
@@ -736,6 +754,7 @@ def _all_spec_issues(stats: dict) -> list[dict]:
             "sheet": safe_sheet(issue.get("sheet")),
             "row": positive_int(issue.get("row")),
             "column": positive_int(issue.get("column")),
+            "variable": safe_variable(issue.get("variable")),
             # ``detail`` is never required for locating an issue. Drop any
             # free-form or otherwise invalid value instead of risking exposure.
             "detail": allowlisted(issue.get("detail"), _SPEC_ISSUE_DETAILS, fallback=None),

@@ -223,6 +223,46 @@ def test_structured_issue_preserves_safe_template_sheet_location(sheet: str) -> 
     assert issues[0]["sheet"] == sheet
 
 
+@pytest.mark.parametrize(
+    ("variable", "expected"),
+    [
+        ("AEDECOD", "AEDECOD"),  # a real configured external-coding variable
+        ("MHBDSYCD", "MHBDSYCD"),  # 8 chars, the CDISC maximum
+        ("QNAM_1", "QNAM_1"),
+        ("PHI_SENTINEL_DO_NOT_EXPOSE", None),  # too long to be a variable name
+        ("受试者姓名", None),  # non-identifier text is never echoed
+        ("aedecod", None),  # variable names reach the writer upper-cased
+        (42, None),
+    ],
+)
+def test_structured_issue_keeps_variable_names_and_drops_free_text(variable: object, expected: str | None) -> None:
+    """A per-item skip must name its variable, without becoming a free-text channel."""
+    from src.web.tasks import _all_spec_issues
+
+    issues = _all_spec_issues(
+        {
+            "write_result": {
+                "errors": [],
+                "warnings": [
+                    {
+                        "code": "variable_not_found",
+                        "stage": "external_coding",
+                        "operation": "update_existing_variables",
+                        "sheet": "AE",
+                        "row": None,
+                        "column": None,
+                        "variable": variable,
+                        "detail": None,
+                    }
+                ],
+            }
+        }
+    )
+
+    assert issues[0]["code"] == "variable_not_found"
+    assert issues[0]["variable"] == expected
+
+
 def test_mapper_issue_cannot_leak_free_text_or_extra_fields(spec_workspace: Path, monkeypatch) -> None:
     """Mapper issue dictionaries are treated as untrusted at the API boundary."""
     from app import app
@@ -244,6 +284,7 @@ def test_mapper_issue_cannot_leak_free_text_or_extra_fields(spec_workspace: Path
                 "row": None,
                 "column": None,
                 "detail": sentinel,
+                "variable": sentinel,
                 "raw_value": sentinel,
             }
         )
@@ -260,7 +301,7 @@ def test_mapper_issue_cannot_leak_free_text_or_extra_fields(spec_workspace: Path
     payload_text = json.dumps(job.to_dict(), ensure_ascii=False)
     assert sentinel not in payload_text
     issue = job.spec_issues[-1]
-    assert set(issue) == {"code", "stage", "operation", "sheet", "row", "column", "detail"}
+    assert set(issue) == {"code", "stage", "operation", "sheet", "row", "column", "variable", "detail"}
     assert issue == {
         "code": "unknown",
         "stage": "unknown",
@@ -268,6 +309,9 @@ def test_mapper_issue_cannot_leak_free_text_or_extra_fields(spec_workspace: Path
         "sheet": None,
         "row": None,
         "column": None,
+        # The sentinel is a valid generic token but 26 characters long, so it
+        # cannot be a CDISC variable name and is dropped rather than echoed.
+        "variable": None,
         "detail": None,
     }
     assert "raw_value" not in issue
