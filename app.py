@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,7 +28,9 @@ from src.web.security import (
     limiter,
 )
 from src.web.session_manager import (
+    SessionCapacityError,
     SessionClosingError,
+    SessionRetiredError,
     session_manager,
     start_cleanup_scheduler,
 )
@@ -44,10 +47,29 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(_request, exc: RequestValidationError):
+    """Return useful validation details without echoing request bodies or secrets."""
+    safe_errors = [
+        {key: value for key, value in error.items() if key in {"type", "loc", "msg"}} for error in exc.errors()
+    ]
+    return JSONResponse({"detail": safe_errors}, status_code=422)
+
+
 @app.exception_handler(SessionClosingError)
-async def session_closing_handler(_request, _exc):
+async def session_closing_handler(_request, exc: SessionClosingError):
     """Return a safe retryable response while a cancelled worker drains."""
+    if isinstance(exc, SessionRetiredError):
+        return JSONResponse(
+            {"detail": {"code": "session_retired", "message": "Session 已结束"}},
+            status_code=410,
+        )
     return JSONResponse({"detail": "Session 正在安全清理，请稍后重试"}, status_code=409)
+
+
+@app.exception_handler(SessionCapacityError)
+async def session_capacity_handler(_request, _exc):
+    return JSONResponse({"detail": "Session 容量已满，请稍后重试"}, status_code=503)
 
 
 # CORS

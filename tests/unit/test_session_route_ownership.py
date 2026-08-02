@@ -86,3 +86,20 @@ def test_cleanup_delete_failure_is_reported_as_retrying() -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "retrying"
     assert response.json()["cleanup_pending"] is True
+
+
+def test_retired_session_returns_terminal_machine_readable_response(tmp_path, monkeypatch) -> None:
+    from app import app
+
+    monkeypatch.chdir(tmp_path)
+    session_id = f"retired-{uuid.uuid4().hex}"
+    session_manager.get_or_create(session_id)
+    session_manager.cleanup_session(session_id)
+
+    response = TestClient(app).get(
+        "/api/processed-files",
+        headers={"X-Session-ID": session_id},
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"]["code"] == "session_retired"

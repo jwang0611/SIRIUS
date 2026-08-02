@@ -52,6 +52,17 @@ def test_session_detail_returns_names_not_absolute_paths(tmp_path):
     assert str(tmp_path) not in str(info)
 
 
+@pytest.mark.parametrize("session_id", ["", "bad/session", "x" * 129])
+def test_invalid_session_header_is_rejected_without_manager_poisoning(session_id: str):
+    from app import app
+    from src.web.session_manager import session_manager
+
+    response = TestClient(app).get("/api/processed-files", headers={"X-Session-ID": session_id})
+
+    assert response.status_code == 422
+    assert session_id not in session_manager._sessions
+
+
 def test_run_command_error_does_not_echo_command_or_stderr():
     completed = subprocess.CompletedProcess(
         args=["tool", "--token", "secret"],
@@ -122,7 +133,9 @@ def test_job_artifact_downloads_use_session_authenticated_fetch(repo_root: Path)
 def test_browser_session_ids_use_cryptographic_randomness_without_logging_capability(repo_root: Path):
     source = (repo_root / "src" / "web" / "static" / "app.js").read_text(encoding="utf-8")
     assert "globalThis.crypto.randomUUID()" in source
+    assert "globalThis.crypto.getRandomValues(bytes)" in source
     assert "Math.random()" not in source
+    assert "try { sessionId = sessionStorage.getItem" in source
     assert "Initialized:', SESSION_ID" not in source
     assert "cleanup for:', SESSION_ID" not in source
     assert "suppressUnloadCleanup = true" in source

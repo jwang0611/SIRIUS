@@ -138,6 +138,17 @@ def _resolve_config(args: argparse.Namespace, settings, use_llm: bool) -> AcrfCo
     )
 
 
+def _build_mandatory_masker(settings) -> DataMasker:  # type: ignore[no-untyped-def]
+    """Build the outbound masker even when the legacy disable flag is false."""
+    if not settings.security.data_masking_enabled:
+        warnings.warn(
+            "DATA_MASKING_ENABLED=false ignored; outbound masking is mandatory",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return DataMasker()
+
+
 def main() -> None:
     args = parse_args()
     settings = get_settings()
@@ -157,7 +168,7 @@ def main() -> None:
         raise ValueError("--output-name can only be used with a single input file.")
 
     client = _build_client(args) if use_llm else None
-    masker = DataMasker() if settings.security.data_masking_enabled else None
+    masker = _build_mandatory_masker(settings)
 
     success_count = 0
     for pdf in pdfs:

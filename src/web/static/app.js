@@ -418,17 +418,29 @@ if (document.readyState === 'loading') {
 // ==================== Session Management ====================
 // 生成或恢复 Session ID，用于隔离不同用户的文件和任务
 function createSessionId() {
-  if (!globalThis.crypto?.randomUUID) {
+  if (globalThis.crypto?.randomUUID) {
+    return 'sess_' + globalThis.crypto.randomUUID();
+  }
+  if (!globalThis.crypto?.getRandomValues) {
     throw new Error('Secure session ID generation is unavailable');
   }
-  return 'sess_' + globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0'));
+  return `sess_${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`;
 }
 
+let inMemorySessionId = null;
+
 function getSessionId() {
-  let sessionId = sessionStorage.getItem('sirius_session_id');
+  let sessionId = null;
+  try { sessionId = sessionStorage.getItem('sirius_session_id'); } catch (e) {}
   if (!sessionId) {
-    sessionId = createSessionId();
-    sessionStorage.setItem('sirius_session_id', sessionId);
+    sessionId = inMemorySessionId || createSessionId();
+    inMemorySessionId = sessionId;
+    try { sessionStorage.setItem('sirius_session_id', sessionId); } catch (e) {}
   }
   return sessionId;
 }
@@ -438,7 +450,8 @@ let suppressUnloadCleanup = false;
 
 function rotateSessionId() {
   SESSION_ID = createSessionId();
-  sessionStorage.setItem('sirius_session_id', SESSION_ID);
+  inMemorySessionId = SESSION_ID;
+  try { sessionStorage.setItem('sirius_session_id', SESSION_ID); } catch (e) {}
 }
 
 function restartWithFreshSession() {
@@ -454,7 +467,7 @@ async function initSession() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: SESSION_ID })
     });
-    if (response.status === 409) {
+    if (response.status === 409 || response.status === 410) {
       rotateSessionId();
       response = await fetchWithSession('api/session/init', {
         method: 'POST',
@@ -577,16 +590,14 @@ async function manualCleanupSession() {
       showToast({
         type: 'warning',
         title: '正在安全终止任务',
-        message: `${result.deferred_jobs || 0} 个运行中任务已取消；正在创建新会话`
+        message: `${result.deferred_jobs || 0} 个运行中任务已取消；请稍后再次检查清理状态`
       });
-      restartWithFreshSession();
     } else if (result.status === 'retrying') {
       showToast({
         type: 'warning',
         title: '清理正在重试',
-        message: '部分资源将在后台自动重试；正在创建新会话'
+        message: '部分资源将在后台自动重试；请稍后再次检查清理状态'
       });
-      restartWithFreshSession();
     } else if (result.status === 'success') {
       showToast({
         type: 'success',
@@ -969,21 +980,31 @@ async function loadProcessedFiles() {
   option.textContent = "加载中...";
   processedSelect.appendChild(option);
 
-  const response = await fetchWithSession("api/processed-files");
-  const data = await response.json();
-  processedSelect.innerHTML = "";
-  if (!data.files.length) {
-    const empty = document.createElement("option");
-    empty.textContent = "暂无文件";
-    processedSelect.appendChild(empty);
-    return;
+  try {
+    const response = await fetchWithSession("api/processed-files");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(formatApiErrorBody(data));
+    const files = Array.isArray(data.files) ? data.files : [];
+    processedSelect.innerHTML = "";
+    if (!files.length) {
+      const empty = document.createElement("option");
+      empty.textContent = "暂无文件";
+      processedSelect.appendChild(empty);
+      return;
+    }
+    files.forEach((file) => {
+      const opt = document.createElement("option");
+      opt.value = file;
+      opt.textContent = file;
+      processedSelect.appendChild(opt);
+    });
+  } catch (error) {
+    processedSelect.innerHTML = "";
+    const failed = document.createElement("option");
+    failed.textContent = "加载失败，请重试";
+    processedSelect.appendChild(failed);
+    showToast({ type: "error", title: "文件列表加载失败", message: error.message });
   }
-  data.files.forEach((file) => {
-    const opt = document.createElement("option");
-    opt.value = file;
-    opt.textContent = file;
-    processedSelect.appendChild(opt);
-  });
 }
 
 refreshBtn?.addEventListener("click", loadProcessedFiles);

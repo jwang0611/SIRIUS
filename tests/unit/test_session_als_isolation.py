@@ -19,6 +19,7 @@ from src.infrastructure.audit_logger import AuditLogger
 from src.web.job_manager import JobManager
 from src.web.session_manager import (
     SessionClosingError,
+    SessionInfo,
     SessionManager,
     cleanup_orphaned_session_dirs,
     session_manager,
@@ -154,6 +155,7 @@ def test_raw_and_processed_files_are_session_scoped(tmp_path: Path, monkeypatch)
     client = TestClient(app)
     session_a = "raw-session-a"
     session_b = "raw-session-b"
+    session_manager.get_or_create(session_b)
     headers_a = {"X-Session-ID": session_a}
     headers_b = {"X-Session-ID": session_b}
     mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -255,7 +257,7 @@ def test_orphan_cleanup_scans_all_session_data_roots(tmp_path: Path, monkeypatch
     assert all(not path.exists() for path in session_roots)
 
 
-def test_session_cleanup_removes_default_audit_log_directory(tmp_path: Path, monkeypatch) -> None:
+def test_session_cleanup_preserves_default_audit_log_directory(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     manager = SessionManager()
     session_id = "audit-cleanup-session"
@@ -271,7 +273,18 @@ def test_session_cleanup_removes_default_audit_log_directory(tmp_path: Path, mon
     result = manager.cleanup_session(session_id)
 
     assert result["cleanup_pending"] is False
-    assert not audit_dir.exists()
+    assert list(audit_dir.glob("audit_*.jsonl"))
+
+
+def test_invalid_in_memory_session_is_discarded_without_poisoning_cleanup(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    manager = SessionManager(expire_hours=0)
+    manager._sessions[""] = SessionInfo(session_id="")
+
+    assert manager.active_dir_keys() == set()
+    assert "" not in manager._sessions
+    assert manager.cleanup_expired() == {"expired_sessions": 0, "cleaned_files": 0, "cleaned_jobs": 0}
+    assert manager.cleanup_session("")["cleanup_pending"] is False
 
 
 def test_orphan_cleanup_never_removes_active_session(tmp_path: Path, monkeypatch) -> None:
@@ -478,6 +491,16 @@ def test_cleaned_session_capability_cannot_recreate_generation(tmp_path: Path, m
             pass
 
 
+def test_active_session_registry_has_a_hard_capacity_limit() -> None:
+    from src.web.session_manager import SessionCapacityError
+
+    manager = SessionManager(max_active_sessions=1)
+    manager.get_or_create("first-session")
+
+    with pytest.raises(SessionCapacityError):
+        manager.get_or_create("second-session")
+
+
 def test_cleanup_waits_for_request_lease_before_recursive_delete(tmp_path: Path, monkeypatch) -> None:
     """Cleanup waits for a leased writer, then removes everything it published."""
     monkeypatch.chdir(tmp_path)
@@ -511,4 +534,36 @@ def test_cleanup_waits_for_request_lease_before_recursive_delete(tmp_path: Path,
     assert writer_finished.is_set()
     assert not cleanup_thread.is_alive()
     assert not (Path("data/output/sessions") / manager.session_dir_key(session_id)).exists()
+    assert manager.get_session_info(session_id) is None
+
+
+def test_cleanup_lease_wait_is_bounded_and_retried(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    manager = SessionManager(cleanup_wait_timeout=0.02)
+    session_id = "bounded-lease-wait"
+    lease_entered = threading.Event()
+    release_lease = threading.Event()
+
+    def hold_lease() -> None:
+        with manager.operation(session_id):
+            lease_entered.set()
+            assert release_lease.wait(timeout=2)
+
+    lease_thread = threading.Thread(target=hold_lease)
+    lease_thread.start()
+    assert lease_entered.wait(timeout=1)
+
+    started = time.monotonic()
+    result = manager.cleanup_session(session_id)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.5
+    assert result["cleanup_pending"] is True
+    assert result["errors"] == ["request_lease_drain_pending"]
+
+    release_lease.set()
+    lease_thread.join(timeout=1)
+    deadline = time.monotonic() + 2
+    while manager.get_session_info(session_id) is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert manager.get_session_info(session_id) is None

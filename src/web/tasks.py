@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -27,6 +28,20 @@ from src.utils.recommendation_context import build_recommendation_context  # noq
 from src.web.job_manager import job_manager  # noqa: E402
 from src.web.security import is_server_default_llm_endpoint  # noqa: E402
 from src.web.session_manager import session_manager  # noqa: E402
+
+
+def _remove_session_snapshot_tree(session_id: str | None, root: Path) -> bool:
+    """Remove a completed job's private input tree and forget its tracked files."""
+    if not session_id or not root.exists() or not session_manager._is_managed_session_path(session_id, root):
+        return False
+    tracked_files = [path for path in root.rglob("*") if path.is_file()]
+    try:
+        shutil.rmtree(root)
+    except OSError:
+        return False
+    for path in tracked_files:
+        session_manager.discard_file(session_id, path)
+    return True
 
 
 def _build_generation_config() -> GenerationConfig:
@@ -568,6 +583,10 @@ def start_recommendations_job(
                 api_key_override=api_key_override,
             )
         finally:
+            if session_id and kb_files_snapshot is not None:
+                snapshot_path = Path(json_file).resolve()
+                if len(snapshot_path.parents) >= 2:
+                    _remove_session_snapshot_tree(session_id, snapshot_path.parents[1])
             # The target has now stopped touching checkpoints/artifacts. Publish
             # cancelled (or reconcile an unexpected non-terminal exit) only at
             # this safe worker boundary.
@@ -654,7 +673,7 @@ _SPEC_ISSUE_OPERATIONS = frozenset(
 )
 _SPEC_ISSUE_DETAILS = frozenset({"RecoverableWriteError", "sheet_not_found"})
 _SPEC_ISSUE_STRUCTURAL_SHEETS = frozenset({"CONTENT", "CODELIST", "RELREC", "XXTEST"})
-_SPEC_ISSUE_DOMAIN_SHEET_RE = re.compile(r"[A-Z]{2}\Z")
+_SPEC_ISSUE_DOMAIN_SHEET_RE = re.compile(r"[A-Z][A-Z0-9_]{1,15}\Z")
 
 # Absolute (or 2+ segment) filesystem paths, redacted from the downloadable log.
 _ABS_PATH_RE = re.compile(r"(?:[A-Za-z]:\\[^\s'\"]*|(?:/[^\s'\"/]+){2,})")
@@ -784,6 +803,7 @@ def _run_spec_mapper_job(
             finally:
                 job_logger.removeHandler(log_handler)
                 log_handler.close()
+                logging.Logger.manager.loggerDict.pop(job_logger.name, None)
                 log_closed = True
 
         try:
@@ -971,6 +991,11 @@ def start_spec_mapper_job(
                 session_id,
             )
         finally:
+            if session_id:
+                snapshot_parents = {Path(als_file).resolve().parent, Path(template_file).resolve().parent}
+                for snapshot_parent in snapshot_parents:
+                    _remove_session_snapshot_tree(session_id, snapshot_parent)
+                    _remove_session_snapshot_tree(session_id, snapshot_parent.parent / ".rollback")
             # Keep cancellation non-terminal while the mapper is still saving
             # or closing its log. Session cleanup may delete artifacts only
             # after this finalizer removes the live worker registration.

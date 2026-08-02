@@ -150,6 +150,19 @@ def test_legacy_vector_cache_with_raw_text_is_rejected(tmp_path):
     assert interface._kb_vectors is None
 
 
+def test_legacy_vector_cache_files_are_deleted_without_deserialization(tmp_path):
+    interface, _ = _interface(tmp_path)
+    legacy = interface._vector_cache_dir / "kb_vectors_deadbeef.pkl"
+    current = interface._get_kb_vector_cache_path()
+    legacy.write_bytes(b"not-a-trusted-pickle")
+    current.write_bytes(b"current-cache")
+
+    interface._purge_legacy_vector_caches()
+
+    assert not legacy.exists()
+    assert current.read_bytes() == b"current-cache"
+
+
 def test_kb_file_error_log_omits_absolute_path_and_exception_message(tmp_path, monkeypatch, caplog):
     secret_directory = tmp_path / "client-001-0023"
     secret_directory.mkdir()

@@ -218,6 +218,22 @@ class TestRecommendationLLMOverrides:
         assert "sk-secret" not in response.text
         mock_start.assert_not_called()
 
+    def test_missing_required_field_never_echoes_api_token(self, client: TestClient, patch_job_start: Any):
+        mock_start, _ = patch_job_start
+        response = client.post(
+            "/api/recommendations",
+            json={
+                "api_token": "sk-SUPER-SECRET",
+                "base_url": "https://api.deepseek.com/v1",
+                "language": "cn",
+            },
+        )
+
+        assert response.status_code == 422
+        assert "sk-SUPER-SECRET" not in response.text
+        assert all("input" not in error and "ctx" not in error for error in response.json()["detail"])
+        mock_start.assert_not_called()
+
     def test_base_url_with_userinfo_returns_422(self, client: TestClient, patch_job_start: Any, processed_json: str):
         mock_start, _ = patch_job_start
         response = client.post(

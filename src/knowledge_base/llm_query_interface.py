@@ -141,6 +141,7 @@ class LLMKnowledgeQueryInterface:
         # Vector cache directory
         self._vector_cache_dir = Path("data/cache/kb_vectors")
         self._vector_cache_dir.mkdir(parents=True, exist_ok=True)
+        self._purge_legacy_vector_caches()
 
         # KB vectors (loaded lazily)
         self._kb_vectors: np.ndarray | None = None
@@ -418,7 +419,19 @@ class LLMKnowledgeQueryInterface:
     def _get_kb_vector_cache_path(self) -> Path:
         """Get the cache file path for KB vectors."""
         signature = self._compute_kb_signature()
-        return self._vector_cache_dir / f"kb_vectors_{signature[:16]}.pkl"
+        return self._vector_cache_dir / f"kb_vectors_{self.VECTOR_CACHE_VERSION}_{signature[:16]}.pkl"
+
+    def _purge_legacy_vector_caches(self) -> None:
+        """Delete pre-masking cache files without deserializing untrusted pickle payloads."""
+        current_prefix = f"kb_vectors_{self.VECTOR_CACHE_VERSION}_"
+        for cache_path in self._vector_cache_dir.glob("kb_vectors_*.pkl"):
+            if cache_path.name.startswith(current_prefix):
+                continue
+            try:
+                cache_path.unlink()
+                logger.info("Deleted legacy KB vector cache: %s", cache_path.name)
+            except OSError as exc:
+                logger.warning("Failed to delete legacy KB vector cache (%s)", type(exc).__name__)
 
     def _load_kb_vectors_from_cache(self) -> bool:
         """Try to load KB vectors from disk cache."""

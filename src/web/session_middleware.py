@@ -9,19 +9,16 @@ from typing import Any
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
-from src.web.session_manager import SessionClosingError, session_manager
-
-_CREATE_PATHS = frozenset(
-    {
-        "/api/processed-files",
-        "/api/als-files",
-        "/api/recommendations",
-        "/api/spec-mapper/run",
-        "/api/convert-als2sdtm",
-        "/api/list-sheets",
-        "/api/corrections",
-    }
+from src.web.session_manager import (
+    SessionCapacityError,
+    SessionClosingError,
+    SessionRetiredError,
+    is_valid_session_id,
+    session_manager,
 )
+
+_CREATE_PATHS = frozenset({"/api/recommendations", "/api/spec-mapper/run", "/api/convert-als2sdtm", "/api/list-sheets"})
+_SESSION_COLLECTION_PATHS = frozenset({"/api/processed-files", "/api/als-files", "/api/corrections"})
 _EXISTING_DOWNLOAD_SUFFIXES = ("/download", "/download-log", "/download-issues")
 
 
@@ -29,6 +26,8 @@ def _session_lease_mode(path: str, method: str) -> str | None:
     """Return ``create``/``existing`` for routes that touch session resources."""
     if path.startswith("/api/upload/") or path in _CREATE_PATHS:
         return "create"
+    if path in _SESSION_COLLECTION_PATHS:
+        return "create" if method == "POST" else "existing"
     if path.startswith("/api/jobs/") and path.endswith(_EXISTING_DOWNLOAD_SUFFIXES):
         return "existing"
     if method == "GET" and path.startswith("/api/session/"):
@@ -59,9 +58,13 @@ class SessionOperationMiddleware:
 
         mode = _session_lease_mode(str(scope.get("path", "")), str(scope.get("method", "")))
         session_id = Headers(scope=scope).get("x-session-id")
-        if mode is None or not session_id:
+        if mode is None or session_id is None:
             # Let FastAPI preserve its normal 422 contract for a missing header.
             await self.app(scope, receive, send)
+            return
+        if not is_valid_session_id(session_id):
+            response = JSONResponse({"detail": "X-Session-ID 格式无效"}, status_code=422)
+            await response(scope, receive, send)
             return
 
         lease_stack = ExitStack()
@@ -71,8 +74,19 @@ class SessionOperationMiddleware:
             response = JSONResponse({"detail": "Session 不存在"}, status_code=404)
             await response(scope, receive, send)
             return
+        except SessionRetiredError:
+            response = JSONResponse(
+                {"detail": {"code": "session_retired", "message": "Session 已结束"}},
+                status_code=410,
+            )
+            await response(scope, receive, send)
+            return
         except SessionClosingError:
             response = JSONResponse({"detail": "Session 正在安全清理，请稍后重试"}, status_code=409)
+            await response(scope, receive, send)
+            return
+        except SessionCapacityError:
+            response = JSONResponse({"detail": "Session 容量已满，请稍后重试"}, status_code=503)
             await response(scope, receive, send)
             return
 

@@ -33,8 +33,9 @@ def _scope(session_id: str, path: str) -> dict:
     ("path", "method", "expected"),
     [
         ("/api/upload/raw", "POST", "create"),
-        ("/api/processed-files", "GET", "create"),
-        ("/api/als-files", "DELETE", "create"),
+        ("/api/processed-files", "GET", "existing"),
+        ("/api/als-files", "DELETE", "existing"),
+        ("/api/corrections", "GET", "existing"),
         ("/api/recommendations", "POST", "create"),
         ("/api/spec-mapper/run", "POST", "create"),
         ("/api/convert-als2sdtm", "POST", "create"),

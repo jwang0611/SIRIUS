@@ -12,6 +12,7 @@ Exercises :func:`src.web.tasks._run_spec_mapper_job` synchronously against the
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import threading
 import uuid
@@ -25,7 +26,7 @@ from src.spec_mapper.core.excel_writer import ExcelWriter
 from src.spec_mapper.models.write_result import RecoverableWriteError
 from src.web.job_manager import job_manager
 from src.web.session_manager import session_manager
-from src.web.tasks import _run_spec_mapper_job
+from src.web.tasks import _remove_session_snapshot_tree, _run_spec_mapper_job
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 V32_TEMPLATE = REPO_ROOT / "data/knowledge_base/template_spec/SDTM_template_IG3.2.xlsx"
@@ -170,6 +171,56 @@ def test_completed_with_errors_exposes_structured_issues(spec_workspace: Path, m
     assert issue["detail"] in (None, "RecoverableWriteError")
     # Exposed through the job API payload.
     assert job.to_dict()["spec_issues"]
+
+
+def test_completed_spec_job_releases_dedicated_logger(spec_workspace: Path) -> None:
+    job_id = _run_job()
+
+    assert f"sirius.spec_job.{job_id}" not in logging.Logger.manager.loggerDict
+
+
+def test_completed_job_input_tree_is_removed_and_untracked(spec_workspace: Path) -> None:
+    session_id = "snapshot-release-session"
+    session_manager.get_or_create(session_id)
+    snapshot_root = session_manager.get_session_processed_dir(session_id) / "jobs" / "job" / "input"
+    snapshot = snapshot_root / "source.xlsx"
+    snapshot.parent.mkdir(parents=True, exist_ok=True)
+    snapshot.write_bytes(b"snapshot")
+    assert session_manager.add_file(session_id, str(snapshot))
+
+    assert _remove_session_snapshot_tree(session_id, snapshot_root) is True
+
+    assert not snapshot_root.exists()
+    info = session_manager.get_session_info(session_id, include_files=True)
+    assert info is not None
+    assert "source.xlsx" not in info["files"]
+    session_manager.cleanup_session(session_id)
+
+
+@pytest.mark.parametrize("sheet", ["EGTEST", "FATEST", "LBTEST", "SUPPQUAL"])
+def test_structured_issue_preserves_safe_template_sheet_location(sheet: str) -> None:
+    from src.web.tasks import _all_spec_issues
+
+    issues = _all_spec_issues(
+        {
+            "write_result": {
+                "errors": [
+                    {
+                        "code": "sheet_not_found",
+                        "stage": "conditional_mappings",
+                        "operation": "write_conditional_columns",
+                        "sheet": sheet,
+                        "row": 2,
+                        "column": 3,
+                        "detail": "sheet_not_found",
+                    }
+                ],
+                "warnings": [],
+            }
+        }
+    )
+
+    assert issues[0]["sheet"] == sheet
 
 
 def test_mapper_issue_cannot_leak_free_text_or_extra_fields(spec_workspace: Path, monkeypatch) -> None:

@@ -368,7 +368,7 @@ Session KB 会同时用于：
 ### 审计日志
 
 每次 Web 映射操作记录为结构化 JSONL（`data/audit_logs/sessions/{session_ref}/audit_{session_ref}.jsonl`）。
-`session_ref` 是完整 bearer 的 SHA-256 引用；原始 `X-Session-ID` 不写入文件名或日志正文，session 清理时审计目录一并删除。
+`session_ref` 是完整 bearer 的 SHA-256 引用；原始 `X-Session-ID` 不写入文件名或日志正文。普通 session 清理不会删除审计目录；审计日志的归档与保留期限应由部署方按适用流程单独管理。
 
 | 字段 | 说明 |
 |------|------|
@@ -387,7 +387,7 @@ Session KB 会同时用于：
 - 出生日期（DOB 上下文关联）
 - 邮箱地址和电话号码
 
-同一脱敏边界覆盖 LLM prompt、RAG 查询、session/project KB 的 embedding 文本和向量检索上下文；掩码失败会阻止远端调用，不会回退发送原文。session/project KB 的向量只保留在进程内存，禁止读写共享磁盘 cache；静态 KB cache 使用 `masked-v1` 格式且不保存原始文本。升级前生成的 `data/cache/kb_vectors/*.pkl` 会被自动拒绝，可在停服后人工清理。
+同一脱敏边界覆盖 LLM prompt、RAG 查询、session/project KB 的 embedding 文本和向量检索上下文；掩码失败会阻止远端调用，不会回退发送原文。session/project KB 的向量只保留在进程内存，禁止读写共享磁盘 cache；静态 KB cache 使用带 `masked-v1` 文件名前缀的格式且不保存原始文本。启动查询接口时会按文件名删除升级前生成的 legacy cache，且不会反序列化其 pickle 内容。
 
 Web 任务强制关闭原始 AI 交互内容日志。命令行显式启用 `SDTM_LOG_AI` 时也只记录内容长度、SHA-256、生成配置和耗时，不记录 prompt、response、表名或变量名。
 
@@ -413,8 +413,8 @@ Web 任务强制关闭原始 AI 交互内容日志。命令行显式启用 `SDTM
 - 任务状态、取消和产物下载要求与创建任务时完全相同的 `X-Session-ID`，不匹配统一返回 404
 - ASGI middleware 在读取请求体之前取得 session lease，并保持到流式响应最后一个 chunk；同 session 写操作另有互斥锁，避免 corrections / 上传 / job 初始化的读改写竞态
 - recommendation job 冻结 JSON、processed XLSX、raw XLSX 和全部 session KB；Spec job 冻结 ALS 与模板。断点同时绑定完整模型、输入/KB 内容哈希、语言与 KB 开关，不匹配或旧格式 checkpoint 不可恢复
-- 关闭浏览器时安排延迟清理；清理会先取消并等待后台任务退出，再原子摘除旧目录代际；已清理 bearer 保留 48 小时 tombstone，阻止迟到请求重建同一代际
-- 清理中的 session 对新写入返回可重试的 409
+- 关闭浏览器时安排延迟清理；清理会先取消后台任务，并在有界等待后转入后台重试，再原子摘除旧目录代际；已清理 bearer 保留 48 小时 tombstone，阻止迟到请求重建同一代际
+- 清理中的 session 对新写入返回可重试的 409；已完成清理的 bearer 返回带 `session_retired` code 的 410
 - 内存 session 默认 24 小时过期；定时任务清理超过 8 小时且不属于活跃 session 的遗留目录
 
 ## 🤖 Prompt 结构

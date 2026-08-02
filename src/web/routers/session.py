@@ -7,14 +7,18 @@ from starlette.concurrency import run_in_threadpool
 
 from src.web.dependencies import existing_session_operation
 from src.web.security import RATE_LIMIT_GENERAL, RATE_LIMIT_READ, limiter
-from src.web.session_manager import session_manager
+from src.web.session_manager import is_valid_session_id, session_manager
 
 router = APIRouter()
 
 
 def _require_session_owner(session_id: str, x_session_id: str | None) -> None:
     """Treat the session ID as a bearer capability and require an exact match."""
-    if not x_session_id or x_session_id != session_id:
+    if x_session_id is None:
+        raise HTTPException(status_code=404, detail="Session 不存在")
+    if not is_valid_session_id(session_id) or not is_valid_session_id(x_session_id):
+        raise HTTPException(status_code=422, detail="X-Session-ID 格式无效")
+    if x_session_id != session_id:
         raise HTTPException(status_code=404, detail="Session 不存在")
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import threading
 import time
@@ -22,8 +23,23 @@ class SessionClosingError(RuntimeError):
     """Raised when a request attempts to publish into a closing session."""
 
 
+class SessionRetiredError(SessionClosingError):
+    """Raised when a completed session bearer must never create a new generation."""
+
+
+class SessionCapacityError(RuntimeError):
+    """Raised when the bounded in-memory session registry is full."""
+
+
 _CLOSED_SESSION_TTL_SECONDS = 48 * 3600
 _MAX_CLOSED_SESSIONS = 10_000
+_MAX_ACTIVE_SESSIONS = 10_000
+_SESSION_ID_RE = re.compile(r"[A-Za-z0-9._~-]{1,128}\Z")
+
+
+def is_valid_session_id(session_id: object) -> bool:
+    """Return whether a client bearer has the bounded opaque-token format."""
+    return isinstance(session_id, str) and _SESSION_ID_RE.fullmatch(session_id) is not None
 
 
 @dataclass
@@ -41,7 +57,13 @@ class SessionInfo:
 class SessionManager:
     """线程安全的 Session 管理器，用于隔离不同用户的文件和任务"""
 
-    def __init__(self, expire_hours: int = 24, cleanup_delay: float = 3.0):
+    def __init__(
+        self,
+        expire_hours: int = 24,
+        cleanup_delay: float = 3.0,
+        cleanup_wait_timeout: float = 5.0,
+        max_active_sessions: int = _MAX_ACTIVE_SESSIONS,
+    ):
         self._sessions: dict[str, SessionInfo] = {}
         self._lock = Lock()
         self._cleanup_condition = Condition(self._lock)
@@ -56,6 +78,8 @@ class SessionManager:
         self._writer_locks: dict[str, Lock] = {}
         self._expire_hours = expire_hours
         self._cleanup_delay = cleanup_delay  # 延迟清理的秒数（给刷新操作留出取消窗口）
+        self._cleanup_wait_timeout = max(0.01, cleanup_wait_timeout)
+        self._max_active_sessions = max(1, max_active_sessions)
         self._job_manager = None  # 延迟设置，避免循环导入
         self._pending_cleanups: dict[str, Timer] = {}  # 待执行的延迟清理
         self._drain_timers: dict[str, Timer] = {}
@@ -81,17 +105,34 @@ class SessionManager:
         self._closed_sessions.pop(session_id, None)
         self._closed_sessions[session_id] = time.monotonic() + _CLOSED_SESSION_TTL_SECONDS
 
+    def _discard_invalid_session_locked(self, session_id: str) -> None:
+        """Remove a corrupt in-memory entry without attempting path derivation."""
+        self._sessions.pop(session_id, None)
+        self._active_operations.pop(session_id, None)
+        self._writer_locks.pop(session_id, None)
+        self._cleanup_in_progress.discard(session_id)
+        self._draining_sessions.discard(session_id)
+        self._closed_sessions.pop(session_id, None)
+        self._cleanup_retry_attempts.pop(session_id, None)
+        self._cleanup_retry_tokens.pop(session_id, None)
+        for timers in (self._pending_cleanups, self._drain_timers):
+            timer = timers.pop(session_id, None)
+            if timer:
+                timer.cancel()
+
     def get_or_create(self, session_id: str) -> SessionInfo:
         """获取或创建 session"""
+        if not is_valid_session_id(session_id):
+            raise ValueError("session_id has an invalid bearer format")
         with self._cleanup_condition:
             self._prune_closed_sessions_locked()
-            if (
-                session_id in self._cleanup_in_progress
-                or session_id in self._draining_sessions
-                or session_id in self._closed_sessions
-            ):
+            if session_id in self._closed_sessions:
+                raise SessionRetiredError("session is retired")
+            if session_id in self._cleanup_in_progress or session_id in self._draining_sessions:
                 raise SessionClosingError("session is draining")
             if session_id not in self._sessions:
+                if len(self._sessions) >= self._max_active_sessions:
+                    raise SessionCapacityError("session capacity reached")
                 self._sessions[session_id] = SessionInfo(session_id=session_id)
             else:
                 self._sessions[session_id].last_active = datetime.now()
@@ -105,18 +146,20 @@ class SessionManager:
         so a request that already entered may finish and publish its files,
         while later requests cannot slip into the generation being deleted.
         """
+        if not is_valid_session_id(session_id):
+            raise ValueError("session_id has an invalid bearer format")
         with self._cleanup_condition:
             self._prune_closed_sessions_locked()
-            if (
-                session_id in self._cleanup_in_progress
-                or session_id in self._draining_sessions
-                or session_id in self._closed_sessions
-            ):
+            if session_id in self._closed_sessions:
+                raise SessionRetiredError("session is retired")
+            if session_id in self._cleanup_in_progress or session_id in self._draining_sessions:
                 raise SessionClosingError("session is draining")
             session = self._sessions.get(session_id)
             if session is None:
                 if not create:
                     raise KeyError(session_id)
+                if len(self._sessions) >= self._max_active_sessions:
+                    raise SessionCapacityError("session capacity reached")
                 session = SessionInfo(session_id=session_id)
                 self._sessions[session_id] = session
             else:
@@ -138,7 +181,10 @@ class SessionManager:
         """Return on-disk keys that belong to in-memory active sessions."""
         with self._lock:
             active_ids = set(self._sessions) | self._cleanup_in_progress | self._draining_sessions
-            return {self.session_dir_key(session_id) for session_id in active_ids}
+            invalid_ids = {session_id for session_id in active_ids if not is_valid_session_id(session_id)}
+            for session_id in invalid_ids:
+                self._discard_invalid_session_locked(session_id)
+            return {self.session_dir_key(session_id) for session_id in active_ids - invalid_ids}
 
     @contextmanager
     def writer_operation(self, session_id: str) -> Iterator[None]:
@@ -168,7 +214,10 @@ class SessionManager:
         detached = session_dir
         with self._lock:
             active_ids = set(self._sessions) | self._cleanup_in_progress | self._draining_sessions
-            active_keys = {self.session_dir_key(session_id) for session_id in active_ids}
+            invalid_ids = {session_id for session_id in active_ids if not is_valid_session_id(session_id)}
+            for session_id in invalid_ids:
+                self._discard_invalid_session_locked(session_id)
+            active_keys = {self.session_dir_key(session_id) for session_id in active_ids - invalid_ids}
             if session_dir.name in active_keys:
                 return False
             if not session_dir.exists():
@@ -343,7 +392,6 @@ class SessionManager:
             Path("data/processed/sessions") / key,
             Path("data/output/sessions") / key,
             Path("data/spec_output/sessions") / key,
-            Path("data/audit_logs/sessions") / key,
         )
 
     def _is_managed_session_path(self, session_id: str, file_path: str | Path) -> bool:
@@ -386,6 +434,17 @@ class SessionManager:
             "errors": [],
         }
 
+    @staticmethod
+    def _pending_cleanup_result(*, errors: list[str] | None = None) -> dict[str, Any]:
+        return {
+            "cleaned_files": 0,
+            "cleaned_session_dir": False,
+            "cleaned_jobs": 0,
+            "deferred_jobs": 0,
+            "cleanup_pending": True,
+            "errors": list(errors or []),
+        }
+
     def cleanup_session(self, session_id: str, *, _retry_token: str | None = None) -> dict[str, Any]:
         """
         清理指定 session 的所有文件和任务：
@@ -393,13 +452,24 @@ class SessionManager:
         - 原子摘除并删除所有 session 专属数据目录
         - 取消任务并等待后台 worker 退出
         """
+        if not is_valid_session_id(session_id):
+            with self._cleanup_condition:
+                self._discard_invalid_session_locked(session_id)
+                self._cleanup_condition.notify_all()
+            return self._noop_cleanup_result()
+
+        lease_wait_timed_out = False
         with self._cleanup_condition:
             if _retry_token is not None and (
                 self._cleanup_retry_tokens.get(session_id) != _retry_token or session_id not in self._draining_sessions
             ):
                 return self._noop_cleanup_result()
+            wait_deadline = time.monotonic() + self._cleanup_wait_timeout
             while session_id in self._cleanup_in_progress:
-                self._cleanup_condition.wait()
+                remaining = wait_deadline - time.monotonic()
+                if remaining <= 0:
+                    return self._pending_cleanup_result()
+                self._cleanup_condition.wait(timeout=remaining)
                 if _retry_token is not None and (
                     self._cleanup_retry_tokens.get(session_id) != _retry_token
                     or session_id not in self._draining_sessions
@@ -420,8 +490,20 @@ class SessionManager:
             # window for a request whose body was still arriving.
             self._retire_session_locked(session_id)
             self._cleanup_in_progress.add(session_id)
+            wait_deadline = time.monotonic() + self._cleanup_wait_timeout
             while self._active_operations.get(session_id, 0) > 0:
-                self._cleanup_condition.wait()
+                remaining = wait_deadline - time.monotonic()
+                if remaining <= 0:
+                    self._draining_sessions.add(session_id)
+                    self._cleanup_in_progress.discard(session_id)
+                    self._cleanup_condition.notify_all()
+                    lease_wait_timed_out = True
+                    break
+                self._cleanup_condition.wait(timeout=remaining)
+
+        if lease_wait_timed_out:
+            self._schedule_drain_retry(session_id)
+            return self._pending_cleanup_result(errors=["request_lease_drain_pending"])
 
         errors: list[str] = []
         cleaned_files = 0
@@ -585,11 +667,15 @@ class SessionManager:
         """清理所有过期的 session（用于定时任务）"""
         with self._lock:
             now = datetime.now()
-            expired_ids = [
-                sid
-                for sid, info in self._sessions.items()
-                if now - info.last_active > timedelta(hours=self._expire_hours)
-            ]
+            expired_ids = []
+            invalid_ids = []
+            for sid, info in list(self._sessions.items()):
+                if not is_valid_session_id(sid):
+                    invalid_ids.append(sid)
+                elif now - info.last_active > timedelta(hours=self._expire_hours):
+                    expired_ids.append(sid)
+            for sid in invalid_ids:
+                self._discard_invalid_session_locked(sid)
 
         total_files = 0
         total_jobs = 0
@@ -657,7 +743,6 @@ def cleanup_orphaned_session_dirs(max_age_hours: float = 8.0) -> dict[str, int]:
         Path("data/processed/sessions"),
         Path("data/output/sessions"),
         Path("data/spec_output/sessions"),
-        Path("data/audit_logs/sessions"),
     )
     if not any(base.exists() for base in session_bases):
         return {"cleaned_dirs": 0, "skipped_dirs": 0}
