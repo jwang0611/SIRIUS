@@ -8,6 +8,7 @@ from typing import Any, cast
 from openai import OpenAI
 
 from src.config.settings import get_settings
+from src.utils.artifact_names import model_artifact_slug
 
 from .base_client import BaseAIClient
 
@@ -188,18 +189,4 @@ class OpenRouterClient(BaseAIClient):
         Returns:
             Sanitized model name suitable for filenames
         """
-        # Use the provided model name or the current model name
-        name_to_sanitize = model_name or self.model_name
-
-        # OpenRouter model names are in format "provider/model-name"
-        # e.g., "openai/gpt-4o" -> "openai_gpt-4o"
-        # e.g., "anthropic/claude-3-opus" -> "anthropic_claude-3-opus"
-
-        # Replace forward slashes with underscores
-        sanitized = name_to_sanitize.replace("/", "_")
-
-        # Remove any special characters that might cause issues in filenames
-        sanitized = sanitized.replace(":", "-").replace(" ", "_")
-
-        # Limit length to avoid overly long filenames
-        return sanitized[:30]
+        return model_artifact_slug(model_name or self.model_name)

@@ -11,7 +11,15 @@ import statistics
 from collections import defaultdict
 
 from src.processors.acrf.fields import norm
-from src.processors.acrf.models import LineBox
+from src.processors.acrf.models import LineBox, RuleBox, WordBox
+
+# Glyph gap (in points) above which two adjacent characters belong to different
+# words. CJK is set solid, so any real gap is meaningful; 1pt keeps kerning
+# noise from splitting a word while still separating table columns.
+_WORD_GAP = 1.0
+# Below this height a vector edge cannot contribute meaningful vertical ruling
+# coverage. Final column evidence is filtered against the table span in fields.py.
+_MIN_RULE_HEIGHT = 2.0
 
 
 class PdfBackendError(RuntimeError):
@@ -26,6 +34,39 @@ def _require_pdfplumber():  # type: ignore[no-untyped-def]
             "pdfplumber is required for aCRF PDF text extraction. Install it with: pip install pdfplumber"
         ) from exc
     return pdfplumber
+
+
+def _chars_to_words(chars: list[dict]) -> tuple[WordBox, ...]:
+    """Group a line's characters into positioned words by horizontal gap.
+
+    Note that real PDFs generally carry **no** space glyphs: ``pdfplumber``
+    synthesises the spaces in ``line["text"]`` from positions. Word boundaries
+    are therefore always positional, which is why callers separate an intra-cell
+    space from a cell boundary by measuring the gap (see ``fields._header_cells``)
+    rather than looking for a space character.
+    """
+    words: list[WordBox] = []
+    buf: list[dict] = []
+
+    def flush() -> None:
+        if not buf:
+            return
+        text = "".join(str(c.get("text") or "") for c in buf).strip()
+        if text:
+            words.append(WordBox(text=text, x0=float(buf[0]["x0"]), x1=float(buf[-1]["x1"])))
+        buf.clear()
+
+    for char in chars:
+        if not isinstance(char.get("x0"), (int, float)) or not isinstance(char.get("x1"), (int, float)):
+            continue
+        if str(char.get("text") or "").isspace():
+            flush()
+            continue
+        if buf and float(char["x0"]) - float(buf[-1]["x1"]) > _WORD_GAP:
+            flush()
+        buf.append(char)
+    flush()
+    return tuple(words)
 
 
 def _line_to_box(line: dict, page_index: int) -> LineBox | None:
@@ -45,19 +86,43 @@ def _line_to_box(line: dict, page_index: int) -> LineBox | None:
         bottom=float(line.get("bottom", 0.0) or 0.0),
         size=size,
         bold=bold,
+        words=_chars_to_words(chars),
     )
+
+
+def _page_column_rules(page: object, page_index: int) -> tuple[RuleBox, ...]:
+    """Vertical rules and cell-box edges as ``(page, x, top, bottom)``.
+
+    A blank CRF draws its entry boxes as vector graphics, so on a table whose
+    data rows hold nothing but a row number these edges are the only evidence of
+    where each column begins. Horizontal rules are skipped — they say nothing
+    about columns — and each rectangle contributes both of its vertical sides.
+    """
+    rules: set[RuleBox] = set()
+    for obj in list(getattr(page, "lines", []) or []) + list(getattr(page, "rects", []) or []):
+        try:
+            x0, x1 = float(obj["x0"]), float(obj["x1"])
+            top, bottom = float(obj["top"]), float(obj["bottom"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if bottom - top < _MIN_RULE_HEIGHT:
+            continue
+        rules.add((page_index, round(x0, 1), top, bottom))
+        rules.add((page_index, round(x1, 1), top, bottom))
+    return tuple(sorted(rules))
 
 
 def extract_all_line_boxes(
     pdf_path: str,
-) -> tuple[dict[int, list[LineBox]], dict[int, float]]:
-    """Return ``{page_index: [LineBox, ...]}`` and ``{page_index: page_height}``.
+) -> tuple[dict[int, list[LineBox]], dict[int, float], dict[int, tuple[RuleBox, ...]]]:
+    """Return per-page line boxes, page heights, and vertical rule geometry.
 
     Raises :class:`PdfBackendError` if the PDF cannot be opened.
     """
     pdfplumber = _require_pdfplumber()
     boxes_by_page: dict[int, list[LineBox]] = {}
     heights: dict[int, float] = {}
+    rules_by_page: dict[int, tuple[RuleBox, ...]] = {}
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for idx, page in enumerate(pdf.pages):
@@ -68,11 +133,15 @@ def extract_all_line_boxes(
                     lines = []
                 boxes = [b for line in lines if (b := _line_to_box(line, idx))]
                 boxes_by_page[idx] = boxes
+                try:
+                    rules_by_page[idx] = _page_column_rules(page, idx)
+                except Exception:
+                    rules_by_page[idx] = ()
     except PdfBackendError:
         raise
     except Exception as exc:
         raise PdfBackendError(f"unreadable pdf text: {exc}") from exc
-    return boxes_by_page, heights
+    return boxes_by_page, heights, rules_by_page
 
 
 def replacement_char_ratio(line_boxes: list[LineBox]) -> float:

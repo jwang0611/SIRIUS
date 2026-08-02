@@ -32,9 +32,11 @@ from src.spec_mapper import SpecMapper
 from src.spec_mapper.core.excel_writer import ExcelWriter
 from src.spec_mapper.models.write_result import RecoverableWriteError
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE_DIR = REPO_ROOT / "data/knowledge_base/template_spec"
 TEMPLATES = {
-    "IG3.2": Path("data/knowledge_base/template_spec/SDTM_template_IG3.2.xlsx"),
-    "IG3.4": Path("data/knowledge_base/template_spec/SDTM_template_IG3.4.xlsx"),
+    "IG3.2": TEMPLATE_DIR / "SDTM_template_IG3.2.xlsx",
+    "IG3.4": TEMPLATE_DIR / "SDTM_template_IG3.4.xlsx",
 }
 # IG 3.4 has no per-domain TEST sheets (e.g. EGTEST); creating conditional TEST
 # sheets there is a legitimate skip, so disable it for the clean-run fixture.
@@ -86,21 +88,26 @@ def _run_pipeline(base: Path, ig: str, *, create_test_sheets: bool | None = None
 @pytest.fixture(scope="module", params=["IG3.2", "IG3.4"])
 def e2e(request, tmp_path_factory):
     ig = request.param
-    if not TEMPLATES[ig].exists():
-        pytest.skip(f"{ig} template not present")
+    assert TEMPLATES[ig].is_file(), f"required repo template missing: {TEMPLATES[ig]}"
     logging.disable(logging.CRITICAL)
-    base = tmp_path_factory.mktemp(f"e2e_{ig.replace('.', '_')}")
-    src_hash_before = _sha256(TEMPLATES[ig])
-    run = _run_pipeline(base, ig)
-    run.src_hash_before = src_hash_before
-    # Load the saved output and the pristine copied template once each; the
-    # template copy is the untouched reference for preservation assertions.
-    run.wb = load_workbook(run.out)
-    run.tpl_wb = load_workbook(run.tpl)
-    yield run
-    run.wb.close()
-    run.tpl_wb.close()
-    logging.disable(logging.NOTSET)
+    run = None
+    try:
+        base = tmp_path_factory.mktemp(f"e2e_{ig.replace('.', '_')}")
+        src_hash_before = _sha256(TEMPLATES[ig])
+        run = _run_pipeline(base, ig)
+        run.src_hash_before = src_hash_before
+        # Load the saved output and the pristine copied template once each; the
+        # template copy is the untouched reference for preservation assertions.
+        run.wb = load_workbook(run.out)
+        run.tpl_wb = load_workbook(run.tpl)
+        yield run
+    finally:
+        if run is not None:
+            if hasattr(run, "wb"):
+                run.wb.close()
+            if hasattr(run, "tpl_wb"):
+                run.tpl_wb.close()
+        logging.disable(logging.NOTSET)
 
 
 def _find_row(ws, variable: str, start: int = 14) -> int | None:
@@ -179,16 +186,15 @@ def test_formulas_generated(e2e) -> None:
     assert testcd_formula.startswith("=HYPERLINK(") and "CODELIST" in testcd_formula
     # xxSEQ derived formula generated
     seq_row = _find_row(eg, "EGSEQ")
-    if seq_row:
-        assert "=CONCATENATE(" in str(eg.cell(row=seq_row, column=8).value or "")
+    assert seq_row is not None, "real template must contain EGSEQ"
+    assert "=CONCATENATE(" in str(eg.cell(row=seq_row, column=8).value or "")
     # D10 sort-key lookup formula generated
     assert str(eg.cell(row=10, column=4).value or "").startswith("=IFERROR(INDEX(")
 
 
 def test_untouched_domain_formulas_preserved(e2e) -> None:
     """A domain absent from the ALS must keep its template formulas verbatim."""
-    if UNTOUCHED_DOMAIN not in e2e.tpl_wb.sheetnames:
-        pytest.skip("reference domain missing")
+    assert UNTOUCHED_DOMAIN in e2e.tpl_wb.sheetnames
     ref = e2e.tpl_wb[UNTOUCHED_DOMAIN]
     got = e2e.wb[UNTOUCHED_DOMAIN]
     mismatches = 0
@@ -211,22 +217,34 @@ def test_hyperlinks_generated_and_preserved(e2e) -> None:
 
     # An existing domain hyperlink (untouched domain row) is preserved.
     ref_row = _find_row(content, UNTOUCHED_DOMAIN, start=1)
-    if ref_row:
-        assert content.cell(row=ref_row, column=1).hyperlink is not None
+    assert ref_row is not None
+    ref_link = e2e.tpl_wb["CONTENT"].cell(row=ref_row, column=1).hyperlink
+    got_link = content.cell(row=ref_row, column=1).hyperlink
+    assert ref_link is not None and got_link is not None
+    assert got_link.target == ref_link.target
+    assert got_link.location == ref_link.location
+    assert got_link.tooltip == ref_link.tooltip
+    assert got_link.display == ref_link.display
 
 
 # ---------------------------------------------------------------------------
 # 8. style preservation (untouched domain)
 # ---------------------------------------------------------------------------
 def test_untouched_domain_styles_preserved(e2e) -> None:
-    if UNTOUCHED_DOMAIN not in e2e.tpl_wb.sheetnames:
-        pytest.skip("reference domain missing")
+    assert UNTOUCHED_DOMAIN in e2e.tpl_wb.sheetnames
     ref = e2e.tpl_wb[UNTOUCHED_DOMAIN]
     got = e2e.wb[UNTOUCHED_DOMAIN]
-    # header row (13) fonts + fills unchanged
+    # Compare the complete immutable StyleArray plus the public components for
+    # an untouched header row. This catches border/alignment/protection/number
+    # format regressions that a bold/fill-only assertion would miss.
     for c in range(1, 11):
-        assert ref.cell(row=13, column=c).font.b == got.cell(row=13, column=c).font.b
-        assert str(ref.cell(row=13, column=c).fill.fgColor.rgb) == str(got.cell(row=13, column=c).fill.fgColor.rgb)
+        ref_cell = ref.cell(row=13, column=c)
+        got_cell = got.cell(row=13, column=c)
+        assert got_cell._style == ref_cell._style
+        assert got_cell.number_format == ref_cell.number_format
+        assert str(got_cell.alignment) == str(ref_cell.alignment)
+        assert str(got_cell.border) == str(ref_cell.border)
+        assert str(got_cell.protection) == str(ref_cell.protection)
 
 
 # ---------------------------------------------------------------------------
@@ -249,10 +267,10 @@ def test_merged_cells_intact(e2e) -> None:
     assert "A1:H1" in merged  # header merge survived SUPP insertion
 
     # Untouched domain: merged ranges identical to the pristine template.
-    if UNTOUCHED_DOMAIN in e2e.tpl_wb.sheetnames:
-        ref = {str(m) for m in e2e.tpl_wb[UNTOUCHED_DOMAIN].merged_cells.ranges}
-        got = {str(m) for m in e2e.wb[UNTOUCHED_DOMAIN].merged_cells.ranges}
-        assert ref == got
+    assert UNTOUCHED_DOMAIN in e2e.tpl_wb.sheetnames
+    ref = {str(m) for m in e2e.tpl_wb[UNTOUCHED_DOMAIN].merged_cells.ranges}
+    got = {str(m) for m in e2e.wb[UNTOUCHED_DOMAIN].merged_cells.ranges}
+    assert ref == got
 
 
 # ---------------------------------------------------------------------------
@@ -266,8 +284,7 @@ def test_repeated_run_no_duplicates(ig: str, tmp_path: Path) -> None:
     # its DEFAULT create_test_sheets=True so the conditional-mapping path (TEST
     # sheet CRF_* columns) is exercised too; IG 3.4 has no per-domain TEST
     # sheets, so that path stays disabled there.
-    if not TEMPLATES[ig].exists():
-        pytest.skip(f"{ig} template not present")
+    assert TEMPLATES[ig].is_file(), f"required repo template missing: {TEMPLATES[ig]}"
     create_test_sheets = CREATE_TEST_SHEETS[ig]
     logging.disable(logging.CRITICAL)
     try:
@@ -328,8 +345,7 @@ def test_repeated_run_no_duplicates(ig: str, tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 def test_recoverable_write_failure_still_saves(tmp_path: Path, monkeypatch) -> None:
     ig = "IG3.2"
-    if not TEMPLATES[ig].exists():
-        pytest.skip("template not present")
+    assert TEMPLATES[ig].is_file(), f"required repo template missing: {TEMPLATES[ig]}"
     logging.disable(logging.CRITICAL)
     try:
         src = TEMPLATES[ig]
@@ -371,8 +387,7 @@ def test_bare_valueerror_in_guarded_op_is_fatal(tmp_path: Path, monkeypatch) -> 
     recoverable error — only the dedicated RecoverableWriteError is. This proves
     the classification is by recognized type, not by broad exception class."""
     ig = "IG3.2"
-    if not TEMPLATES[ig].exists():
-        pytest.skip("template not present")
+    assert TEMPLATES[ig].is_file(), f"required repo template missing: {TEMPLATES[ig]}"
     logging.disable(logging.CRITICAL)
     try:
         tpl = tmp_path / "tpl.xlsx"
@@ -397,8 +412,7 @@ def test_unknown_write_error_is_fatal(tmp_path: Path, monkeypatch) -> None:
     """An unknown (non-recoverable) exception in a guarded op must NOT be masked
     as completed_with_errors — it propagates so the job fails."""
     ig = "IG3.2"
-    if not TEMPLATES[ig].exists():
-        pytest.skip("template not present")
+    assert TEMPLATES[ig].is_file(), f"required repo template missing: {TEMPLATES[ig]}"
     logging.disable(logging.CRITICAL)
     try:
         tpl = tmp_path / "tpl.xlsx"
@@ -423,8 +437,7 @@ def test_guarded_no_op_is_skipped_not_written(tmp_path: Path, monkeypatch) -> No
     """A guarded op that returns without mutating (count 0) is recorded as a
     skip, never as a phantom write, and drives completed_with_errors."""
     ig = "IG3.2"
-    if not TEMPLATES[ig].exists():
-        pytest.skip("template not present")
+    assert TEMPLATES[ig].is_file(), f"required repo template missing: {TEMPLATES[ig]}"
     logging.disable(logging.CRITICAL)
     try:
         tpl = tmp_path / "tpl.xlsx"
@@ -454,8 +467,7 @@ def test_guarded_no_op_is_skipped_not_written(tmp_path: Path, monkeypatch) -> No
 # ---------------------------------------------------------------------------
 def test_fatal_save_failure_propagates(tmp_path: Path, monkeypatch) -> None:
     ig = "IG3.2"
-    if not TEMPLATES[ig].exists():
-        pytest.skip("template not present")
+    assert TEMPLATES[ig].is_file(), f"required repo template missing: {TEMPLATES[ig]}"
     logging.disable(logging.CRITICAL)
     try:
         tpl = tmp_path / "tpl.xlsx"

@@ -13,6 +13,11 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+_EXCEL_LABEL_READ_OPTIONS = {
+    "keep_default_na": False,
+    "na_values": [""],
+}
+
 DEFAULT_COLUMN_MAPPING: dict[str, str | list[str]] = {
     "annotation_table": ["表名", "表名称", "annotation_table"],
     "metadata_table": ["表", "metadata_table", "SASDatasetName"],
@@ -44,7 +49,7 @@ def list_sheets(input_file: str) -> list[str]:
     xl = pd.ExcelFile(input_file)
     non_empty: list[str] = []
     for name in xl.sheet_names:
-        tmp_df = xl.parse(sheet_name=name)
+        tmp_df = xl.parse(sheet_name=name, **_EXCEL_LABEL_READ_OPTIONS)
         if not tmp_df.dropna(how="all").empty:
             non_empty.append(name)
     return non_empty if non_empty else xl.sheet_names
@@ -134,13 +139,13 @@ def convert_als2sdtm(
     logger.info("Reading Excel file: %s", input_file)
 
     if sheet_name:
-        df = pd.read_excel(input_file, sheet_name=sheet_name)
+        df = pd.read_excel(input_file, sheet_name=sheet_name, **_EXCEL_LABEL_READ_OPTIONS)
     else:
         sheets = list_sheets(input_file)
         if not sheets:
             raise ValueError(f"No sheets found in {input_file}")
         sheet_name = sheets[0]
-        df = pd.read_excel(input_file, sheet_name=sheet_name)
+        df = pd.read_excel(input_file, sheet_name=sheet_name, **_EXCEL_LABEL_READ_OPTIONS)
         if verbose:
             logger.info("Auto-selected sheet: %s", sheet_name)
 

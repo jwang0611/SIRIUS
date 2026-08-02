@@ -48,9 +48,12 @@ class TestValidateProjectName:
 
 class TestIngestProjectKb:
     @pytest.fixture
-    def mock_session_manager(self):
+    def mock_session_manager(self, tmp_path: Path):
         with patch("src.processors.project_ingest.session_manager") as mock_sm:
-            mock_sm.get_session_kb_dir.return_value = Path("/tmp/kb")
+            kb_dir = tmp_path / "kb"
+            kb_dir.mkdir()
+            mock_sm.get_session_kb_dir.return_value = kb_dir
+            mock_sm.session_dir_key.return_value = "sid_test_reference"
             yield mock_sm
 
     @pytest.fixture
@@ -97,10 +100,10 @@ class TestIngestProjectKb:
         assert result.name == "project_proj.parquet"
         written = pd.read_parquet(result)
         assert "_kb_source" in written.columns
-        assert "_session_id" in written.columns
+        assert "_session_ref" in written.columns
         assert "_ingested_at" in written.columns
         assert written["_kb_source"].iloc[0] == "project:proj"
-        assert written["_session_id"].iloc[0] == "sess_123"
+        assert written["_session_ref"].iloc[0] == "sid_test_reference"
 
     def test_ingest_is_idempotent_dedups_latest_ingested_at(
         self,
@@ -110,7 +113,7 @@ class TestIngestProjectKb:
         tmp_path: Path,
     ):
         kb_dir = tmp_path / "kb"
-        kb_dir.mkdir()
+        kb_dir.mkdir(exist_ok=True)
         mock_session_manager.get_session_kb_dir.return_value = kb_dir
 
         als_file = tmp_path / "als.xlsx"
@@ -163,7 +166,7 @@ class TestIngestProjectKb:
         tmp_path: Path,
     ):
         kb_dir = tmp_path / "kb"
-        kb_dir.mkdir()
+        kb_dir.mkdir(exist_ok=True)
         mock_session_manager.get_session_kb_dir.return_value = kb_dir
 
         als_file = tmp_path / "als.xlsx"
