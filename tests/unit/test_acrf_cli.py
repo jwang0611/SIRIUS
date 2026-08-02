@@ -72,3 +72,14 @@ def test_disabled_legacy_masking_flag_is_ignored_with_warning():
         masker = cli._build_mandatory_masker(settings)
 
     assert isinstance(masker, DataMasker)
+
+
+def test_print_extraction_warnings_uses_filename_and_safe_message(capsys: pytest.CaptureFixture[str]):
+    cli._print_extraction_warnings(
+        Path("sample.pdf"),
+        ["form 'Empty Form': no fields extracted"],
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "[WARN] sample.pdf: form 'Empty Form': no fields extracted\n"
