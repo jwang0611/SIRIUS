@@ -57,9 +57,12 @@ cache:
       if [ -f venv/bin/activate ]; then . venv/bin/activate
       elif [ -f venv/Scripts/activate ]; then . venv/Scripts/activate
       else echo "ERROR: venv activate not found (non-bash Windows executor?)"; exit 1; fi
-      python -m pip install --upgrade pip --quiet
-      pip install --quiet -r requirements.txt
-      pip install --quiet ruff mypy pytest pytest-cov syrupy pydantic pydantic-settings
+      PACKAGE_INDEX_URL="${SIRIUS_PACKAGE_INDEX_URL:-${UV_DEFAULT_INDEX:-${PIP_INDEX_URL:-}}}"
+      if [ -z "$PACKAGE_INDEX_URL" ]; then
+        echo "ERROR: configure SIRIUS_PACKAGE_INDEX_URL (or UV_DEFAULT_INDEX/PIP_INDEX_URL) to an approved versioned mirror"; exit 1
+      fi
+      case "$PACKAGE_INDEX_URL" in *latest*) echo "ERROR: /latest/ package indexes are not reproducible"; exit 1;; esac
+      python -m pip install --quiet --require-hashes --index-url "$PACKAGE_INDEX_URL" -r requirements-dev.txt
     - python -V
 
 # ---------------------------------------------------------------------------

@@ -32,22 +32,22 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      # requirements.txt pins an internal-network PyPI mirror (line 1) that CI
-      # runners can't reach; strip it and install from public PyPI instead.
-      - name: Install backend build dependencies (public PyPI)
-        shell: bash
-        run: |
-          grep -v '^-i ' requirements.txt > requirements-build.txt
-          python -m pip install --upgrade pip
-          python -m pip install --index-url https://pypi.org/simple -r requirements-build.txt pyinstaller
+      - name: Install locked backend build environment
+        run: uv sync --locked --no-dev --group build
 
       - name: Build backend binary (PyInstaller)
         shell: bash
-        run: pyinstaller sirius-backend.spec --noconfirm
+        run: uv run --locked --no-dev --group build pyinstaller sirius-backend.spec --noconfirm
 
       - name: Smoke test backend binary (HTTP server)
         shell: bash

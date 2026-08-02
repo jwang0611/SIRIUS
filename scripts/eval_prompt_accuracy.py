@@ -954,7 +954,9 @@ def _validate_run_evidence(
     output_record = manifest.get("outputs", {}).get("json", {})
     recorded_output_path = output_record.get("path")
     try:
-        path_matches = Path(str(recorded_output_path)).resolve() == output_path.resolve()
+        # Shareable manifests deliberately store only a basename. Bind it to
+        # the evaluated artifact with basename + the content hash below.
+        path_matches = Path(str(recorded_output_path)).name == output_path.name
     except (OSError, TypeError, ValueError):
         path_matches = False
     if not path_matches:

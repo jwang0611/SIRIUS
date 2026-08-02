@@ -780,7 +780,7 @@ def _manifest(
         },
         "outputs": {
             "json": {
-                "path": str(output_path.resolve()),
+                "path": output_path.name,
                 "sha256": hash_file(output_path, normalize_text=True),
             }
         },
@@ -976,6 +976,7 @@ def test_cli_manifest_mismatch_exits_two(tmp_path, monkeypatch):
     [
         ("failed_status", "terminal status"),
         ("dirty_git", "clean Git revision"),
+        ("output_path", "output JSON path"),
         ("output_hash", "output JSON hash"),
         ("heldout_hash", "held-out hash"),
     ],
@@ -997,6 +998,8 @@ def test_cli_rejects_unbound_or_nonterminal_manifest_evidence(
             manifest["git"]["dirty"] = True
         elif mutation == "output_hash":
             manifest["outputs"]["json"]["sha256"] = "not-the-output-hash"
+        elif mutation == "output_path":
+            manifest["outputs"]["json"]["path"] = "different-output.json"
         elif mutation == "heldout_hash":
             manifest["inputs"]["heldout"]["sha256"] = "not-the-heldout-hash"
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")

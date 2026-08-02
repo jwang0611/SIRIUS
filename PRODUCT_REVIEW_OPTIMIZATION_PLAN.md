@@ -31,7 +31,7 @@
 
 - A1 必须由维护者提供至少两个与 KB/关键词表不相交的真实、已去标识化研究作为 held-out 数据；不得用仓库现有 KB 再造“测试集”。
 - A5 的“实际写入数”需要 ExcelWriter 各写操作返回结构化结果，本轮只先让任务失败/告警可见；建议与真实模板端到端测试一起实施。
-- A7 lockfile 会改变安装与发布流程，应独立 PR 决定 uv 或 pip-tools，并验证内部源可重现性。
+- A7 已在独立 PR 中选择 uv：runtime/dev/build 分组、通用锁文件、带哈希 pip 导出、两次全新 Python 3.11 安装校验、mypy 与 coverage 门禁一并交付；内部环境仍需使用运维提供的版本化镜像 URL 执行同一校验。
 - Phase B–D 保持原路线顺序：QC 工作台 → 产品形态/身份与审计 → 模板抽象与价值延伸。进入下一阶段前，以本节验收项和 A1 无泄漏评测为闸门。
 
 ---
@@ -112,7 +112,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 | §11.10(e) 防篡改审计追踪 | **部分**：UTC 时间戳有；但纯文件追加、无哈希链/序号/签名，审计写失败仅 `logger.warning` 继续执行 | `audit_logger.py:210-219` |
 | 电子签名 | **缺失**：修正无签名意图、无复核人、无记录锁定 | `corrections.py:132-147` |
 | 验证文档（IQ/OQ/PQ、追溯矩阵） | **缺失**：docs/ 被 gitignore | `.gitignore:81-82` |
-| 可重现构建 | **缺失**：requirements.txt 全部 `>=` 无锁文件，且内部源钉在 `/latest/` 通道 | `requirements.txt:1` 起 |
+| 可重现构建 | **A7 已实现，待合并**：`pyproject.toml` 分组 + `uv.lock` + 带哈希 pip 导出；源地址由环境注入，不再提交 `/latest/` | `pyproject.toml`、`uv.lock`、ADR 0001 |
 
 另外两个合规相关实质问题：
 
@@ -163,7 +163,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 - 旧 `_process_mappings_parallel` 及其专用单变量 helper 已在 Issue #12 一致性清理中删除；生产保留表间并行、表内顺序处理的 hybrid 路径。
 - **双配置源**：pydantic-settings 的类型化配置树只被测试/日志使用，生产代码仍满地 `os.getenv`（`sdtm_processor.py:316-480` 十余处；`tasks.py:27-31`），且两边默认值已经打架（默认模型不一致即为一例）。
 - 验证逻辑三处重叠：`DeterministicValidator`、`_compute_ig34_check`（`sdtm_processor.py:86`）、`MappingCritic` 各自实现 QNAM/变量合法性判断。
-- mypy 仅覆盖小部分模块且在 GitLab CI 中 `allow_failure`、GitHub CI 干脆没跑；运行时与开发依赖混在同一个 requirements.txt；`app.py` 用已废弃的 `@app.on_event("startup")`；集中式 logger 建好了但 `session_manager.py`/`app.py` 仍大量 `print()`（中文、无结构，无法聚合监控）。
+- A7 已把 mypy 作为 GitHub CI 阻断项，并分离 runtime/dev/build 依赖、提交精确锁文件与 coverage artifact；类型严格范围仍应后续逐步扩大。`app.py` 用已废弃的 `@app.on_event("startup")`；集中式 logger 建好了但 `session_manager.py`/`app.py` 仍大量 `print()`（中文、无结构，无法聚合监控）。
 - Excel 主交付物的合并去重会把合法的多映射（标准变量 + SUPP 限定符）折叠成单行（`io_helpers.py:196-208`），JSON 保留但 Excel 丢失——需要与交付契约确认是否符合预期。
 
 ---
@@ -186,7 +186,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 
 **目标：让"改动是否让产品变好"变成可回答的问题；消灭最危险的静默失败。**
 
-> **状态更新（2026-07-21）**：PR #11 已完成 A2、A3、A4、A6。A1 仍等待合规 held-out metadata 数据；A5、A7 尚未完成。Issue #12 中不依赖真实临床数据或 LLM API 的一致性清理（默认 sheet、死路径、DSL 测试）已完成。Phase B 准入闸门仍未开放。
+> **状态更新（2026-08-01）**：PR #11 已完成 A2、A3、A4、A6；A5 已提交独立 Draft PR；A7 已在独立分支实现并进入验证。A1 仍等待至少两个获准、去标识化且与 KB/关键词来源不相交的 held-out metadata 数据集，因此 Phase B 准入闸门仍未开放。
 
 | # | 事项 | 关键动作 | 验收标准 |
 |---|------|---------|---------|

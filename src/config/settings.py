@@ -22,7 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -191,22 +191,26 @@ class Settings(BaseSettings):
     def from_env(cls, **overrides: Any) -> Settings:
         import os
 
-        # The nested settings models are hydrated from flat historical names
-        # below, so BaseSettings' env_file handling cannot populate them.
-        # Load the working directory's .env before reading os.environ and keep
-        # exported environment variables at the higher precedence.
-        load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
-        env = os.environ
+        # Preserve the exported environment as its own precedence layer before
+        # hydrating .env into os.environ for legacy callers that still use
+        # os.getenv. This keeps every exported variable (including aliases)
+        # above every .env value without silently narrowing .env's scope.
+        exported_env = dict(os.environ)
+        dotenv_path = Path.cwd() / ".env"
+        dotenv = dotenv_values(dotenv_path)
+        load_dotenv(dotenv_path=dotenv_path, override=False)
 
         def g(key: str, default: str | None = None) -> str | None:
-            val = env.get(key)
+            val = exported_env.get(key, dotenv.get(key))
             if val is None or val == "":
                 return default
-            return val
+            return str(val)
 
         default_model = (
-            g("DEFAULT_MODEL")
-            or g("OPENROUTER_MODEL")  # Backward-compatible alias used by the legacy web path.
+            exported_env.get("DEFAULT_MODEL")
+            or exported_env.get("OPENROUTER_MODEL")  # Backward-compatible alias used by the legacy web path.
+            or dotenv.get("DEFAULT_MODEL")
+            or dotenv.get("OPENROUTER_MODEL")
             or "google/gemini-3-flash-preview"
         )
 

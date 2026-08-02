@@ -101,7 +101,9 @@ sirius/
 │   ├── processed/                   # 处理后的 JSON
 │   └── spec_output/                 # Spec 输出
 ├── env_template.txt                  # 环境变量模板
-├── requirements.txt                  # Python 依赖
+├── pyproject.toml                    # runtime / dev / build 直接依赖
+├── uv.lock                           # 跨平台精确依赖锁
+├── requirements*.txt                 # 从 uv.lock 生成的 pip 兼容锁
 └── run_web.bat                       # 启动脚本
 ```
 
@@ -114,14 +116,15 @@ sirius/
 git clone https://gitlab.qilu-pharma.com/mountain-high/sirius.git
 cd sirius
 
-# 创建虚拟环境
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/macOS
+# 安装固定版本的 uv，然后按锁文件创建开发环境
+python -m pip install uv==0.11.32
+uv sync --locked
 
-# 安装依赖
-pip install -r requirements.txt
+# 仅运行服务时可不安装开发工具
+# uv sync --locked --no-dev
 ```
+
+不使用 uv 的运行环境可通过 `python -m pip install --require-hashes -r requirements.txt` 安装同一组精确 runtime 版本。安装依赖不需要 OpenRouter 凭据。
 
 ### 2. 配置
 
@@ -145,6 +148,10 @@ KB_MIN_CONFIDENCE=0.50       # KB 中间置信度下限，低于此值不返回 
 RATE_LIMIT_AI_JOB=10/minute
 ```
 
+已导出的环境变量优先于 `.env` 中的所有值；在同一来源内，`DEFAULT_MODEL`
+优先于兼容别名 `OPENROUTER_MODEL`。`.env` 仍会加载到进程环境，因此现有
+通过 `os.getenv` 读取的 endpoint 与 allowlist 配置继续生效。
+
 ### 3. 启动
 
 ```bash
@@ -163,13 +170,13 @@ python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 通过访问 http://localhost:8000
 
-`start.sh` 会自动探测 `venv` / `.venv`，检查 Python 版本（需 3.11+），在缺少虚拟环境时创建 `venv`，并按 `requirements.txt` 安装缺失依赖。可通过环境变量覆盖启动参数：
+`start.sh` 会自动探测 `venv` / `.venv`，检查 Python 版本（需 3.11+），在缺少虚拟环境时创建 `venv`，并按带哈希的 `requirements.txt` 安装锁定的 runtime 依赖。可通过环境变量覆盖启动参数：
 
 ```bash
 HOST=127.0.0.1 PORT=8080 RELOAD=0 OPEN_BROWSER=0 ./start.sh
 ```
 
-首次安装会先使用 `requirements.txt` 配置的软件源；该源不可用时，`start.sh` 默认回退到官方 PyPI。
+首次安装默认使用 `PIP_INDEX_URL`（未设置时使用官方 PyPI）；也可通过 `SIRIUS_PACKAGE_INDEX_URL` 指定内部 PEP 503 镜像。内部地址必须使用经运维冻结的版本化通道，不得使用 `/latest/`。仓库不保存内部源地址或凭据。配置源不可用时，`start.sh` 默认回退到官方 PyPI。
 如需禁止回退，请使用 `PIP_FALLBACK_INDEX_URL= ./start.sh`。
 
 关闭指定端口的服务时使用同样的 `PORT`：
@@ -177,6 +184,21 @@ HOST=127.0.0.1 PORT=8080 RELOAD=0 OPEN_BROWSER=0 ./start.sh
 ```bash
 PORT=8080 ./stop.sh
 ```
+
+### 4. 依赖更新与复现验证
+
+`pyproject.toml` 是唯一手工维护的依赖入口。更新后必须重新生成所有锁定产物：
+
+```bash
+uv lock --upgrade
+uv export --locked --no-header --no-dev --no-emit-project --format requirements-txt --output-file requirements.txt
+uv export --locked --no-header --no-emit-project --format requirements-txt --output-file requirements-dev.txt
+uv export --locked --no-header --no-dev --group build --no-emit-project --format requirements-txt --output-file requirements-build.txt
+uv lock --check
+python scripts/verify_locked_install.py --python 3.11
+```
+
+CI 使用同一个 `uv.lock`，会验证三个 pip 导出未过期，在两个全新 Python 3.11 环境中得到相同版本集合，并执行 Ruff、格式检查、mypy、Prompt CI、pytest 与 coverage artifact。决策背景和内部镜像验证方式见 `docs/adr/0001-reproducible-python-dependencies.md`。
 
 ## 🌐 Web 界面使用
 
@@ -517,7 +539,7 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - [x] 一致性清理：Spec Mapper 默认 sheet 统一为 `Sheet1`（显式参数 > `ALS_DEFAULT_SHEET` > 配置）、删除未调用的旧并行路径，并为 `when` / `if` / `|` / `/` / `//` DSL 增加专属单测。
 - [ ] A1：等待维护者提供合规、去标识化且与 KB/规则不相交的 held-out metadata 数据；在此之前不调整 prompt、阈值或默认模型。
 - [x] A5：Spec 实际写入统计、结构化 warnings/errors 与两个真实模板族的端到端保护（见下方更新日志）。
-- [ ] A7：运行时/开发依赖拆分、精确 lockfile 和 CI 安装/类型/覆盖率门禁。
+- [x] A7：运行时/开发/构建依赖拆分、精确 lockfile 和 CI 安装/类型/覆盖率门禁。
 
 ### Phase 1: 快速收益 -- 已完成
 
