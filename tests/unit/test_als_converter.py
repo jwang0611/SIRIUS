@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -60,6 +61,45 @@ def sample_als_xlsx(tmp_path):
     return str(file_path)
 
 
+@pytest.fixture
+def divergent_sheet_order_xlsx(tmp_path):
+    """Sheet 顺序刻意让「第一个非空 sheet」与「名为 eCRF 的 sheet」不是同一张。
+
+    ``sample_als_xlsx`` 把 eCRF 写在最前，因此无法区分自动检测与 ``"eCRF"`` 默认值。
+    """
+    file_path = tmp_path / "DivergentOrder.xlsx"
+
+    empty_df = pd.DataFrame()
+    first_non_empty_df = pd.DataFrame(
+        {
+            "表名": ["DM"],
+            "变量名": ["受试者编号"],
+            "SDTM_Domain": ["DM"],
+            "SDTM_Variable": ["USUBJID"],
+        }
+    )
+    ecrf_df = pd.DataFrame(
+        {
+            "表名": ["AE"],
+            "变量名": ["不良反应名称"],
+            "SDTM_Domain": ["AE"],
+            "SDTM_Variable": ["AETERM"],
+        }
+    )
+
+    with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+        empty_df.to_excel(writer, sheet_name="Empty", index=False)
+        first_non_empty_df.to_excel(writer, sheet_name="Chinese", index=False)
+        ecrf_df.to_excel(writer, sheet_name="eCRF", index=False)
+
+    return str(file_path)
+
+
+def _converted_variables(outputs: dict[str, str]) -> set[str]:
+    rows = json.loads(Path(outputs["json"]).read_text(encoding="utf-8"))
+    return {row["SDTM_Variable"] for row in rows}
+
+
 class TestExcelColToIndex:
     def test_single_letter(self):
         assert excel_col_to_index("A") == 0
@@ -116,6 +156,62 @@ class TestConvertAls2Sdtm:
         )
         assert "json" in result
         assert Path(result["json"]).exists()
+        # 断言真正读到的是第一个非空 sheet 的内容，而不仅仅是「文件生成了」。
+        assert _converted_variables(result) == {"AETERM", "CMTRT", "LBTEST"}
+
+    # --- ALS sheet 默认值/优先级（见 src/spec_mapper/README.md「ALS sheet 解析优先级」）---
+
+    def test_default_sheet_name_is_ecrf(self):
+        """Python API 的默认值是字面量 ``"eCRF"``，不是自动检测。
+
+        文档（本函数 docstring、``src/spec_mapper/README.md``、``env_template.txt``）
+        依赖这一点；改默认值必须同时改文档。
+        """
+        assert inspect.signature(convert_als2sdtm).parameters["sheet_name"].default == "eCRF"
+
+    def test_omitting_sheet_name_requires_a_sheet_named_ecrf(self, tmp_path):
+        """省略 ``sheet_name`` 时不会退化成自动检测：无 eCRF sheet 直接失败。"""
+        file_path = tmp_path / "OnlySheet1.xlsx"
+        df = pd.DataFrame(
+            {
+                "表名": ["AE"],
+                "变量名": ["不良反应名称"],
+                "SDTM_Domain": ["AE"],
+                "SDTM_Variable": ["AETERM"],
+            }
+        )
+        with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Sheet1", index=False)
+
+        with pytest.raises(ValueError, match="eCRF"):
+            convert_als2sdtm(
+                input_file=str(file_path),
+                output_dir=str(tmp_path / "out"),
+                output_format="json",
+                column_mapping=_MINIMAL_MAPPING,
+            )
+
+    def test_explicit_none_auto_detects_first_non_empty_sheet(self, tmp_path, divergent_sheet_order_xlsx):
+        """显式 ``None`` = 第一个非空 sheet（Chinese），而不是名为 eCRF 的那张。"""
+        result = convert_als2sdtm(
+            input_file=divergent_sheet_order_xlsx,
+            output_dir=str(tmp_path / "out"),
+            sheet_name=None,
+            output_format="json",
+            column_mapping=_MINIMAL_MAPPING,
+        )
+        assert _converted_variables(result) == {"USUBJID"}
+
+    def test_explicit_sheet_name_overrides_auto_detect(self, tmp_path, divergent_sheet_order_xlsx):
+        """显式 sheet 名优先于「第一个非空」——即使它排在后面。"""
+        result = convert_als2sdtm(
+            input_file=divergent_sheet_order_xlsx,
+            output_dir=str(tmp_path / "out"),
+            sheet_name="eCRF",
+            output_format="json",
+            column_mapping=_MINIMAL_MAPPING,
+        )
+        assert _converted_variables(result) == {"AETERM"}
 
     def test_drops_fully_empty_rows(self, tmp_path):
         file_path = tmp_path / "WithEmpty.xlsx"

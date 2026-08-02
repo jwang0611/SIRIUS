@@ -183,6 +183,10 @@ SPEC_OUTPUT_PATH=data/spec_output
 ALS_OUTPUT_PATH=data/output
 
 # ALS 默认 Sheet 名称
+# 仅作用于 Spec Mapper 路径（src/spec_mapper.SpecMapper 与 scripts/generate_full_spec.py）。
+# Web UI Step 3 恒显式传 sheet 名；scripts/convert_als2sdtm.py 与 /api/convert-als2sdtm
+# 默认自动检测第一个非空 sheet —— 三者都不读取本变量。
+# 完整优先级表见 src/spec_mapper/README.md「ALS sheet 解析优先级」。
 ALS_DEFAULT_SHEET=Sheet1
 
 # Spec Mapper 是否高亮显示新映射

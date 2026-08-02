@@ -114,7 +114,13 @@ def convert_als2sdtm(
         input_file: 输入 Excel 文件路径。
         output_dir: 输出目录。
         output_name: 输出文件名（不含扩展名），默认使用输入文件名。
-        sheet_name: Excel sheet 名称；若为 ``None`` 则自动检测第一个非空 sheet。
+        sheet_name: Excel sheet 名称，**默认 ``"eCRF"``**；显式传入 ``None`` 时才改为自动检测
+            第一个非空 sheet。注意各入口默认值并不一致：CLI ``scripts/convert_als2sdtm.py``
+            （``--sheet`` 默认 ``None``）与 ``POST /api/convert-als2sdtm``（``sheet_name``
+            默认 ``None``）都走自动检测，``ingest_project_kb`` 显式传 ``"Sheet1"``；因此
+            ``"eCRF"`` 默认只在直接调用本函数且省略该参数时生效，工作簿中若无名为 ``eCRF``
+            的 sheet 会抛 ``ValueError``。本函数不读取 ``ALS_DEFAULT_SHEET``（该变量只作用于
+            Spec Mapper 路径）。
         column_mapping: 列映射配置（字段名 -> Excel 列名或列名列表）。
         output_format: 输出格式（``'json'``、``'parquet'``、``'both'``）。
         verbose: 是否输出详细信息。
@@ -211,7 +217,9 @@ def batch_convert(
         input_dir: 输入目录。
         output_dir: 输出目录。
         pattern: 文件匹配模式。
-        **kwargs: 传递给 ``convert_als2sdtm`` 的其他参数。
+        **kwargs: 传递给 ``convert_als2sdtm`` 的其他参数。省略 ``sheet_name`` 时沿用
+            ``convert_als2sdtm`` 的 ``"eCRF"`` 默认值（不是自动检测），需要自动检测请显式
+            传 ``sheet_name=None``。
 
     Returns:
         所有转换结果列表，每项为 ``{"input": str, "outputs": dict[str, str]}``。

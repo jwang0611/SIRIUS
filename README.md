@@ -536,7 +536,7 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 ### Phase A 可靠性交付闸门（Issue #12）
 
 - [x] A2 / A3 / A4 / A6：外部调用重试、错误状态可见、Spec 真实阶段进度、配置与文档校准（PR #11）。
-- [x] 一致性清理：Spec Mapper 默认 sheet 统一为 `Sheet1`（显式参数 > `ALS_DEFAULT_SHEET` > 配置）、删除未调用的旧并行路径，并为 `when` / `if` / `|` / `/` / `//` DSL 增加专属单测。
+- [x] 一致性清理：Spec Mapper Python API 默认 sheet 为 `Sheet1`（显式参数 > `ALS_DEFAULT_SHEET` > 配置 > `Sheet1`），CLI 与 Web 的实际优先级各不相同，见 [`src/spec_mapper/README.md`](./src/spec_mapper/README.md) 的「ALS sheet 解析优先级」——ALS2SDTM 转换器（Python API）另有 `eCRF` 默认，其 CLI 与 `/api/convert-als2sdtm` 走自动检测；同时删除未调用的旧并行路径，并为 `when` / `if` / `|` / `/` / `//` DSL 增加专属单测。
 - [ ] A1：离线评估、泄漏检测、SUPP/质量指标与显式基线门禁已实现；等待维护者提供至少两个不同研究的合规、去标识化且与 KB/规则不相交的 held-out metadata 数据后激活真实发布门禁（见 [`docs/evaluation-release-gate.md`](./docs/evaluation-release-gate.md)）。
 - [x] A5：Spec 实际写入统计、结构化 warnings/errors 与两个真实模板族的端到端保护（见下方更新日志）。
 - [x] A7：运行时/开发/构建依赖拆分、精确 lockfile 和 CI 安装/类型/覆盖率门禁。
@@ -603,6 +603,27 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - Session 与产物隔离：带 `X-Session-ID` 的 ALS 上传/列表/删除使用 session 专属目录；Spec 的 Excel、日志和问题清单进一步按 job 隔离；job 状态、下载、问题、日志与取消端点都要求精确匹配创建任务时的 session，所有权不匹配统一返回 404
 - 可下载日志改为专用、非传播的 job logger，仅写安全阶段与聚合计数；不再挂载 root logger，也不捕获 mapper/openpyxl 的 DEBUG/INFO/WARNING，因此单元格旧值、新值、label、transformation、异常堆栈和服务器路径不会进入用户日志
 - 真实 IG 3.2 / IG 3.4 模板是 CI 硬门禁：模板缺失、关键变量/超链接/参考域缺失均直接失败，不再条件 skip
+
+**Session 与产物生命周期（Issue #12 A5 / PR #19）**
+- Session ID 明确定义为 bearer capability：不再出现在 URL path、目录名与服务端日志中；`GET /api/session/{session_id}` 由 `GET /api/session/status`（读 `X-Session-ID` 请求头）取代
+- `DELETE /api/als-files/{file_id}` 由 `DELETE /api/als-files` + JSON body `{"file_id": "..."}` 取代，避免把 bearer 相关标识放进 URL
+- raw / processed / ALS / Spec / 项目 KB / 审计产物统一存入各数据根下的 `sessions/{SHA-256 目录键}/`，Spec 产物再按 job 隔离；审计日志路径改为 `data/audit_logs/sessions/{session_ref}/audit_{session_ref}.jsonl`
+- 新增 ASGI session middleware：在读取请求体之前取得 session lease 并保持到流式响应最后一个 chunk；清理进行中的 session 对新写入返回可重试的 409，已完成清理的 bearer 返回带 `session_retired` code 的 410，并保留 48 小时 tombstone 阻止迟到请求重建同一代际
+- recommendation / Spec 断点绑定完整模型名、输入与 KB 内容哈希、语言与 KB 开关；不匹配或旧格式 checkpoint 一律不可恢复
+- `POST /api/upload/standards` 在 Web 端固定返回 403：更新全局 CDISC 标准库会改变所有 session 的映射行为，而 bearer session ID 不是运维授权边界，该操作仅保留 CLI 路径
+
+**可复现依赖与 CI 质量门禁（Issue #12 A7 / PR #20）**
+- 采用 uv（`required-version == 0.11.32`）：`pyproject.toml` 是唯一手工维护的依赖入口，拆分 runtime / dev / build 三组，并提交通用 `uv.lock` 与三份带哈希的 pip 导出（`requirements.txt` / `requirements-dev.txt` / `requirements-build.txt`）
+- CI 以 `uv sync --locked` 安装，并校验 `uv lock --check`、三份导出与锁文件的漂移，以及两个全新 Python 3.11 环境解析出相同版本集（`scripts/verify_locked_install.py`）
+- mypy 与 `--cov-fail-under=60` 成为阻断性门禁，覆盖率报告作为 CI artifact 上传
+- 仓库内不再包含任何内部源地址；源由环境注入。背景与决策见 [`docs/adr/0001-reproducible-python-dependencies.md`](./docs/adr/0001-reproducible-python-dependencies.md)
+- **未完成**：内部镜像一致性尚未实测，需运维设置经批准的版本化 `UV_DEFAULT_INDEX` 后执行 `python scripts/verify_locked_install.py --python 3.11`
+
+**无泄漏离线评测门禁（Issue #12 A1 / PR #21）— 工具链已合并，发布门禁未激活**
+- `scripts/eval_prompt_accuracy.py` 的 `--ground-truth` 改为必填参数，删除以仓库 KB 自测的默认值（此前的默认值使"用训练集考试"成为最省事的路径）
+- 新增 `src/evaluation/heldout.py`、`src/evaluation/offline_gate.py` 与 `scripts/run_offline_eval_gate.py`：确定性离线回放，输出 JSON + Markdown 报告，覆盖 domain / exact 准确率、SUPP 判定的 precision-recall-F1、覆盖率、FALLBACK 与 `*_PENDING` 计数、Critic 错误，以及按来源与域的分层指标
+- 泄漏扫描 fail-closed：对四字段精确键、深归一化键变体、注释表-变量语义对与内置 `CHINESE_TABLE_DOMAIN_MAP` 做重叠检测；关键词覆盖仅作为 informational 报告，诊断信息只输出哈希
+- **发布回归门禁尚未激活**：GitHub CI 目前只运行确定性契约测试（注入重叠必须失败、指标下调必须失败）。激活需维护者提供至少两个合规、去标识化且与 KB/关键词来源不相交的 held-out 数据集，并审阅首个 hash 绑定 baseline，详见 [`docs/evaluation-release-gate.md`](./docs/evaluation-release-gate.md)
 
 ### v1.0 (2026-07-01)
 
