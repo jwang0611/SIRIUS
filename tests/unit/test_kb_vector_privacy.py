@@ -48,14 +48,14 @@ def _interface(
     embed_client = RecordingEmbedClient()
     interface._embed_client = embed_client
     interface._vector_cache_dir = tmp_path / "vector-cache"
-    interface._vector_cache_dir.mkdir()
+    interface._vector_cache_dir.mkdir(exist_ok=True)
     interface._kb_vectors = None
     interface._kb_vector_indices = None
     interface._kb_texts = None
     interface._kb_vector_signature = None
     interface._enable_vector_matching = True
     interface._kb_verbose = False
-    interface._allow_persistent_vector_cache = not bool(interface.extra_kb_files)
+    interface._allow_persistent_vector_cache = True
     return interface, embed_client
 
 
@@ -106,6 +106,43 @@ def test_session_kb_never_reads_or_writes_persistent_vector_cache(tmp_path):
 
     assert interface._ensure_kb_vectors() is True
     assert list(interface._vector_cache_dir.iterdir()) == []
+
+
+def test_session_kb_reuses_default_cache_without_persisting_session_vectors(tmp_path):
+    static, static_client = _interface(tmp_path)
+    static.ecrf_data["_kb_source"] = "default:production.json"
+    assert static._ensure_kb_vectors() is True
+    assert len(static_client.calls) == 1
+    cache_path = static._get_kb_vector_cache_path()
+
+    session_file = tmp_path / "session-kb.json"
+    combined, session_client = _interface(tmp_path, extra_kb_files=[session_file])
+    session_row = combined.ecrf_data.iloc[0].to_dict()
+    session_row.update(
+        {
+            "annotation_table": "Session form 001-0023",
+            "annotation_variable": "Visit patient@example.com",
+            "metadata_variable": "SESSIONVAR",
+            "metadata_table": "SESSION",
+            "_kb_source": "session:session-kb.json",
+        }
+    )
+    combined.ecrf_data["_kb_source"] = "default:production.json"
+    combined.ecrf_data = pd.concat([combined.ecrf_data, pd.DataFrame([session_row])], ignore_index=True)
+
+    assert combined._ensure_kb_vectors() is True
+
+    assert len(session_client.calls) == 1
+    transmitted = " ".join(session_client.calls[0])
+    assert "Session form" in transmitted
+    assert "DOB" not in transmitted
+    assert combined._kb_vector_indices == [0, 1]
+    assert combined._get_kb_vector_cache_path() == cache_path
+    combined._save_kb_vectors_to_cache()
+    with cache_path.open("rb") as cache_file:
+        payload = pickle.load(cache_file)
+    assert len(payload["vectors"]) == 1
+    assert payload["indices"] == [0]
 
 
 def test_static_vector_cache_is_versioned_and_omits_record_text(tmp_path):

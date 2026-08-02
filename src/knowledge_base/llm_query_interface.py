@@ -98,10 +98,9 @@ class LLMKnowledgeQueryInterface:
         self.extra_kb_files: list[Path] = []
         if extra_kb_files:
             self.extra_kb_files = [Path(f) for f in extra_kb_files if f]
-        # Session/project KBs may contain sensitive metadata. Keep their vectors
-        # process-local so cache files cannot outlive session cleanup or be reused
-        # by another session.
-        self._allow_persistent_vector_cache = not bool(self.extra_kb_files)
+        # Only vectors derived from the built-in/default KB may use the shared
+        # disk cache. Session/project rows are partitioned and embedded in memory.
+        self._allow_persistent_vector_cache = True
 
         # Load eCRF data for direct matching (merges all KB sources)
         self.ecrf_data = None
@@ -183,10 +182,8 @@ class LLMKnowledgeQueryInterface:
         return masker.mask_text(text)
 
     def _persistent_vector_cache_allowed(self) -> bool:
-        """Return whether this KB instance may read or write the shared disk cache."""
-        return bool(getattr(self, "_allow_persistent_vector_cache", True)) and not bool(
-            getattr(self, "extra_kb_files", [])
-        )
+        """Return whether this KB instance has cacheable non-session records."""
+        return bool(getattr(self, "_allow_persistent_vector_cache", True)) and bool(self._partition_vector_records()[0])
 
     def _log_kb_event(self, message: str) -> None:
         """Write KB-specific debug info to the shared AI interaction log."""
@@ -213,7 +210,6 @@ class LLMKnowledgeQueryInterface:
             new_path = Path(filename)
             if new_path not in self.extra_kb_files:
                 self.extra_kb_files.append(new_path)
-                self._allow_persistent_vector_cache = False
                 self._load_ecrf_data()
                 logger.info("Added extra KB file: %s", new_path.name)
 
@@ -323,6 +319,7 @@ class LLMKnowledgeQueryInterface:
                 after_count = len(self.ecrf_data)
                 if before_count > after_count:
                     logger.info(f"Removed {before_count - after_count} duplicate KB records")
+            self.ecrf_data = self.ecrf_data.reset_index(drop=True)
 
             logger.info(f"Total KB records after merge: {len(self.ecrf_data)} (from {len(all_dfs)} sources)")
             self._normalized_ecrf_frame = None
@@ -377,6 +374,18 @@ class LLMKnowledgeQueryInterface:
 
     # ==================== 向量化模糊匹配方法 ====================
 
+    def _partition_vector_records(self) -> tuple[list[tuple[int, dict[str, Any]]], list[tuple[int, dict[str, Any]]]]:
+        """Split cacheable default records from process-local session records."""
+        if self.ecrf_data is None or self.ecrf_data.empty:
+            return [], []
+        records = list(enumerate(self.ecrf_data.to_dict("records")))
+        if not self.extra_kb_files:
+            return records, []
+        cacheable = [record for record in records if str(record[1].get("_kb_source", "")).startswith("default:")]
+        cacheable_indices = {index for index, _row in cacheable}
+        session = [record for record in records if record[0] not in cacheable_indices]
+        return cacheable, session
+
     def _get_embed_client(self):
         """Lazily initialize the embedding client."""
         if self._embed_client is None:
@@ -395,8 +404,9 @@ class LLMKnowledgeQueryInterface:
         if self.ecrf_data is None:
             return ""
 
-        # The explicit version invalidates legacy caches that could contain raw
-        # record text. Session/project KBs never use this persistent signature.
+        # The signature deliberately covers only cacheable default rows. This
+        # lets project sessions reuse static vectors without persisting project
+        # metadata or making cache identity depend on a session file.
         parts = [f"cache_version:{self.VECTOR_CACHE_VERSION}"]
         if self.default_kb_filename:
             resolved = self._resolve_kb_path(self.default_kb_filename)
@@ -404,13 +414,8 @@ class LLMKnowledgeQueryInterface:
                 stat = resolved.stat()
                 parts.append(f"default:{resolved.name}:{int(stat.st_mtime)}:{stat.st_size}")
 
-        for extra_file in self.extra_kb_files:
-            resolved = self._resolve_kb_path(extra_file)
-            if resolved and resolved.exists():
-                stat = resolved.stat()
-                parts.append(f"extra:{resolved.name}:{int(stat.st_mtime)}:{stat.st_size}")
-
-        parts.append(f"rows:{len(self.ecrf_data)}")
+        cacheable_records, _session_records = self._partition_vector_records()
+        parts.append(f"rows:{len(cacheable_records)}")
         parts.append(f"model:{self._embedding_model}")
 
         payload = "|".join(parts).encode("utf-8")
@@ -438,9 +443,20 @@ class LLMKnowledgeQueryInterface:
         if not self._persistent_vector_cache_allowed():
             return False
 
+        cached = self._read_kb_vector_cache()
+        if cached is None:
+            return False
+        self._kb_vectors, self._kb_vector_indices, self._kb_vector_signature = cached
+        self._kb_texts = None
+        logger.info("Loaded %d default KB vectors from cache", len(self._kb_vectors))
+        return True
+
+    def _read_kb_vector_cache(self) -> tuple[np.ndarray, list[int], str] | None:
+        """Read a validated default-KB cache payload without mutating state."""
+
         cache_path = self._get_kb_vector_cache_path()
         if not cache_path.exists():
-            return False
+            return None
 
         try:
             with cache_path.open("rb") as f:
@@ -448,42 +464,63 @@ class LLMKnowledgeQueryInterface:
 
             if not isinstance(payload, dict) or payload.get("cache_version") != self.VECTOR_CACHE_VERSION:
                 logger.info("Ignoring legacy KB vector cache")
-                return False
+                return None
 
             # Verify signature matches
             if payload.get("signature") != self._compute_kb_signature():
                 logger.info("KB vector cache signature mismatch, will rebuild")
-                return False
+                return None
 
-            self._kb_vectors = np.array(payload["vectors"], dtype=np.float32)
-            self._kb_vector_indices = payload["indices"]
-            self._kb_texts = None
-            self._kb_vector_signature = payload["signature"]
-
-            logger.info("Loaded %d KB vectors from cache: %s", len(self._kb_vectors), cache_path.name)
-            return True
+            vectors = np.array(payload["vectors"], dtype=np.float32)
+            indices = [int(index) for index in payload["indices"]]
+            allowed_indices = {index for index, _row in self._partition_vector_records()[0]}
+            if len(vectors) != len(indices) or any(index not in allowed_indices for index in indices):
+                logger.info("Ignoring vector cache with non-default row indices")
+                return None
+            signature = str(payload["signature"])
+            logger.info("Loaded %d default KB vectors from cache: %s", len(vectors), cache_path.name)
+            return vectors, indices, signature
         except Exception as exc:
             logger.warning("Failed to load KB vectors from cache (%s)", type(exc).__name__)
-            return False
+            return None
 
     def _save_kb_vectors_to_cache(self) -> None:
         """Save KB vectors to disk cache."""
         if self._kb_vectors is None or not self._persistent_vector_cache_allowed():
             return
 
+        allowed_indices = {index for index, _row in self._partition_vector_records()[0]}
+        vector_indices = self._kb_vector_indices or []
+        cache_positions = [position for position, index in enumerate(vector_indices) if index in allowed_indices]
+        if not cache_positions:
+            return
+        self._write_kb_vector_cache(
+            self._kb_vectors[cache_positions],
+            [vector_indices[position] for position in cache_positions],
+            self._kb_vector_signature or self._compute_kb_signature(),
+        )
+
+    def _write_kb_vector_cache(self, vectors: np.ndarray, indices: list[int], signature: str) -> None:
+        """Persist cacheable default vectors; callers must exclude session rows."""
+
+        allowed_indices = {index for index, _row in self._partition_vector_records()[0]}
+        if len(vectors) != len(indices) or any(index not in allowed_indices for index in indices):
+            logger.warning("Refusing to persist non-default KB vectors")
+            return
+
         cache_path = self._get_kb_vector_cache_path()
         try:
             payload = {
                 "cache_version": self.VECTOR_CACHE_VERSION,
-                "signature": self._kb_vector_signature,
-                "vectors": self._kb_vectors.tolist(),
-                "indices": self._kb_vector_indices,
+                "signature": signature,
+                "vectors": vectors.tolist(),
+                "indices": indices,
                 "model": self._embedding_model,
                 "saved_at": time.time(),
             }
             with cache_path.open("wb") as f:
                 pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
-            logger.info("Saved %d KB vectors to cache: %s", len(self._kb_vectors), cache_path.name)
+            logger.info("Saved %d default KB vectors to cache: %s", len(vectors), cache_path.name)
         except Exception as exc:
             logger.warning("Failed to save KB vectors to cache (%s)", type(exc).__name__)
 
@@ -516,6 +553,31 @@ class LLMKnowledgeQueryInterface:
         text = " | ".join(parts) if parts else ""
         return self._mask_text(text)
 
+    def _embed_kb_records(
+        self,
+        records: list[tuple[int, dict[str, Any]]],
+        embed_client: Any,
+    ) -> tuple[np.ndarray, list[int], list[str]]:
+        """Embed a selected record partition and preserve full-frame indices."""
+        texts: list[str] = []
+        indices: list[int] = []
+        for index, row in records:
+            text = self._build_kb_record_text(row)
+            if text:
+                texts.append(text)
+                indices.append(index)
+        if not texts:
+            return np.empty((0, 0), dtype=np.float32), [], []
+
+        batch_size = 100
+        all_vectors: list[list[float]] = []
+        for offset in range(0, len(texts), batch_size):
+            batch_texts = texts[offset : offset + batch_size]
+            all_vectors.extend(embed_client.embed_texts(batch_texts))
+            if len(texts) > batch_size:
+                logger.info("Embedded %d/%d KB records", min(offset + batch_size, len(texts)), len(texts))
+        return np.array(all_vectors, dtype=np.float32), indices, texts
+
     def _ensure_kb_vectors(self) -> bool:
         """Ensure KB vectors are loaded (from cache or computed)."""
         if self._kb_vectors is not None:
@@ -527,8 +589,10 @@ class LLMKnowledgeQueryInterface:
         if not self._enable_vector_matching:
             return False
 
-        # Try loading from cache first
-        if self._load_kb_vectors_from_cache():
+        cacheable_records, session_records = self._partition_vector_records()
+
+        # A static-only instance can populate state directly from the cache.
+        if not session_records and self._load_kb_vectors_from_cache():
             return True
 
         # Need to compute vectors
@@ -540,36 +604,32 @@ class LLMKnowledgeQueryInterface:
         logger.info("Building KB vectors for %d records...", len(self.ecrf_data))
 
         try:
-            # Build text representations
-            texts = []
-            indices = []
-            for idx, row in enumerate(self.ecrf_data.to_dict("records")):
-                text = self._build_kb_record_text(row)
-                if text:
-                    texts.append(text)
-                    indices.append(idx)
+            cache_enabled = bool(getattr(self, "_allow_persistent_vector_cache", True)) and bool(cacheable_records)
+            cached = self._read_kb_vector_cache() if cache_enabled else None
+            if cached is None:
+                cacheable_vectors, cacheable_indices, cacheable_texts = self._embed_kb_records(
+                    cacheable_records, embed_client
+                )
+                if cache_enabled and len(cacheable_vectors):
+                    self._write_kb_vector_cache(
+                        cacheable_vectors,
+                        cacheable_indices,
+                        self._compute_kb_signature(),
+                    )
+            else:
+                cacheable_vectors, cacheable_indices, _signature = cached
+                cacheable_texts = []
 
-            if not texts:
+            session_vectors, session_indices, session_texts = self._embed_kb_records(session_records, embed_client)
+            vector_parts = [vectors for vectors in (cacheable_vectors, session_vectors) if len(vectors)]
+            if not vector_parts:
                 logger.warning("No valid KB records for vector embedding")
                 return False
 
-            # Batch embed (API call)
-            batch_size = 100
-            all_vectors = []
-            for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i : i + batch_size]
-                batch_vectors = embed_client.embed_texts(batch_texts)
-                all_vectors.extend(batch_vectors)
-                if len(texts) > batch_size:
-                    logger.info("Embedded %d/%d KB records", min(i + batch_size, len(texts)), len(texts))
-
-            self._kb_vectors = np.array(all_vectors, dtype=np.float32)
-            self._kb_vector_indices = indices
-            self._kb_texts = texts
+            self._kb_vectors = np.concatenate(vector_parts, axis=0) if len(vector_parts) > 1 else vector_parts[0]
+            self._kb_vector_indices = [*cacheable_indices, *session_indices]
+            self._kb_texts = None if cached is not None else [*cacheable_texts, *session_texts]
             self._kb_vector_signature = self._compute_kb_signature()
-
-            # Save to cache
-            self._save_kb_vectors_to_cache()
 
             logger.info("Built KB vectors: %d records, dimension %d", len(self._kb_vectors), self._kb_vectors.shape[1])
             return True
