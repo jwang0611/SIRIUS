@@ -97,19 +97,21 @@ app, freeze the backend with [PyInstaller](https://pyinstaller.org/) using the
 committed spec file, from the repo root:
 
 ```bash
-pip install pyinstaller
+uv sync --locked --no-dev --group build
+uv run --locked --no-dev --group build pyinstaller sirius-backend.spec --noconfirm
+```
+
+`uv.lock` is authoritative. `requirements-build.txt` is a generated,
+hash-pinned compatibility export and must not be overwritten or edited by
+hand. For a pip-only build environment, install that export directly:
+
+```bash
+python -m pip install --require-hashes -r requirements-build.txt
 pyinstaller sirius-backend.spec --noconfirm
 ```
 
-`requirements.txt` line 1 pins an internal PyPI mirror
-(`pkg-manager.qilu-pharma.com`) that's only reachable on the corporate
-network. Building from a machine without that access (including CI), install
-from public PyPI instead:
-
-```bash
-grep -v '^-i ' requirements.txt > requirements-build.txt
-pip install --index-url https://pypi.org/simple -r requirements-build.txt pyinstaller
-```
+Set `UV_DEFAULT_INDEX` (uv) or `PIP_INDEX_URL` (pip) when an approved,
+versioned internal mirror is required.
 
 This produces a `dist/sirius-backend/` folder (onedir mode, not `--onefile`
 — the shell respawns the backend on every launch, and onedir avoids paying a

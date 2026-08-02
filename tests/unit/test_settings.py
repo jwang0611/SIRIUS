@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from src.config.settings import (
@@ -67,6 +69,38 @@ def test_default_model_keeps_legacy_openrouter_model_alias(clean_env, monkeypatc
 
     monkeypatch.setenv("DEFAULT_MODEL", "preferred/model")
     assert Settings.from_env().ai.default_model == "preferred/model"
+
+
+def test_exported_alias_outranks_dotenv_canonical_value(clean_env, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DEFAULT_MODEL=dotenv/model\n", encoding="utf-8")
+    monkeypatch.setenv("OPENROUTER_MODEL", "exported/model")
+
+    assert Settings.from_env().ai.default_model == "exported/model"
+
+
+def test_dotenv_remains_visible_to_legacy_os_getenv_callers(clean_env, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "OPENROUTER_BASE_URL=https://llm.internal.example/v1\nSIRIUS_LLM_ALLOWED_HOSTS=gateway.internal.example\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.delenv("SIRIUS_LLM_ALLOWED_HOSTS", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.ai.openrouter_base_url == "https://llm.internal.example/v1"
+    assert os.getenv("OPENROUTER_BASE_URL") == "https://llm.internal.example/v1"
+    assert os.getenv("SIRIUS_LLM_ALLOWED_HOSTS") == "gateway.internal.example"
+
+
+def test_exported_legacy_alias_outranks_dotenv_default(clean_env, monkeypatch, tmp_path):
+    (tmp_path / ".env").write_text("DEFAULT_MODEL=dotenv/model\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_MODEL", "environment/model")
+
+    assert Settings.from_env().ai.default_model == "environment/model"
 
 
 def test_cascade_rejects_incoherent_thresholds(clean_env, monkeypatch):

@@ -3,7 +3,7 @@
 
 Reads a bookmarked eCRF PDF, derives the form list from the PDF outline and the
 field labels from each form's page text (deterministic by default; add
-``--use-llm`` for an LLM-assisted cleanup pass), then writes:
+``--use-llm`` for additive recovery on sparse forms), then writes:
 
 * ``<output-dir>/<name>.json``            – 4-field records for the recommender
 * ``<output-dir>/<name>.xlsx``            – sibling with a ``num`` order column
@@ -72,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--use-llm",
         action="store_true",
-        help="Enable the optional LLM-assisted field cleanup pass (requires API credentials).",
+        help="Enable optional LLM-assisted field recovery for sparse forms (requires API credentials).",
     )
     parser.add_argument("--model", help="Model for the LLM pass (default: DEFAULT_MODEL env).")
     parser.add_argument("--api-key", help="API key for the LLM pass (default: env).")
@@ -138,6 +138,23 @@ def _resolve_config(args: argparse.Namespace, settings, use_llm: bool) -> AcrfCo
     )
 
 
+def _build_mandatory_masker(settings) -> DataMasker:  # type: ignore[no-untyped-def]
+    """Build the outbound masker even when the legacy disable flag is false."""
+    if not settings.security.data_masking_enabled:
+        warnings.warn(
+            "DATA_MASKING_ENABLED=false ignored; outbound masking is mandatory",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return DataMasker()
+
+
+def _print_extraction_warnings(pdf: Path, warning_messages: list[str]) -> None:
+    """Print safe extractor warnings without exposing input paths or page text."""
+    for message in warning_messages:
+        print(f"[WARN] {pdf.name}: {message}", file=sys.stderr)
+
+
 def main() -> None:
     args = parse_args()
     settings = get_settings()
@@ -157,7 +174,7 @@ def main() -> None:
         raise ValueError("--output-name can only be used with a single input file.")
 
     client = _build_client(args) if use_llm else None
-    masker = DataMasker() if settings.security.data_masking_enabled else None
+    masker = _build_mandatory_masker(settings)
 
     success_count = 0
     for pdf in pdfs:
@@ -185,11 +202,16 @@ def main() -> None:
             continue
 
         stats = result.stats
+        # Sub-tables are extra rows in the output, so the bookmark-form count
+        # alone would understate what the workbook actually contains.
+        sub_forms = stats.get("sub_forms") or 0
         print(
-            f"[OK] {pdf.name}: {stats.get('forms_with_fields')}/{stats.get('forms_total')} forms, "
-            f"{stats.get('fields_total')} fields"
+            f"[OK] {pdf.name}: {stats.get('forms_with_fields')}/{stats.get('forms_total')} forms"
+            + (f" (+{sub_forms} sub-tables)" if sub_forms else "")
+            + f", {stats.get('fields_total')} fields"
             + (f", {stats.get('forms_via_llm')} via LLM" if stats.get("llm_enabled") else "")
         )
+        _print_extraction_warnings(pdf, result.warnings)
         for path in (json_path, xlsx_path, als_path):
             try:
                 print(f"     -> {path.relative_to(Path.cwd())}")

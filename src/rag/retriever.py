@@ -49,6 +49,7 @@ class InMemoryRetriever:
     def __init__(self, docs: list[dict[str, Any]]):
         # 只接收有向量的文档
         self._docs = []
+        self._X: np.ndarray
         embs = []
         for d in docs:
             if isinstance(d, dict) and "embedding" in d:

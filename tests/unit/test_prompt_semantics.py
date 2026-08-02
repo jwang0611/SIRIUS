@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from scripts.prompt_ci.validate_prompts import check_example_output_contract
+from src.infrastructure.data_masker import DataMasker
 from src.processors.sdtm_processor import SDTMProcessor
 from src.prompts import sdtm_rules
 from src.prompts.loader import clear_cache, load_examples, load_rules, load_template
@@ -132,6 +133,50 @@ def test_sdtm_processor_production_prompt_path_uses_structured_contract():
     assert '"sdtm_variable": "QVAL"' in prompt
     assert '"supp_variable": "FAOROTH"' in prompt
     assert '"testcd": "THCLA"' in prompt
+
+
+def test_complete_llm_prompt_is_redacted_after_all_context_is_assembled():
+    class _UnsafeRagAugmenter:
+        def build_context_block(self, *_args, **_kwargs):
+            return "RAG DOB: 1980-05-15; subject 001-0023"
+
+    class _UnsafeHints:
+        def build_prompt_section(self, **_kwargs):
+            return "\nHint for Smith, John"
+
+    processor = object.__new__(SDTMProcessor)
+    processor.data_masker = DataMasker()
+    processor.debug = False
+    processor.kb_hints = _UnsafeHints()
+    processor.rag_augmenter = _UnsafeRagAugmenter()
+    processor.rag_char_limit = 1500
+    processor.prompt_generator = _fresh_prompt_generator()
+    processor._infer_candidate_domains = lambda variable_data, kb_context: []
+
+    prompt = processor._create_enhanced_prompt(
+        {
+            "metadata_variable": "SUBJECT 001-0023",
+            "annotation_table": "DOB: 1980-05-15",
+            "annotation_variable": "Smith, John",
+        },
+        {},
+        all_table_variables=[
+            {
+                "metadata_variable": "SIBLING",
+                "annotation_variable": "Contact john@example.com",
+            }
+        ],
+        rag_contexts=[object()],
+    )
+
+    for sentinel in (
+        "001-0023",
+        "1980-05-15",
+        "Smith, John",
+        "john@example.com",
+    ):
+        assert sentinel not in prompt
+    assert "[REDACTED]" in prompt
 
 
 def test_prompt_ci_rejects_composite_and_unstructured_supp_examples():

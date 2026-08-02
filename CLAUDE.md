@@ -61,8 +61,8 @@ Follow these unless the maintainer explicitly changes direction:
 ## Development Commands
 
 ```bash
-# Install dependencies
-python -m pip install -r requirements.txt
+# Install the locked development environment
+uv sync --locked
 
 # Start local Web UI
 python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload

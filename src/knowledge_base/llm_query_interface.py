@@ -24,6 +24,8 @@ from typing import Any, ClassVar
 import numpy as np
 import pandas as pd
 
+from src.infrastructure.data_masker import DataMasker
+
 from .exact_match_utils import (
     DEEP_NORM_SUFFIX,
     build_exact_match_key,
@@ -47,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMKnowledgeQueryInterface:
+    VECTOR_CACHE_VERSION: ClassVar[str] = "masked-v1"
     EXACT_MATCH_COLUMNS: ClassVar[list[str]] = [
         "metadata_variable",
         "annotation_variable",
@@ -70,6 +73,7 @@ class LLMKnowledgeQueryInterface:
         knowledge_base_path: str = "data/knowledge_base",
         extra_kb_files: list[str | Path] | None = None,
         log_ai_interactions: bool | None = None,
+        data_masker: DataMasker | None = None,
     ):
         """
         Initialize the LLM knowledge query interface.
@@ -78,10 +82,13 @@ class LLMKnowledgeQueryInterface:
             knowledge_base_path: Path to the knowledge base directory
             extra_kb_files: Optional list of additional KB files to merge with the default.
                 These are typically user-uploaded session KB files.
+            data_masker: Optional masker shared with the calling processor. A default
+                masker is always created so embedding payloads are redacted.
         """
         self.kb_manager = KnowledgeBaseManager(knowledge_base_path)
         self.kb_path = Path(knowledge_base_path)
         self.structured_path = self.kb_path / "structured"
+        self.data_masker = data_masker or DataMasker()
 
         # Default KB file (from env RAG_KB_DEFAULT_FILE)
         default_kb = os.getenv("RAG_KB_DEFAULT_FILE")
@@ -91,6 +98,9 @@ class LLMKnowledgeQueryInterface:
         self.extra_kb_files: list[Path] = []
         if extra_kb_files:
             self.extra_kb_files = [Path(f) for f in extra_kb_files if f]
+        # Only vectors derived from the built-in/default KB may use the shared
+        # disk cache. Session/project rows are partitioned and embedded in memory.
+        self._allow_persistent_vector_cache = True
 
         # Load eCRF data for direct matching (merges all KB sources)
         self.ecrf_data = None
@@ -130,11 +140,12 @@ class LLMKnowledgeQueryInterface:
         # Vector cache directory
         self._vector_cache_dir = Path("data/cache/kb_vectors")
         self._vector_cache_dir.mkdir(parents=True, exist_ok=True)
+        self._purge_legacy_vector_caches()
 
         # KB vectors (loaded lazily)
         self._kb_vectors: np.ndarray | None = None
         self._kb_vector_indices: list[int] | None = None  # Maps vector index to DataFrame row
-        self._kb_texts: list[str] | None = None  # Original texts for debugging
+        self._kb_texts: list[str] | None = None  # Masked texts for in-memory debugging only
         self._kb_vector_signature: str | None = None  # For cache invalidation
 
         # Enable/disable vector matching
@@ -162,9 +173,21 @@ class LLMKnowledgeQueryInterface:
             self._kb_verbose,
         )
 
+    def _mask_text(self, text: str) -> str:
+        """Redact sensitive text before remote embedding or diagnostic output."""
+        masker = getattr(self, "data_masker", None)
+        if masker is None:
+            masker = DataMasker()
+            self.data_masker = masker
+        return masker.mask_text(text)
+
+    def _persistent_vector_cache_allowed(self) -> bool:
+        """Return whether this KB instance has cacheable non-session records."""
+        return bool(getattr(self, "_allow_persistent_vector_cache", True)) and bool(self._partition_vector_records()[0])
+
     def _log_kb_event(self, message: str) -> None:
         """Write KB-specific debug info to the shared AI interaction log."""
-        if not self.log_ai_interactions:
+        if not getattr(self, "log_ai_interactions", False):
             return
         try:
             log_dir = Path("data/output/logs")
@@ -172,9 +195,9 @@ class LLMKnowledgeQueryInterface:
             log_file = log_dir / f"ai_interactions_{datetime.now():%Y%m%d}.log"
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with log_file.open("a", encoding="utf-8") as fh:
-                fh.write(f"\n[KB] {timestamp} {message}")
+                fh.write(f"\n[KB] {timestamp} {self._mask_text(message)}")
         except Exception as exc:
-            logger.debug("Failed to write KB log entry: %s", exc)
+            logger.debug("Failed to write KB log entry (%s)", type(exc).__name__)
 
     def add_extra_kb_file(self, filename: str | Path) -> None:
         """
@@ -188,7 +211,7 @@ class LLMKnowledgeQueryInterface:
             if new_path not in self.extra_kb_files:
                 self.extra_kb_files.append(new_path)
                 self._load_ecrf_data()
-                logger.info(f"Added extra KB file: {filename}")
+                logger.info("Added extra KB file: %s", new_path.name)
 
     def get_kb_sources(self) -> dict[str, Any]:
         """Get information about currently loaded KB sources."""
@@ -204,7 +227,7 @@ class LLMKnowledgeQueryInterface:
     def _load_single_kb_file(self, kb_file: Path) -> pd.DataFrame | None:
         """Load a single KB file and return as DataFrame."""
         if not kb_file.exists():
-            logger.warning(f"KB file not found: {kb_file}")
+            logger.warning("KB file not found: %s", kb_file.name)
             return None
 
         try:
@@ -217,13 +240,13 @@ class LLMKnowledgeQueryInterface:
                 sep = "\t" if suffix == ".tsv" else ","
                 df = pd.read_csv(kb_file, sep=sep)
             else:
-                logger.warning(f"Unsupported KB file format: {kb_file.suffix}")
+                logger.warning("Unsupported KB file format: %s", kb_file.suffix)
                 return None
 
-            logger.info(f"Loaded KB file '{kb_file.name}': {len(df)} records")
+            logger.info("Loaded KB file '%s': %d records", kb_file.name, len(df))
             return df
-        except Exception as e:
-            logger.error(f"Failed to load KB file {kb_file}: {e}")
+        except Exception as exc:
+            logger.error("Failed to load KB file '%s' (%s)", kb_file.name, type(exc).__name__)
             return None
 
     def _resolve_kb_path(self, filename: Path | None) -> Path | None:
@@ -296,6 +319,7 @@ class LLMKnowledgeQueryInterface:
                 after_count = len(self.ecrf_data)
                 if before_count > after_count:
                     logger.info(f"Removed {before_count - after_count} duplicate KB records")
+            self.ecrf_data = self.ecrf_data.reset_index(drop=True)
 
             logger.info(f"Total KB records after merge: {len(self.ecrf_data)} (from {len(all_dfs)} sources)")
             self._normalized_ecrf_frame = None
@@ -306,8 +330,8 @@ class LLMKnowledgeQueryInterface:
             self._kb_texts = None
             self._kb_vector_signature = None
 
-        except Exception as e:
-            logger.error(f"Failed to load KB data: {e}")
+        except Exception as exc:
+            logger.error("Failed to load KB data (%s)", type(exc).__name__)
             self.ecrf_data = None
             self._normalized_ecrf_frame = None
             self._precomputed_exact_matches = {}
@@ -345,10 +369,22 @@ class LLMKnowledgeQueryInterface:
             self._normalized_ecrf_frame = ecrf_data_clean
             return self._normalized_ecrf_frame
         except Exception as exc:
-            logger.error("Failed to normalize eCRF data for exact matching: %s", exc)
+            logger.error("Failed to normalize eCRF data for exact matching (%s)", type(exc).__name__)
             return None
 
     # ==================== 向量化模糊匹配方法 ====================
+
+    def _partition_vector_records(self) -> tuple[list[tuple[int, dict[str, Any]]], list[tuple[int, dict[str, Any]]]]:
+        """Split cacheable default records from process-local session records."""
+        if self.ecrf_data is None or self.ecrf_data.empty:
+            return [], []
+        records = list(enumerate(self.ecrf_data.to_dict("records")))
+        if not self.extra_kb_files:
+            return records, []
+        cacheable = [record for record in records if str(record[1].get("_kb_source", "")).startswith("default:")]
+        cacheable_indices = {index for index, _row in cacheable}
+        session = [record for record in records if record[0] not in cacheable_indices]
+        return cacheable, session
 
     def _get_embed_client(self):
         """Lazily initialize the embedding client."""
@@ -358,8 +394,8 @@ class LLMKnowledgeQueryInterface:
 
                 self._embed_client = OpenRouterEmbeddingClient(model=self._embedding_model)
                 logger.info("Initialized embedding client with model: %s", self._embedding_model)
-            except Exception as e:
-                logger.error("Failed to initialize embedding client: %s", e)
+            except Exception as exc:
+                logger.error("Failed to initialize embedding client (%s)", type(exc).__name__)
                 self._embed_client = None
         return self._embed_client
 
@@ -368,21 +404,18 @@ class LLMKnowledgeQueryInterface:
         if self.ecrf_data is None:
             return ""
 
-        # Include: default KB file, extra KB files, row count, column names
-        parts = []
+        # The signature deliberately covers only cacheable default rows. This
+        # lets project sessions reuse static vectors without persisting project
+        # metadata or making cache identity depend on a session file.
+        parts = [f"cache_version:{self.VECTOR_CACHE_VERSION}"]
         if self.default_kb_filename:
             resolved = self._resolve_kb_path(self.default_kb_filename)
             if resolved and resolved.exists():
                 stat = resolved.stat()
                 parts.append(f"default:{resolved.name}:{int(stat.st_mtime)}:{stat.st_size}")
 
-        for extra_file in self.extra_kb_files:
-            resolved = self._resolve_kb_path(extra_file)
-            if resolved and resolved.exists():
-                stat = resolved.stat()
-                parts.append(f"extra:{resolved.name}:{int(stat.st_mtime)}:{stat.st_size}")
-
-        parts.append(f"rows:{len(self.ecrf_data)}")
+        cacheable_records, _session_records = self._partition_vector_records()
+        parts.append(f"rows:{len(cacheable_records)}")
         parts.append(f"model:{self._embedding_model}")
 
         payload = "|".join(parts).encode("utf-8")
@@ -391,54 +424,105 @@ class LLMKnowledgeQueryInterface:
     def _get_kb_vector_cache_path(self) -> Path:
         """Get the cache file path for KB vectors."""
         signature = self._compute_kb_signature()
-        return self._vector_cache_dir / f"kb_vectors_{signature[:16]}.pkl"
+        return self._vector_cache_dir / f"kb_vectors_{self.VECTOR_CACHE_VERSION}_{signature[:16]}.pkl"
+
+    def _purge_legacy_vector_caches(self) -> None:
+        """Delete pre-masking cache files without deserializing untrusted pickle payloads."""
+        current_prefix = f"kb_vectors_{self.VECTOR_CACHE_VERSION}_"
+        for cache_path in self._vector_cache_dir.glob("kb_vectors_*.pkl"):
+            if cache_path.name.startswith(current_prefix):
+                continue
+            try:
+                cache_path.unlink()
+                logger.info("Deleted legacy KB vector cache: %s", cache_path.name)
+            except OSError as exc:
+                logger.warning("Failed to delete legacy KB vector cache (%s)", type(exc).__name__)
 
     def _load_kb_vectors_from_cache(self) -> bool:
         """Try to load KB vectors from disk cache."""
+        if not self._persistent_vector_cache_allowed():
+            return False
+
+        cached = self._read_kb_vector_cache()
+        if cached is None:
+            return False
+        self._kb_vectors, self._kb_vector_indices, self._kb_vector_signature = cached
+        self._kb_texts = None
+        logger.info("Loaded %d default KB vectors from cache", len(self._kb_vectors))
+        return True
+
+    def _read_kb_vector_cache(self) -> tuple[np.ndarray, list[int], str] | None:
+        """Read a validated default-KB cache payload without mutating state."""
+
         cache_path = self._get_kb_vector_cache_path()
         if not cache_path.exists():
-            return False
+            return None
 
         try:
             with cache_path.open("rb") as f:
                 payload = pickle.load(f)
 
+            if not isinstance(payload, dict) or payload.get("cache_version") != self.VECTOR_CACHE_VERSION:
+                logger.info("Ignoring legacy KB vector cache")
+                return None
+
             # Verify signature matches
             if payload.get("signature") != self._compute_kb_signature():
                 logger.info("KB vector cache signature mismatch, will rebuild")
-                return False
+                return None
 
-            self._kb_vectors = np.array(payload["vectors"], dtype=np.float32)
-            self._kb_vector_indices = payload["indices"]
-            self._kb_texts = payload.get("texts", [])
-            self._kb_vector_signature = payload["signature"]
-
-            logger.info("Loaded %d KB vectors from cache: %s", len(self._kb_vectors), cache_path.name)
-            return True
-        except Exception as e:
-            logger.warning("Failed to load KB vectors from cache: %s", e)
-            return False
+            vectors = np.array(payload["vectors"], dtype=np.float32)
+            indices = [int(index) for index in payload["indices"]]
+            allowed_indices = {index for index, _row in self._partition_vector_records()[0]}
+            if len(vectors) != len(indices) or any(index not in allowed_indices for index in indices):
+                logger.info("Ignoring vector cache with non-default row indices")
+                return None
+            signature = str(payload["signature"])
+            logger.info("Loaded %d default KB vectors from cache: %s", len(vectors), cache_path.name)
+            return vectors, indices, signature
+        except Exception as exc:
+            logger.warning("Failed to load KB vectors from cache (%s)", type(exc).__name__)
+            return None
 
     def _save_kb_vectors_to_cache(self) -> None:
         """Save KB vectors to disk cache."""
-        if self._kb_vectors is None:
+        if self._kb_vectors is None or not self._persistent_vector_cache_allowed():
+            return
+
+        allowed_indices = {index for index, _row in self._partition_vector_records()[0]}
+        vector_indices = self._kb_vector_indices or []
+        cache_positions = [position for position, index in enumerate(vector_indices) if index in allowed_indices]
+        if not cache_positions:
+            return
+        self._write_kb_vector_cache(
+            self._kb_vectors[cache_positions],
+            [vector_indices[position] for position in cache_positions],
+            self._kb_vector_signature or self._compute_kb_signature(),
+        )
+
+    def _write_kb_vector_cache(self, vectors: np.ndarray, indices: list[int], signature: str) -> None:
+        """Persist cacheable default vectors; callers must exclude session rows."""
+
+        allowed_indices = {index for index, _row in self._partition_vector_records()[0]}
+        if len(vectors) != len(indices) or any(index not in allowed_indices for index in indices):
+            logger.warning("Refusing to persist non-default KB vectors")
             return
 
         cache_path = self._get_kb_vector_cache_path()
         try:
             payload = {
-                "signature": self._kb_vector_signature,
-                "vectors": self._kb_vectors.tolist(),
-                "indices": self._kb_vector_indices,
-                "texts": self._kb_texts,
+                "cache_version": self.VECTOR_CACHE_VERSION,
+                "signature": signature,
+                "vectors": vectors.tolist(),
+                "indices": indices,
                 "model": self._embedding_model,
                 "saved_at": time.time(),
             }
             with cache_path.open("wb") as f:
                 pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
-            logger.info("Saved %d KB vectors to cache: %s", len(self._kb_vectors), cache_path.name)
-        except Exception as e:
-            logger.warning("Failed to save KB vectors to cache: %s", e)
+            logger.info("Saved %d default KB vectors to cache: %s", len(vectors), cache_path.name)
+        except Exception as exc:
+            logger.warning("Failed to save KB vectors to cache (%s)", type(exc).__name__)
 
     def _build_kb_record_text(self, row) -> str:
         """Build a text representation of a KB record for embedding.
@@ -466,7 +550,33 @@ class LLMKnowledgeQueryInterface:
         if metadata_table and metadata_table.lower() != annotation_table.lower():
             parts.append(metadata_table)
 
-        return " | ".join(parts) if parts else ""
+        text = " | ".join(parts) if parts else ""
+        return self._mask_text(text)
+
+    def _embed_kb_records(
+        self,
+        records: list[tuple[int, dict[str, Any]]],
+        embed_client: Any,
+    ) -> tuple[np.ndarray, list[int], list[str]]:
+        """Embed a selected record partition and preserve full-frame indices."""
+        texts: list[str] = []
+        indices: list[int] = []
+        for index, row in records:
+            text = self._build_kb_record_text(row)
+            if text:
+                texts.append(text)
+                indices.append(index)
+        if not texts:
+            return np.empty((0, 0), dtype=np.float32), [], []
+
+        batch_size = 100
+        all_vectors: list[list[float]] = []
+        for offset in range(0, len(texts), batch_size):
+            batch_texts = texts[offset : offset + batch_size]
+            all_vectors.extend(embed_client.embed_texts(batch_texts))
+            if len(texts) > batch_size:
+                logger.info("Embedded %d/%d KB records", min(offset + batch_size, len(texts)), len(texts))
+        return np.array(all_vectors, dtype=np.float32), indices, texts
 
     def _ensure_kb_vectors(self) -> bool:
         """Ensure KB vectors are loaded (from cache or computed)."""
@@ -479,8 +589,10 @@ class LLMKnowledgeQueryInterface:
         if not self._enable_vector_matching:
             return False
 
-        # Try loading from cache first
-        if self._load_kb_vectors_from_cache():
+        cacheable_records, session_records = self._partition_vector_records()
+
+        # A static-only instance can populate state directly from the cache.
+        if not session_records and self._load_kb_vectors_from_cache():
             return True
 
         # Need to compute vectors
@@ -492,42 +604,38 @@ class LLMKnowledgeQueryInterface:
         logger.info("Building KB vectors for %d records...", len(self.ecrf_data))
 
         try:
-            # Build text representations
-            texts = []
-            indices = []
-            for idx, row in enumerate(self.ecrf_data.to_dict("records")):
-                text = self._build_kb_record_text(row)
-                if text:
-                    texts.append(text)
-                    indices.append(idx)
+            cache_enabled = bool(getattr(self, "_allow_persistent_vector_cache", True)) and bool(cacheable_records)
+            cached = self._read_kb_vector_cache() if cache_enabled else None
+            if cached is None:
+                cacheable_vectors, cacheable_indices, cacheable_texts = self._embed_kb_records(
+                    cacheable_records, embed_client
+                )
+                if cache_enabled and len(cacheable_vectors):
+                    self._write_kb_vector_cache(
+                        cacheable_vectors,
+                        cacheable_indices,
+                        self._compute_kb_signature(),
+                    )
+            else:
+                cacheable_vectors, cacheable_indices, _signature = cached
+                cacheable_texts = []
 
-            if not texts:
+            session_vectors, session_indices, session_texts = self._embed_kb_records(session_records, embed_client)
+            vector_parts = [vectors for vectors in (cacheable_vectors, session_vectors) if len(vectors)]
+            if not vector_parts:
                 logger.warning("No valid KB records for vector embedding")
                 return False
 
-            # Batch embed (API call)
-            batch_size = 100
-            all_vectors = []
-            for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i : i + batch_size]
-                batch_vectors = embed_client.embed_texts(batch_texts)
-                all_vectors.extend(batch_vectors)
-                if len(texts) > batch_size:
-                    logger.info("Embedded %d/%d KB records", min(i + batch_size, len(texts)), len(texts))
-
-            self._kb_vectors = np.array(all_vectors, dtype=np.float32)
-            self._kb_vector_indices = indices
-            self._kb_texts = texts
+            self._kb_vectors = np.concatenate(vector_parts, axis=0) if len(vector_parts) > 1 else vector_parts[0]
+            self._kb_vector_indices = [*cacheable_indices, *session_indices]
+            self._kb_texts = None if cached is not None else [*cacheable_texts, *session_texts]
             self._kb_vector_signature = self._compute_kb_signature()
-
-            # Save to cache
-            self._save_kb_vectors_to_cache()
 
             logger.info("Built KB vectors: %d records, dimension %d", len(self._kb_vectors), self._kb_vectors.shape[1])
             return True
 
-        except Exception as e:
-            logger.error("Failed to build KB vectors: %s", e)
+        except Exception as exc:
+            logger.error("Failed to build KB vectors (%s)", type(exc).__name__)
             return False
 
     def _vector_fuzzy_search(
@@ -550,23 +658,24 @@ class LLMKnowledgeQueryInterface:
             List of (score, dataframe_index) tuples
         """
         variable_name = query_data.get("metadata_variable") or query_data.get("annotation_variable") or "unknown"
+        safe_variable_name = self._mask_text(str(variable_name))
 
         if not self._ensure_kb_vectors():
             if verbose:
-                print(f"[KB-Vector] {variable_name}: KB vectors not available")
+                print(f"[KB-Vector] {safe_variable_name}: KB vectors not available")
             return []
 
         embed_client = self._get_embed_client()
         if embed_client is None:
             if verbose:
-                print(f"[KB-Vector] {variable_name}: Embedding client not available")
+                print(f"[KB-Vector] {safe_variable_name}: Embedding client not available")
             return []
 
         # Build query text
         query_text = self._build_kb_record_text(pd.Series(query_data))
         if not query_text:
             if verbose:
-                print(f"[KB-Vector] {variable_name}: Empty query text")
+                print(f"[KB-Vector] {safe_variable_name}: Empty query text")
             return []
 
         try:
@@ -598,7 +707,7 @@ class LLMKnowledgeQueryInterface:
 
             if len(valid_indices) == 0:
                 if verbose:
-                    print(f"[KB-Vector] {variable_name}: No matches above threshold {min_score}")
+                    print(f"[KB-Vector] {safe_variable_name}: No matches above threshold {min_score}")
                 return []
 
             # Sort by score descending
@@ -614,7 +723,7 @@ class LLMKnowledgeQueryInterface:
             # Verbose output
             if verbose and results:
                 print(f"\n{'=' * 70}")
-                print(f"[KB-Vector] Variable: {variable_name}")
+                print(f"[KB-Vector] Variable: {safe_variable_name}")
                 print(f"{'=' * 70}")
                 print(f"[Query] {query_text[:100]}{'...' if len(query_text) > 100 else ''}")
                 print(f"[Stats] KB vectors: {len(kb_mat)} | Matches: {len(valid_indices)} | Top-{top_k}")
@@ -627,11 +736,11 @@ class LLMKnowledgeQueryInterface:
 
                 for rank, (score, df_idx) in enumerate(results, 1):
                     row = ecrf_data.loc[df_idx]
-                    domain = row.get("SDTM_Domain", "?")
-                    sdtm_var = row.get("SDTM_Variable", "?")
-                    ann_var = row.get("annotation_variable", "")
-                    ann_table = row.get("annotation_table", "")
-                    meta_var = row.get("metadata_variable", "")
+                    domain = self._mask_text(str(row.get("SDTM_Domain", "?")))
+                    sdtm_var = self._mask_text(str(row.get("SDTM_Variable", "?")))
+                    ann_var = self._mask_text(str(row.get("annotation_variable", "")))
+                    ann_table = self._mask_text(str(row.get("annotation_table", "")))
+                    meta_var = self._mask_text(str(row.get("metadata_variable", "")))
 
                     print(f"  [{rank}] Score: {score:.4f} | Domain: {domain} | SDTM: {sdtm_var}")
                     print(f"      KB Variable: {meta_var} | KB Label: {ann_var}")
@@ -647,10 +756,10 @@ class LLMKnowledgeQueryInterface:
 
             return results
 
-        except Exception as e:
-            logger.error("Vector fuzzy search failed: %s", e)
+        except Exception as exc:
+            logger.error("Vector fuzzy search failed (%s)", type(exc).__name__)
             if verbose:
-                print(f"[KB-Vector] {variable_name}: Error - {e}")
+                print(f"[KB-Vector] {safe_variable_name}: Error ({type(exc).__name__})")
             return []
 
     def get_kb_vector_stats(self) -> dict[str, Any]:
@@ -756,7 +865,7 @@ class LLMKnowledgeQueryInterface:
                 logger.info("Precomputed %d exact KB matches via bulk merge", len(matches))
             return len(matches)
         except Exception as exc:
-            logger.error("Failed to precompute exact matches: %s", exc)
+            logger.error("Failed to precompute exact matches (%s)", type(exc).__name__)
             self._precomputed_exact_matches = {}
             return 0
 
@@ -800,8 +909,6 @@ class LLMKnowledgeQueryInterface:
                 f"strategy={ecrf_matches.get('match_strategy')} "
                 f"confidence={confidence:.2f} "
                 f"threshold={threshold:.2f} "
-                f"variable={variable_data.get('metadata_variable', '')} "
-                f"table={variable_data.get('annotation_table', '')} "
                 f"matches={num_matches}"
             )
             # 如果存在一对多映射，记录详细信息
@@ -833,8 +940,7 @@ class LLMKnowledgeQueryInterface:
         llm_result["source"] = "LLM_reasoning"
         summary = (
             "KB result source=LLM "
-            f"variable={variable_name} table={table_name} "
-            f"domain={domain_hint or 'ANY'} confidence={llm_result.get('confidence', 0.0):.2f} "
+            f"domain_scoped={bool(domain_hint)} confidence={llm_result.get('confidence', 0.0):.2f} "
             f"threshold={threshold:.2f}"
         )
         logger.info(summary)
@@ -860,7 +966,6 @@ class LLMKnowledgeQueryInterface:
             # Extract input fields
             input_annotation_table = variable_data.get("annotation_table", "")
             input_annotation_variable = variable_data.get("annotation_variable", "")
-            input_metadata_variable = variable_data.get("metadata_variable", "")
 
             if not input_annotation_table or not input_annotation_variable:
                 logger.warning("Missing required fields (annotation_table, annotation_variable) for KB matching")
@@ -1030,8 +1135,7 @@ class LLMKnowledgeQueryInterface:
                     f"KB strategy={strategy_used} "
                     f"conf={top_match['confidence']:.2f} "
                     f"domain={top_match.get('domain', '')} "
-                    f"sdtm={top_match.get('sdtm_variable', '')} "
-                    f"input_var={input_metadata_variable} input_table={input_annotation_table}"
+                    f"sdtm={top_match.get('sdtm_variable', '')}"
                 )
                 # 如果存在一对多映射，记录所有匹配
                 if len(matches) > 1:
@@ -1047,8 +1151,8 @@ class LLMKnowledgeQueryInterface:
                 "match_strategy": strategy_used,
             }
 
-        except Exception as e:
-            logger.error(f"Error matching with eCRF data: {e}")
+        except Exception as exc:
+            logger.error("Error matching with eCRF data (%s)", type(exc).__name__)
             return {"suggestions": [], "confidence": 0.0}
 
     @staticmethod
@@ -1094,12 +1198,11 @@ class LLMKnowledgeQueryInterface:
             if not matches.empty:
                 results.append(matches)
                 logger.info(
-                    "KB variable search term '%s' domain=%s -> %d hits",
-                    term,
-                    domain or "ANY",
+                    "KB variable search domain_scoped=%s -> %d hits",
+                    bool(domain),
                     len(matches),
                 )
-                self._log_kb_event(f"search term='{term}' domain={domain or 'ANY'} hits={len(matches)}")
+                self._log_kb_event(f"search domain_scoped={bool(domain)} hits={len(matches)}")
 
         if not results:
             return {
@@ -1122,7 +1225,7 @@ class LLMKnowledgeQueryInterface:
             "total_matches": len(combined_df),
         }
         summary = (
-            f"search complete query='{query_text}' domain={domain or 'ANY'} "
+            f"search complete domain_scoped={bool(domain)} "
             f"suggestions={len(ranked_results)} confidence={response['confidence']:.2f}"
         )
         logger.info(summary)
@@ -1174,9 +1277,9 @@ class LLMKnowledgeQueryInterface:
                 ),
             }
 
-        except Exception as e:
-            logger.error(f"Error getting domain context for {domain}: {e!s}")
-            return {"domain": domain, "error": str(e)}
+        except Exception as exc:
+            logger.error("Error getting domain context (%s)", type(exc).__name__)
+            return {"domain": domain, "error": type(exc).__name__}
 
     def validate_mapping_suggestion(self, suggested_mapping: dict[str, Any], query_context: str) -> dict[str, Any]:
         """
@@ -1241,9 +1344,9 @@ class LLMKnowledgeQueryInterface:
                 naming_score = self._validate_naming_convention(suggested_variable, suggested_domain)
                 validation_results["validation_score"] += naming_score * 0.2
 
-        except Exception as e:
-            logger.error(f"Error validating mapping suggestion: {e!s}")
-            validation_results["issues"].append(f"Validation error: {e!s}")
+        except Exception as exc:
+            logger.error("Error validating mapping suggestion (%s)", type(exc).__name__)
+            validation_results["issues"].append(f"Validation error: {type(exc).__name__}")
 
         return validation_results
 
@@ -1293,8 +1396,8 @@ class LLMKnowledgeQueryInterface:
 
             return test_cases[:num_cases]
 
-        except Exception as e:
-            logger.error(f"Error generating test cases for domain {domain}: {e!s}")
+        except Exception as exc:
+            logger.error("Error generating test cases (%s)", type(exc).__name__)
             return []
 
     def _extract_key_terms(self, query_text: str) -> list[str]:

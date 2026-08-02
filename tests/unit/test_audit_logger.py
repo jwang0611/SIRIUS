@@ -115,7 +115,7 @@ class TestLogLlmRetry:
         entry = _read_all_entries(_log_file(tmp_path))[0]
         assert entry == {
             "timestamp": entry["timestamp"],
-            "session_id": "unit-test-session",
+            "session_ref": auditor._log_key,
             "operation": "llm_retry",
             "model": "test/model",
             "retry_count": 1,
@@ -154,6 +154,40 @@ class TestLogCorrection:
         auditor.log_correction(variable_data={}, old_result={}, new_result={}, corrected_by="reviewer_A")
         entry = _read_all_entries(_log_file(tmp_path))[0]
         assert entry["corrected_by"] == "reviewer_A"
+
+    def test_sensitive_values_are_redacted_before_persistence(self, auditor, tmp_path):
+        auditor.log_correction(
+            variable_data={
+                "metadata_table": "DOB: 1980-05-15",
+                "metadata_variable": "Subject 001-0023",
+                "annotation_variable": "Smith, John",
+            },
+            old_result={"domain": "VS", "sdtm_variable": "john@example.com"},
+            new_result={"domain": "AE", "sdtm_variable": "AETERM"},
+        )
+        serialized = _log_file(tmp_path).read_text(encoding="utf-8")
+        for sentinel in (
+            "1980-05-15",
+            "001-0023",
+            "Smith, John",
+            "john@example.com",
+            "unit-test-session",
+        ):
+            assert sentinel not in serialized
+        assert "[REDACTED]" in serialized
+
+    def test_masker_failure_redacts_instead_of_failing_open(self, auditor, tmp_path, monkeypatch):
+        def fail_mask(_text: str) -> str:
+            raise RuntimeError("masker unavailable")
+
+        monkeypatch.setattr(auditor._data_masker, "mask_text", fail_mask)
+        auditor.log_mapping(
+            variable_data={"metadata_variable": "Subject 001-0023"},
+            result={"domain": "AE"},
+        )
+        serialized = _log_file(tmp_path).read_text(encoding="utf-8")
+        assert "001-0023" not in serialized
+        assert "[REDACTED]" in serialized
 
 
 class TestDisabled:
@@ -205,8 +239,8 @@ class TestHostileSessionId:
         # The write actually succeeded (was previously lost to FileNotFoundError).
         assert aud.entry_count == 1
         entry = _read_all_entries(files[0])[0]
-        # Raw session_id is still recorded in the body for traceability.
-        assert entry["session_id"] == "a/b/../c"
+        assert entry["session_ref"] == aud._log_key
+        assert "a/b/../c" not in json.dumps(entry)
 
     def test_distinct_hostile_ids_do_not_share_a_log_file(self, tmp_path):
         AuditLogger(session_id="a/b", log_dir=str(tmp_path)).log_mapping(variable_data={}, result={"domain": "AE"})

@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.infrastructure.data_masker import DataMasker
+
 _CLI_PATH = Path(__file__).resolve().parents[2] / "scripts" / "extract_acrf_pdf.py"
 _spec = importlib.util.spec_from_file_location("extract_acrf_pdf_cli", _CLI_PATH)
 assert _spec and _spec.loader
@@ -24,7 +26,8 @@ def _settings(use_llm: bool = False, mdv: str = "label") -> SimpleNamespace:
             max_fields=300,
             header_footer_band=0.08,
             metadata_variable_mode=mdv,
-        )
+        ),
+        security=SimpleNamespace(data_masking_enabled=True),
     )
 
 
@@ -59,3 +62,24 @@ def test_acrf_env_hydrates_into_typed_settings(monkeypatch: pytest.MonkeyPatch):
 
     assert settings.acrf.use_llm is True
     assert settings.acrf.llm_min_fields == 5
+
+
+def test_disabled_legacy_masking_flag_is_ignored_with_warning():
+    settings = _settings()
+    settings.security.data_masking_enabled = False
+
+    with pytest.warns(RuntimeWarning, match="outbound masking is mandatory"):
+        masker = cli._build_mandatory_masker(settings)
+
+    assert isinstance(masker, DataMasker)
+
+
+def test_print_extraction_warnings_uses_filename_and_safe_message(capsys: pytest.CaptureFixture[str]):
+    cli._print_extraction_warnings(
+        Path("sample.pdf"),
+        ["form 'Empty Form': no fields extracted"],
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "[WARN] sample.pdf: form 'Empty Form': no fields extracted\n"

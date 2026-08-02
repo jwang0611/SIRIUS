@@ -140,39 +140,34 @@ class ExcelReader:
             records: list[ALSRecord] = []
             format_col = columns.get("format")
             for idx, row in enumerate(df.to_dict("records")):
-                try:
-                    format_value = self._safe_str(row.get(format_col)) if format_col else None
-                    metadata_table_value = self._safe_str(row.get(metadata_table_col)) if metadata_table_col else None
-                    component_type_value = self._safe_str(row.get(component_type_col)) if component_type_col else None
-                    codelist_name_value = self._safe_str(row.get(codelist_name_col)) if codelist_name_col else None
+                format_value = self._safe_str(row.get(format_col)) if format_col else None
+                metadata_table_value = self._safe_str(row.get(metadata_table_col)) if metadata_table_col else None
+                component_type_value = self._safe_str(row.get(component_type_col)) if component_type_col else None
+                codelist_name_value = self._safe_str(row.get(codelist_name_col)) if codelist_name_col else None
 
-                    record = ALSRecord(
-                        table=self._safe_str(row.get(table_col)),
-                        variable=self._safe_str(row.get(variable_col)),
-                        variable_label=self._safe_str(row.get(variable_label_col)),
-                        format=format_value,
-                        sdtm_domain=self._safe_str(row.get(sdtm_domain_col)),
-                        sdtm_variable=self._safe_str(row.get(sdtm_variable_col)),
-                        row_index=idx,
-                        metadata_table=metadata_table_value if metadata_table_value else None,
-                        component_type=component_type_value if component_type_value else None,
-                        codelist_name=codelist_name_value if codelist_name_value else None,
-                    )
+                record = ALSRecord(
+                    table=self._safe_str(row.get(table_col)),
+                    variable=self._safe_str(row.get(variable_col)),
+                    variable_label=self._safe_str(row.get(variable_label_col)),
+                    format=format_value,
+                    sdtm_domain=self._safe_str(row.get(sdtm_domain_col)),
+                    sdtm_variable=self._safe_str(row.get(sdtm_variable_col)),
+                    row_index=idx,
+                    metadata_table=metadata_table_value if metadata_table_value else None,
+                    component_type=component_type_value if component_type_value else None,
+                    codelist_name=codelist_name_value if codelist_name_value else None,
+                )
 
-                    if record.is_valid():
-                        records.append(record)
-                    else:
-                        logger.debug(f"Skipping invalid record at row {idx}")
-
-                except Exception as e:
-                    logger.warning(f"Failed to parse row {idx}: {e}")
-                    continue
+                if record.is_valid():
+                    records.append(record)
+                else:
+                    logger.debug("Skipping invalid ALS record at row %d", idx)
 
             logger.info(f"Successfully read {len(records)} ALS records")
             return records
 
         except Exception as e:
-            logger.error(f"Failed to read ALS file: {e}")
+            logger.error("Failed to read ALS file (%s)", type(e).__name__)
             raise
 
     def read_template_records(self, sheet_names: list[str] | None = None) -> list[TemplateRecord]:
@@ -210,13 +205,9 @@ class ExcelReader:
             all_records: list[TemplateRecord] = []
 
             for sheet_name in sheet_names:
-                try:
-                    records = self._read_single_template_sheet_from_workbook(wb, sheet_name, columns, header_row)
-                    all_records.extend(records)
-                    logger.debug(f"Read {len(records)} records from sheet '{sheet_name}'")
-                except Exception as e:
-                    logger.error(f"Failed to read sheet '{sheet_name}': {e}")
-                    continue
+                records = self._read_single_template_sheet_from_workbook(wb, sheet_name, columns, header_row)
+                all_records.extend(records)
+                logger.debug("Read %d records from template sheet", len(records))
         finally:
             wb.close()
 
@@ -284,29 +275,26 @@ class ExcelReader:
         for row_idx, row_cells in enumerate(
             ws.iter_rows(min_row=data_start_row, values_only=True), start=data_start_row
         ):
-            try:
-                # Get variable name and transformation definition
-                var_name = self._safe_str(row_cells[var_name_col_idx]) if var_name_col_idx < len(row_cells) else ""
-                trans_def = self._safe_str(row_cells[trans_def_col_idx]) if trans_def_col_idx < len(row_cells) else ""
+            # Get variable name and transformation definition. Invalid rows are
+            # handled explicitly by ``is_valid``; unexpected parser/runtime
+            # errors must propagate instead of yielding a silently partial Spec.
+            var_name = self._safe_str(row_cells[var_name_col_idx]) if var_name_col_idx < len(row_cells) else ""
+            trans_def = self._safe_str(row_cells[trans_def_col_idx]) if trans_def_col_idx < len(row_cells) else ""
 
-                # Skip empty variable names
-                if not var_name:
-                    continue
-
-                record = TemplateRecord(
-                    variable_name=var_name,
-                    transformation_def=trans_def,
-                    row_index=row_idx,  # Already 1-based from openpyxl
-                    col_index=trans_def_col_idx + 1,  # Convert to 1-based
-                    sheet_name=sheet_name,
-                )
-
-                if record.is_valid():
-                    records.append(record)
-
-            except Exception as e:
-                logger.warning(f"Failed to parse row {row_idx} in sheet '{sheet_name}': {e}")
+            # Skip empty variable names
+            if not var_name:
                 continue
+
+            record = TemplateRecord(
+                variable_name=var_name,
+                transformation_def=trans_def,
+                row_index=row_idx,  # Already 1-based from openpyxl
+                col_index=trans_def_col_idx + 1,  # Convert to 1-based
+                sheet_name=sheet_name,
+            )
+
+            if record.is_valid():
+                records.append(record)
 
         return records
 

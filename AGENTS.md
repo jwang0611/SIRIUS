@@ -85,8 +85,8 @@ If these sources disagree with code or tests, call out the mismatch and update i
 Use `python3` instead of `python` if that is the available interpreter.
 
 ```bash
-# Install dependencies
-python -m pip install -r requirements.txt
+# Install the locked development environment
+uv sync --locked
 
 # Run the local Web UI
 python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload

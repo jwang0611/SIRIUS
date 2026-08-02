@@ -22,7 +22,7 @@ SIRIUS 当前提供 **Web 端**前端，未来将扩展为三套前端形态，�
 - **知识库匹配**：支持默认 KB 和用户上传的项目特定 KB
 - **向量检索**：基于语义相似度的知识片段检索
 - **桌面优先前端**：Web 端三步式操作流程，界面支持中英文切换与暖色 / 亮色 / 暗色三主题；当前部署形态按单用户本地工具支持
-- **Session KB 隔离**：项目 KB 与修正按 Session 分目录存储；全局产物目录尚不支持可信的多用户服务端隔离
+- **Session 数据隔离**：raw / processed / ALS / Spec 产物、项目 KB、修正和任务访问均按 Session 隔离
 - **Spec 生成**：自动生成 SDTM 说明文档
 
 ## 🏗️ 项目结构
@@ -101,7 +101,9 @@ sirius/
 │   ├── processed/                   # 处理后的 JSON
 │   └── spec_output/                 # Spec 输出
 ├── env_template.txt                  # 环境变量模板
-├── requirements.txt                  # Python 依赖
+├── pyproject.toml                    # runtime / dev / build 直接依赖
+├── uv.lock                           # 跨平台精确依赖锁
+├── requirements*.txt                 # 从 uv.lock 生成的 pip 兼容锁
 └── run_web.bat                       # 启动脚本
 ```
 
@@ -114,14 +116,15 @@ sirius/
 git clone https://gitlab.qilu-pharma.com/mountain-high/sirius.git
 cd sirius
 
-# 创建虚拟环境
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/macOS
+# 安装固定版本的 uv，然后按锁文件创建开发环境
+python -m pip install uv==0.11.32
+uv sync --locked
 
-# 安装依赖
-pip install -r requirements.txt
+# 仅运行服务时可不安装开发工具
+# uv sync --locked --no-dev
 ```
+
+不使用 uv 的运行环境可通过 `python -m pip install --require-hashes -r requirements.txt` 安装同一组精确 runtime 版本。安装依赖不需要 OpenRouter 凭据。
 
 ### 2. 配置
 
@@ -145,6 +148,10 @@ KB_MIN_CONFIDENCE=0.50       # KB 中间置信度下限，低于此值不返回 
 RATE_LIMIT_AI_JOB=10/minute
 ```
 
+已导出的环境变量优先于 `.env` 中的所有值；在同一来源内，`DEFAULT_MODEL`
+优先于兼容别名 `OPENROUTER_MODEL`。`.env` 仍会加载到进程环境，因此现有
+通过 `os.getenv` 读取的 endpoint 与 allowlist 配置继续生效。
+
 ### 3. 启动
 
 ```bash
@@ -163,13 +170,13 @@ python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 通过访问 http://localhost:8000
 
-`start.sh` 会自动探测 `venv` / `.venv`，检查 Python 版本（需 3.11+），在缺少虚拟环境时创建 `venv`，并按 `requirements.txt` 安装缺失依赖。可通过环境变量覆盖启动参数：
+`start.sh` 会自动探测 `venv` / `.venv`，检查 Python 版本（需 3.11+），在缺少虚拟环境时创建 `venv`，并按带哈希的 `requirements.txt` 安装锁定的 runtime 依赖。可通过环境变量覆盖启动参数：
 
 ```bash
 HOST=127.0.0.1 PORT=8080 RELOAD=0 OPEN_BROWSER=0 ./start.sh
 ```
 
-首次安装会先使用 `requirements.txt` 配置的软件源；该源不可用时，`start.sh` 默认回退到官方 PyPI。
+首次安装默认使用 `PIP_INDEX_URL`（未设置时使用官方 PyPI）；也可通过 `SIRIUS_PACKAGE_INDEX_URL` 指定内部 PEP 503 镜像。内部地址必须使用经运维冻结的版本化通道，不得使用 `/latest/`。仓库不保存内部源地址或凭据。配置源不可用时，`start.sh` 默认回退到官方 PyPI。
 如需禁止回退，请使用 `PIP_FALLBACK_INDEX_URL= ./start.sh`。
 
 关闭指定端口的服务时使用同样的 `PORT`：
@@ -177,6 +184,21 @@ HOST=127.0.0.1 PORT=8080 RELOAD=0 OPEN_BROWSER=0 ./start.sh
 ```bash
 PORT=8080 ./stop.sh
 ```
+
+### 4. 依赖更新与复现验证
+
+`pyproject.toml` 是唯一手工维护的依赖入口。更新后必须重新生成所有锁定产物：
+
+```bash
+uv lock --upgrade
+uv export --locked --no-header --no-dev --no-emit-project --format requirements-txt --output-file requirements.txt
+uv export --locked --no-header --no-emit-project --format requirements-txt --output-file requirements-dev.txt
+uv export --locked --no-header --no-dev --group build --no-emit-project --format requirements-txt --output-file requirements-build.txt
+uv lock --check
+python scripts/verify_locked_install.py --python 3.11
+```
+
+CI 使用同一个 `uv.lock`，会验证三个 pip 导出未过期，在两个全新 Python 3.11 环境中得到相同版本集合，并执行 Ruff、格式检查、mypy、Prompt CI、pytest 与 coverage artifact。决策背景和内部镜像验证方式见 `docs/adr/0001-reproducible-python-dependencies.md`。
 
 ## 🌐 Web 界面使用
 
@@ -255,7 +277,7 @@ python scripts/convert_als2sdtm.py \
 # 默认纯确定性提取（离线、无需凭据）
 python scripts/extract_acrf_pdf.py --input your_acrf.pdf --output-name your_project
 
-# 可选：启用 LLM 辅助字段清理（合并换行标签、去选项、识别表格字段；需要 LLM 凭据）
+# 可选：确定性结果过少时，用 LLM 增量补充字段（不会删除确定性结果；需要 LLM 凭据）
 python scripts/extract_acrf_pdf.py --input your_acrf.pdf --output-name your_project --use-llm
 ```
 
@@ -267,6 +289,21 @@ python scripts/extract_acrf_pdf.py --input your_acrf.pdf --output-name your_proj
 > 说明：`metadata_table` 回退为 form name、`metadata_variable` 回退为 field label
 > （同表内重复自动加 `_2/_3`；亦可用 `ACRF_MDV_MODE=synthetic` 改为 `F01_001` 编码），
 > 以满足推荐流程"表名非空、变量在表内唯一"的约束。要求 PDF 含书签目录。
+
+版面识别行为（确定性、离线）：
+
+| 版面结构 | 处理方式 |
+| --- | --- |
+| 重复表格（`No.` / `#` / `序号` 起始列） | 按字符 x 坐标把表头行拆成多个字段；跨行折行的列名按列拼接；编号数据行丢弃 |
+| 表格自带页内小标题（如「生命体征明细」） | 识别为**独立表**（ALS 里通常也是独立 form），单独输出一个 `metadata_table`；`stats.sub_forms` 记录数量 |
+| 折行的长标签 | 与下一行拼接；答案列可以夹在两半之间（`○ 是 ○ 否` 排在上半行与下半行之间） |
+| 答案/选项列 | 位于右侧、同一 x 坐标重复出现的整列丢弃；不依赖选项字形，因此对「用矢量方框画单选框」的英文 eCRF 同样有效 |
+| 空填写框 | `\|_\|_\|_\|/\|_\|_\|`、`____` 及其后的单位一并从标签中截掉 |
+| 分组小标题 | 相对字段标签列**外凸**的行视为 item group 标题而非字段；缩进更深的条件子字段保留 |
+| aCRF 标注行 | `VSTEST(检查项) : L1-…` 这类标注行本身不作为字段；括号内的中文标签作为字段名补充回来 |
+
+> 上述规则均为版面几何判断，不调用 LLM。`stats` 中的 `forms_without_fields` 与 CLI 的
+> `[WARN]` 输出用于暴露"某个 form 一个字段都没提到"的情况，便于人工复核。
 
 ### 生成完整 Spec
 
@@ -367,15 +404,16 @@ Session KB 会同时用于：
 
 ### 审计日志
 
-每次映射操作记录为结构化 JSONL（`data/audit_logs/audit_{session_id}.jsonl`）：
+每次 Web 映射操作记录为结构化 JSONL（`data/audit_logs/sessions/{session_ref}/audit_{session_ref}.jsonl`）。
+`session_ref` 是完整 bearer 的 SHA-256 引用；原始 `X-Session-ID` 不写入文件名或日志正文。普通 session 清理不会删除审计目录；审计日志的归档与保留期限应由部署方按适用流程单独管理。
 
 | 字段 | 说明 |
 |------|------|
 | `timestamp` | UTC 时间戳 |
-| `session_id` | 会话 ID |
+| `session_ref` | 不可逆会话引用 |
 | `operation` | 操作类型（sdtm_mapping / batch_summary / mapping_correction） |
 | `cascade_level` | 级联层级（1=KB精确, 2=KB高置信度, 3=RAG, 4=LLM） |
-| `input` | 输入变量元数据 |
+| `input` | 经数据脱敏的结构化变量元数据 |
 | `output` | 映射结果（domain, sdtm_variable, source, confidence） |
 
 ### 数据脱敏
@@ -385,6 +423,10 @@ Session KB 会同时用于：
 - 受试者标识（SUBJID、USUBJID 模式）
 - 出生日期（DOB 上下文关联）
 - 邮箱地址和电话号码
+
+同一脱敏边界覆盖 LLM prompt、RAG 查询、session/project KB 的 embedding 文本和向量检索上下文；掩码失败会阻止远端调用，不会回退发送原文。session/project KB 的向量只保留在进程内存，禁止读写共享磁盘 cache；静态 KB cache 使用带 `masked-v1` 文件名前缀的格式且不保存原始文本。启动查询接口时会按文件名删除升级前生成的 legacy cache，且不会反序列化其 pickle 内容。
+
+Web 任务强制关闭原始 AI 交互内容日志。命令行显式启用 `SDTM_LOG_AI` 时也只记录内容长度、SHA-256、生成配置和耗时，不记录 prompt、response、表名或变量名。
 
 > ⚠️ 当前脱敏正则以英文/美式格式为主，尚未覆盖本地化标识符（如中国大陆 18 位身份证号、国内手机号格式、中文姓名）。在这些格式下不应假设已完成脱敏；本地化模式为待办项。
 
@@ -403,9 +445,14 @@ Session KB 会同时用于：
 ## 🔒 Session 管理
 
 - 每个用户通过 `sessionStorage` 获得唯一 Session ID
-- 上传的文件和 KB 存储在 `sessions/{session_id}/` 目录
-- 关闭浏览器时自动清理用户文件
-- 服务器每 8 小时清理过期 Session 目录
+- Session ID 由 `crypto.randomUUID()` 生成并视为 bearer capability；只放在 `X-Session-ID`/请求体，不进入 URL path、目录名或服务端日志
+- 所有临床输入、审计日志与生成物分别存入各数据根目录下的 `sessions/{SHA-256 安全目录键}/`；Spec 产物再按 job 隔离
+- 任务状态、取消和产物下载要求与创建任务时完全相同的 `X-Session-ID`，不匹配统一返回 404
+- ASGI middleware 在读取请求体之前取得 session lease，并保持到流式响应最后一个 chunk；同 session 写操作另有互斥锁，避免 corrections / 上传 / job 初始化的读改写竞态
+- recommendation job 冻结 JSON、processed XLSX、raw XLSX 和全部 session KB；Spec job 冻结 ALS 与模板。断点同时绑定完整模型、输入/KB 内容哈希、语言与 KB 开关，不匹配或旧格式 checkpoint 不可恢复
+- 关闭浏览器时安排延迟清理；清理会先取消后台任务，并在有界等待后转入后台重试，再原子摘除旧目录代际；已清理 bearer 保留 48 小时 tombstone，阻止迟到请求重建同一代际
+- 清理中的 session 对新写入返回可重试的 409；已完成清理的 bearer 返回带 `session_retired` code 的 410
+- 内存 session 默认 24 小时过期；定时任务清理超过 8 小时且不属于活跃 session 的遗留目录
 
 ## 🤖 Prompt 结构
 
@@ -492,7 +539,7 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - [x] 一致性清理：Spec Mapper 默认 sheet 统一为 `Sheet1`（显式参数 > `ALS_DEFAULT_SHEET` > 配置）、删除未调用的旧并行路径，并为 `when` / `if` / `|` / `/` / `//` DSL 增加专属单测。
 - [ ] A1：离线评估、泄漏检测、SUPP/质量指标与显式基线门禁已实现；等待维护者提供至少两个不同研究的合规、去标识化且与 KB/规则不相交的 held-out metadata 数据后激活真实发布门禁（见 [`docs/evaluation-release-gate.md`](./docs/evaluation-release-gate.md)）。
 - [x] A5：Spec 实际写入统计、结构化 warnings/errors 与两个真实模板族的端到端保护（见下方更新日志）。
-- [ ] A7：运行时/开发依赖拆分、精确 lockfile 和 CI 安装/类型/覆盖率门禁。
+- [x] A7：运行时/开发/构建依赖拆分、精确 lockfile 和 CI 安装/类型/覆盖率门禁。
 
 ### Phase 1: 快速收益 -- 已完成
 
@@ -542,7 +589,7 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - 新增结构化、可序列化的写入结果（`src/spec_mapper/models/write_result.py`）：`WriteResult` / `StageWriteResult` / `WriteIssue`，按阶段（`cell_updates` / `supp_rows` / `unmatched_rows` / `conditional_mappings` / `codelist_records` / `fixed_variable_rules` / `formulas_and_links` / `source_columns` / `external_coding` / `content_domains` / `styles`）记录 `attempted` / `written` / `skipped` / `warnings` / `errors`
 - `SpecMapper.process()` 的 `stats` 同时返回 **planned**（映射计划数量，旧字段 `updates` / `supp_records` … 语义不变）与 **actual**（真实写入结果）；`written` 仅在对应 workbook mutation 成功后递增，不再用 `len(updates)` 代表成功写入数
 - 逐项可恢复的写入问题记录到结构化 `warnings` / `errors` 并继续处理，不再被静默吞掉；`warnings` / `errors` 仅含安全的 `code` / `stage` / `operation` 与 workbook 定位信息，不含绝对路径、原始临床值、token 或 traceback
-- 后台任务按实际写入结果判定终态：全部计划写入成功 → `completed`；workbook 已保存但存在写入失败/跳过 → `completed_with_errors`（生成的 Excel 仍可下载供人工复核）；workbook 无法打开/保存 → `failed`
+- 后台任务按实际写入结果判定终态：全部计划写入成功且无 warning → `completed`；workbook 已保存但存在 warning/跳过/失败 → `completed_with_errors`（生成的 Excel 仍可下载供人工复核）；workbook 无法打开/保存 → `failed`
 - Spec Job API / 任务 message / 可下载日志不再记录 ALS、模板、输出、日志的绝对路径或异常 traceback；Job 状态新增 `spec_attempted` / `spec_written` / `spec_skipped` / `spec_warnings` / `spec_errors` 安全摘要字段
 - Spec 前端 `pollSpecJob()` 识别 `completed_with_errors`，展示 attempted/written/skipped/warning/error 摘要，并在需人工复核时保留 Excel 下载按钮
 - 新增基于仓库真实模板（IG 3.2 / IG 3.4）的端到端测试，覆盖 cell update、SUPP 插行、QNAM/QVAL、CODELIST merge/insert、公式与超链接的保持/生成、样式保持、生成单元格高亮、合并单元格完整性、重复运行去重，以及可恢复写入失败（`completed_with_errors`）与致命保存失败（`failed`）
@@ -553,7 +600,9 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 - 错误分类收窄 + 逐项原子性：新增专用 `RecoverableWriteError`，单次写操作边界（`_guard`）只降级该类型；逐项写循环（SUPP 行 / unmatched 行 / 条件映射 / CODELIST / 单元格）在**任何破坏性操作之前**预校验非法字符（与 openpyxl `ILLEGAL_CHARACTERS_RE` 同源）与目标存在性，不合法的项记录结构化 error（`illegal_characters`）且零 mutation——可恢复结果绝不与半成品行或已删除的旧 SUPP 块并存；写入过程中抛出的任何异常（含裸 `ValueError`、`IllegalCharacterError`）均为未知/致命并传播使 Job `failed`，不会保存计数不实的部分工作簿
 - `_guard` 按真实批量计数记账：批量方法（wrap_text、Source 列、固定变量规则等）返回 N>1 时记 `record_written(N)`，`actual.written` 反映真实 mutation 数而非调用次数
 - 问题明细不再静默截断：Job 新增 `spec_issues_total` 与完整问题清单文件（`output_issues`），新增 `GET /api/jobs/{job_id}/download-issues` 下载完整、脱敏的结构化清单；前端明确展示“显示 N / 共 M”，且仅在清单文件真实存在时渲染下载链接；若清单持久化失败（OSError），完整列表回退到 Job payload（`spec_issues`）——任何情况下超出 cap 的项都不会不可见
-- 可下载日志的 traceback 防泄漏：日志改由专用 formatter 输出，脱敏绝对路径并且从不追加 `exc_info` / `stack_info`，因此同线程内任何 `logger.exception(...)` 都不会把服务器路径或内部堆栈写入用户可下载日志（不修改共享 `LogRecord`，不影响其它 handler）
+- Session 与产物隔离：带 `X-Session-ID` 的 ALS 上传/列表/删除使用 session 专属目录；Spec 的 Excel、日志和问题清单进一步按 job 隔离；job 状态、下载、问题、日志与取消端点都要求精确匹配创建任务时的 session，所有权不匹配统一返回 404
+- 可下载日志改为专用、非传播的 job logger，仅写安全阶段与聚合计数；不再挂载 root logger，也不捕获 mapper/openpyxl 的 DEBUG/INFO/WARNING，因此单元格旧值、新值、label、transformation、异常堆栈和服务器路径不会进入用户日志
+- 真实 IG 3.2 / IG 3.4 模板是 CI 硬门禁：模板缺失、关键变量/超链接/参考域缺失均直接失败，不再条件 skip
 
 ### v1.0 (2026-07-01)
 
@@ -720,6 +769,8 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 | `POST` | `/api/recommendations` | 启动 AI 映射推荐任务 |
 | `GET` | `/api/jobs/{job_id}` | 查询任务状态 |
 | `GET` | `/api/jobs/{job_id}/download` | 下载结果（Excel/JSON） |
+| `GET` | `/api/jobs/{job_id}/download-log` | 下载脱敏任务日志 |
+| `GET` | `/api/jobs/{job_id}/download-issues` | 下载完整脱敏 Spec 问题清单 |
 | `POST` | `/api/jobs/{job_id}/cancel` | 取消任务 |
 
 ### 修正与学习
@@ -734,9 +785,12 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 | 方法 | 端点 | 说明 |
 |------|------|------|
 | `POST` | `/api/session/init` | 初始化/恢复 session |
+| `GET` | `/api/session/status` | 查询当前 header 对应 session（不在 URL 暴露 bearer） |
 | `POST` | `/api/session/cleanup` | 清理 session 资源 |
-| `POST` | `/api/upload` | 上传文件 |
-| `GET` | `/api/files` | 列出已上传文件 |
+| `POST` | `/api/upload/{category}` | 上传文件 |
+| `GET` | `/api/processed-files` | 列出当前 session 的已处理 JSON |
+| `GET` | `/api/als-files` | 列出当前 session 的 ALS2SDTM 文件 |
+| `DELETE` | `/api/als-files` | 删除 ALS 文件；JSON body 为 `{"file_id": "..."}` |
 
 ### Spec 生成
 
@@ -746,7 +800,7 @@ ALS2SDTM 示例文件必须使用正确的列名（区分大小写）：
 | `POST` | `/api/convert-als2sdtm` | ALS2SDTM 转 parquet KB |
 | `POST` | `/api/list-sheets` | 列出 Excel 工作表 |
 
-所有端点需要 `X-Session-ID` 请求头标识用户会话。
+所有 session/临床数据端点需要 `X-Session-ID` 请求头；健康检查、版本、静态页面及只读模板列表除外。
 
 ---
 

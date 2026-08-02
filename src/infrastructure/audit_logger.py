@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.infrastructure.data_masker import DataMasker
 from src.infrastructure.session_key import safe_session_key
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class AuditLogger:
 
     Each mapping operation is recorded as a JSON line entry containing:
     - Timestamp (UTC)
-    - Session ID
+    - Non-reversible session reference
     - Operation type (sdtm_mapping, spec_generation, etc.)
     - Input metadata (table, variable)
     - Output result (domain, sdtm_variable, source, confidence)
@@ -42,19 +43,18 @@ class AuditLogger:
     def __init__(
         self,
         session_id: str,
-        log_dir: str = "data/audit_logs",
+        log_dir: str | Path | None = None,
         enabled: bool = True,
     ):
         self.session_id = session_id
-        # Filesystem-safe, collision-free key for the log FILENAME. The raw
-        # session_id is still recorded in each entry body for traceability,
-        # but a hostile X-Session-ID (e.g. containing "/") must not be able to
-        # traverse the path or silently break the audit write.
+        # The same hash-only reference is used in the filename and entry body.
+        # The raw bearer capability must never be persisted.
         self._log_key = safe_session_key(session_id) if session_id else "unknown"
-        self.log_dir = Path(log_dir)
+        self.log_dir = Path(log_dir) if log_dir is not None else Path("data/audit_logs/sessions") / self._log_key
         self.enabled = enabled
         self._lock = threading.Lock()
         self._entry_count: int = 0
+        self._data_masker = DataMasker()
 
         if self.enabled:
             self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -81,7 +81,7 @@ class AuditLogger:
 
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
-            "session_id": self.session_id,
+            "session_ref": self._log_key,
             "operation": "sdtm_mapping",
             "cascade_level": cascade_level,
             "input": {
@@ -104,7 +104,7 @@ class AuditLogger:
         if processing_time_ms is not None:
             entry["processing_time_ms"] = round(processing_time_ms, 2)
 
-        self._append_entry(entry)
+        self._append_entry(self._sanitize(entry))
 
     def log_batch_summary(
         self,
@@ -130,7 +130,7 @@ class AuditLogger:
 
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
-            "session_id": self.session_id,
+            "session_ref": self._log_key,
             "operation": "batch_summary",
             "stats": {
                 "total_variables": total_variables,
@@ -142,7 +142,7 @@ class AuditLogger:
                 "llm_call_rate": round(llm_calls / max(total_variables, 1), 4),
             },
         }
-        self._append_entry(entry)
+        self._append_entry(self._sanitize(entry))
 
     def log_llm_retry(
         self,
@@ -159,7 +159,7 @@ class AuditLogger:
 
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
-            "session_id": self.session_id,
+            "session_ref": self._log_key,
             "operation": "llm_retry",
             "model": model_name,
             "retry_count": retry_count,
@@ -170,7 +170,7 @@ class AuditLogger:
                 "metadata_variable": variable_data.get("metadata_variable", ""),
             },
         }
-        self._append_entry(entry)
+        self._append_entry(self._sanitize(entry))
 
     def log_correction(
         self,
@@ -192,7 +192,7 @@ class AuditLogger:
 
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
-            "session_id": self.session_id,
+            "session_ref": self._log_key,
             "operation": "mapping_correction",
             "corrected_by": corrected_by,
             "input": {
@@ -214,7 +214,7 @@ class AuditLogger:
                 "confidence": 1.0,
             },
         }
-        self._append_entry(entry)
+        self._append_entry(self._sanitize(entry))
 
     def log_project_ingest(
         self,
@@ -227,13 +227,30 @@ class AuditLogger:
             return
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
-            "session_id": self.session_id,
+            "session_ref": self._log_key,
             "operation": "project_ingest",
             "project_name": project_name,
             "record_count": record_count,
             "kb_file": kb_file,
         }
-        self._append_entry(entry)
+        self._append_entry(self._sanitize(entry))
+
+    def _sanitize(self, value: Any) -> Any:
+        """Recursively redact free text before it reaches persistent audit logs."""
+        if isinstance(value, str):
+            try:
+                return self._data_masker.mask_text(value)
+            except Exception:
+                # Audit logging must never fail open and persist the original
+                # value when the masking boundary itself fails.
+                return DataMasker.REDACTION_MARKER
+        if isinstance(value, dict):
+            return {str(key): self._sanitize(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._sanitize(item) for item in value]
+        if isinstance(value, tuple):
+            return [self._sanitize(item) for item in value]
+        return value
 
     def _append_entry(self, entry: dict[str, Any]) -> None:
         """Append a JSON line entry to the session audit log file."""
@@ -243,8 +260,8 @@ class AuditLogger:
                 with open(log_file, "a", encoding="utf-8") as f:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 self._entry_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to write audit log entry: {e}")
+            except Exception as exc:
+                logger.warning("Failed to write audit log entry (%s)", type(exc).__name__)
 
     @property
     def entry_count(self) -> int:

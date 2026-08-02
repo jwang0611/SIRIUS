@@ -244,8 +244,8 @@ Python traceback 或完整异常文本。
 
 | 场景 | 终态 | 产物 |
 | --- | --- | --- |
-| 所有计划写入成功（`written == attempted`，无 error） | `completed` | Excel 可下载 |
-| workbook 已保存，但存在写入失败或跳过（`written < attempted` 或有 error） | `completed_with_errors` | Excel **仍可下载**供人工复核 |
+| 所有计划写入成功（`written == attempted`，且无 warning / error） | `completed` | Excel 可下载 |
+| workbook 已保存，但存在 warning、跳过或写入失败 | `completed_with_errors` | Excel **仍可下载**供人工复核 |
 | workbook 无法打开 / 保存 / 产物不可用 | `failed` | 无产物 |
 
 Job 状态额外暴露 `spec_attempted` / `spec_written` / `spec_skipped` / `spec_warnings` / `spec_errors` 安全摘要，
@@ -254,8 +254,10 @@ Job 状态额外暴露 `spec_attempted` / `spec_written` / `spec_skipped` / `spe
 若持久化失败（OSError），完整列表回退到 `spec_issues` payload 本身——任何被跳过/失败的写入项在任何情况下都
 可查看，不会被静默丢弃；前端明确展示“显示 N / 共 M”，且仅在 `output_issues` 真实存在时渲染下载链接（绝无死链）。
 
-可下载日志由专用 formatter 输出：脱敏绝对路径，且从不追加 `exc_info` / `stack_info`，因此同线程内任何
-`logger.exception(...)` 都不会把服务器路径或内部堆栈写入用户可下载日志。
+可下载日志使用专用、非传播的 job logger，仅记录安全阶段和聚合计数。它不挂载 root logger，也不捕获
+Spec Mapper / openpyxl 的内部日志，因此单元格旧值、新值、label、transformation、异常堆栈和服务器路径
+不会进入用户可下载日志。带 `X-Session-ID` 的任务会先冻结 ALS 与模板，再把输入快照、Excel、日志和问题清单隔离到 session + job 专属目录；
+所有 job 查询、下载和取消操作必须携带创建任务时的同一 session header。
 
 ## 命令行参数
 
@@ -418,8 +420,8 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 - 新增结构化写入结果模型 `WriteResult` / `StageWriteResult` / `WriteIssue`（`models/write_result.py`）
 - `process()` 返回值同时包含 `planned` 与 `actual`，`actual.written` 来自真实成功写入，不再用 `len(updates)` 代表成功写入数
 - 逐项可恢复的写入问题记录到结构化 `warnings` / `errors` 并继续处理，不再静默吞掉；结构化对象不泄漏路径、原始临床值、token 或 traceback
-- 后台任务据实际写入结果判定 `completed` / `completed_with_errors` / `failed`；`completed_with_errors` 产物仍可下载
-- Spec Job API / 任务 message / 可下载日志改为仅记录文件名，不再记录绝对路径或异常 traceback
+- 后台任务据实际写入结果判定 `completed` / `completed_with_errors` / `failed`；warning-only 也进入人工复核，`completed_with_errors` 产物仍可下载
+- Spec Job API / 任务 message / 可下载日志不记录绝对路径、原始 metadata 或异常 traceback
 - 新增基于真实 IG 3.2 / IG 3.4 模板的端到端测试（cell update、SUPP、QNAM/QVAL、CODELIST merge/insert、公式与超链接保持/生成、样式、生成高亮、合并单元格、重复运行去重、可恢复失败、致命失败）
 
 **A5 复审加固**
@@ -427,7 +429,9 @@ pytest tests/test_spec_mapper.py --cov=src.spec_mapper --cov-report=html
 - 插入路径重复运行幂等：`add_supp_to_content_sheet` 就地更新已存在 `SUPP{domain}`；`add_nonstandard_domain_to_content` / `add_external_coding_variables` 跳过已存在项并返回真实插入数；`process_conditional_mappings` 按完整列组匹配复用并清理陈旧行（TESTCD/TEST 混合条件的两组 `CRF_ORRES` 互不覆盖）；端到端断言 CONTENT/SUPP/CODELIST/条件列重跑不产生重复（IG 3.2 与 IG 3.4）
 - 新增专用 `RecoverableWriteError` + 逐项预校验原子性：`_guard` 只降级该类型；逐项写循环在任何破坏性操作前预校验非法字符与目标存在性（`illegal_characters` 结构化 error、零 mutation；某域 SUPP 全部不合法时该域不被触碰）；写入中抛出的任何异常（含裸 `ValueError` / `IllegalCharacterError`）一律 `failed`，绝不保存计数不实或半成品的部分工作簿
 - 结构化问题清单不再静默截断：新增 `spec_issues_total` 与完整清单文件 + `GET /api/jobs/{job_id}/download-issues`；持久化失败时完整列表回退到 payload；前端展示“显示 N / 共 M”，仅在文件存在时渲染下载链接
-- 可下载日志改用专用 formatter：脱敏绝对路径并从不追加 `exc_info` / `stack_info`，`logger.exception(...)` 不会泄漏 traceback / 服务器路径（不修改共享 `LogRecord`）
+- 可下载日志改用专用、非传播的 job logger，只写安全阶段与聚合计数，不捕获 root/mapper/openpyxl 内部日志
+- ALS 输入、Spec 产物和 job API 按 session 隔离；同名上传/输出不能跨 session 覆盖、读取、删除或取消
+- 真实 IG 3.2 / IG 3.4 模板测试改为硬门禁，模板或关键断言前置条件缺失直接失败
 
 ### v0.2.0 (2026-03-11)
 

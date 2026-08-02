@@ -4,14 +4,16 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
+from src.web.dependencies import session_operation, session_writer_operation
 from src.web.security import (
     RATE_LIMIT_GENERAL,
     RATE_LIMIT_READ,
     limiter,
     safe_path,
 )
+from src.web.session_manager import session_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,8 +34,8 @@ def _serialize_file(path: Path) -> dict:
 
 @router.get("/processed-files")
 @limiter.limit(RATE_LIMIT_READ)
-def list_processed_files(request: Request):
-    processed_dir = Path("data/processed")
+def list_processed_files(request: Request, x_session_id: str = Depends(session_operation, scope="request")):
+    processed_dir = session_manager.get_session_processed_dir(x_session_id)
     processed_dir.mkdir(parents=True, exist_ok=True)
     files = sorted([str(path.relative_to(processed_dir)) for path in processed_dir.glob("*.json")])
     return {"files": files}
@@ -41,8 +43,8 @@ def list_processed_files(request: Request):
 
 @router.get("/als-files")
 @limiter.limit(RATE_LIMIT_READ)
-def list_als_files(request: Request):
-    als_dir = Path("data/output")
+def list_als_files(request: Request, x_session_id: str = Depends(session_operation, scope="request")):
+    als_dir = session_manager.get_session_als_dir(x_session_id)
     als_dir.mkdir(parents=True, exist_ok=True)
 
     files = [_serialize_file(path) for path in als_dir.glob("*.xlsx")]
@@ -69,11 +71,16 @@ def list_template_files(request: Request):
     return {"files": files}
 
 
-@router.delete("/als-files/{file_id}")
+@router.delete("/als-files")
 @limiter.limit(RATE_LIMIT_GENERAL)
-def delete_als_file(request: Request, file_id: str):
-    """Delete an ALS2SDTM file from data/output directory."""
-    als_file = safe_path(Path("data/output"), file_id)
+def delete_als_file(
+    request: Request,
+    file_id: str = Body(..., embed=True),
+    x_session_id: str = Depends(session_writer_operation, scope="request"),
+):
+    """Delete an ALS2SDTM file from the caller's own namespace."""
+    als_dir = session_manager.get_session_als_dir(x_session_id)
+    als_file = safe_path(als_dir, file_id)
     if not als_file.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -81,5 +88,5 @@ def delete_als_file(request: Request, file_id: str):
         als_file.unlink()
         return {"status": "success", "message": f"文件 {als_file.name} 已删除"}
     except Exception as exc:
-        logger.exception("Failed to delete ALS output file")
+        logger.warning("Failed to delete ALS output file (%s)", type(exc).__name__)
         raise HTTPException(status_code=500, detail="删除失败，请查看服务端日志") from exc

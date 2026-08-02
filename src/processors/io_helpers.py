@@ -3,6 +3,7 @@ I/O Helpers Mixin
 File loading, progress persistence, eCRF merging, and AI interaction logging.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ from typing import Any
 import pandas as pd
 
 from src.processors.mixin_typing import SDTMProcessorHost
+from src.utils.atomic_json import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,12 @@ class IOHelpersMixin:
                     temp_data = json.load(f)
 
                 if isinstance(temp_data, dict) and "recommendations" in temp_data:
+                    expected_model = getattr(self, "model_name", None)
+                    if expected_model and temp_data.get("model_name") != expected_model:
+                        raise ValueError("checkpoint model identity mismatch")
+                    expected_context = getattr(self, "checkpoint_context", None)
+                    if expected_context is not None and temp_data.get("checkpoint_context") != expected_context:
+                        raise ValueError("checkpoint context mismatch")
                     data = temp_data["recommendations"]
                     timestamp = temp_data.get("timestamp", "unknown")
                     completed = temp_data.get("completed_pairs", "unknown")
@@ -49,6 +57,8 @@ class IOHelpersMixin:
                         f"Resuming from temporary file (last saved: {time.ctime(timestamp) if isinstance(timestamp, (int, float)) else timestamp}, completed pairs: {completed})"
                     )
                 else:
+                    if getattr(self, "model_name", None):
+                        raise ValueError("legacy checkpoint has no model identity")
                     data = temp_data
                     print("Resuming from temporary file (older format)")
 
@@ -65,10 +75,10 @@ class IOHelpersMixin:
                                 existing_recommendations[table_name][var_name] = []
                             existing_recommendations[table_name][var_name].append(domain_rec)
 
-                print(f"Loaded existing recommendations from temporary file {temp_file}")
+                print("Loaded existing recommendations from a temporary checkpoint")
                 return existing_recommendations
-            except Exception as e:
-                print(f"Warning: Error reading temporary file {temp_file}: {e!s}")
+            except Exception as exc:
+                print(f"Warning: Error reading temporary checkpoint ({type(exc).__name__})")
                 print("Falling back to regular output files")
 
         json_file = output_file + ".json"
@@ -90,10 +100,10 @@ class IOHelpersMixin:
                                 existing_recommendations[table_name][var_name] = []
                             existing_recommendations[table_name][var_name].append(domain_rec)
 
-                print(f"Loaded existing recommendations from {json_file}")
+                print("Loaded existing recommendations from JSON output")
                 return existing_recommendations
-            except Exception as e:
-                print(f"Error reading existing JSON file {json_file}: {e!s}")
+            except Exception as exc:
+                print(f"Error reading existing JSON output ({type(exc).__name__})")
 
         excel_file = output_file + ".xlsx"
         if os.path.exists(excel_file):
@@ -121,10 +131,10 @@ class IOHelpersMixin:
                     }
                     existing_recommendations[table][variable].append(rec)
 
-                print(f"Loaded existing recommendations from {excel_file}")
+                print("Loaded existing recommendations from Excel output")
                 return existing_recommendations
-            except Exception as e:
-                print(f"Error reading existing Excel file {excel_file}: {e!s}")
+            except Exception as exc:
+                print(f"Error reading existing Excel output ({type(exc).__name__})")
 
         print("No existing recommendation files found")
         return existing_recommendations
@@ -155,14 +165,15 @@ class IOHelpersMixin:
             "timestamp": time.time(),
             "completed_pairs": sum(len(vars) for vars in table_recommendations.values()),
             "version": "1.0",
+            "model_name": getattr(self, "model_name", None),
+            "checkpoint_context": getattr(self, "checkpoint_context", None),
         }
 
         temp_file = output_file + ".tmp.json"
         try:
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(temp_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Warning: Could not save progress to temporary file ({e!s})")
+            atomic_write_json(temp_file, temp_data)
+        except Exception as exc:
+            print(f"Warning: Could not save progress to temporary file ({type(exc).__name__})")
 
     # ------------------------------------------------------------------
     # EDC-system detection and raw-sheet merge helpers
@@ -399,11 +410,8 @@ class IOHelpersMixin:
             else:
                 return self._merge_bioknow(mapping_df, raw_excel_path, num_lookup)
 
-        except Exception as e:
-            print(f"⚠️ 合并 raw sheet 时出错: {e}")
-            import traceback
-
-            traceback.print_exc()
+        except Exception as exc:
+            print(f"⚠️ 合并 raw sheet 时出错 ({type(exc).__name__})")
             return None
 
     def _log_ai_interaction(
@@ -415,40 +423,32 @@ class IOHelpersMixin:
         content_type: str,
         api_duration: float | None = None,
     ) -> None:
-        """Log AI model interactions to a separate file."""
+        """Log content-free AI interaction metadata to a separate file."""
         os.makedirs("data/output/logs", exist_ok=True)
 
         log_date = time.strftime("%Y%m%d")
         log_file = f"data/output/logs/ai_interactions_{log_date}.log"
 
-        log_content = []
-        log_content.append(f"\n{'=' * 80}")
+        content_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        log_content = [f"\n{'=' * 80}", f"AI MODEL {interaction_type}"]
 
         if interaction_type == "INPUT":
-            log_content.append(f"🤖 AI MODEL INPUT for {table_name} - {variable_name}")
-            log_content.append(f"{'=' * 80}")
-            log_content.append(f"📝 Prompt length: {len(content)} characters")
+            log_content.append(f"Content length: {len(content)} characters")
+            log_content.append(f"Content SHA-256: {content_digest}")
             log_content.append(
-                f"🔧 Generation config: max_tokens={self.generation_config.max_output_tokens}, temp={self.generation_config.temperature}, top_p={self.generation_config.top_p}, top_k={self.generation_config.top_k}"
+                f"Generation config: max_tokens={self.generation_config.max_output_tokens}, "
+                f"temp={self.generation_config.temperature}, top_p={self.generation_config.top_p}, "
+                f"top_k={self.generation_config.top_k}"
             )
-            log_content.append("📋 Prompt content:")
-            log_content.append(f"{'=' * 80}")
-            log_content.append(content)
-            log_content.append(f"{'=' * 80}")
         else:
-            log_content.append(f"🤖 AI MODEL OUTPUT for {table_name} - {variable_name}")
-            log_content.append(f"{'=' * 80}")
-            log_content.append(f"📝 Response length: {len(content)} characters")
+            log_content.append(f"Content length: {len(content)} characters")
+            log_content.append(f"Content SHA-256: {content_digest}")
             if api_duration is not None:
-                log_content.append(f"⏱️  API duration: {api_duration:.2f}s")
-            log_content.append("📋 Response content:")
-            log_content.append(f"{'=' * 80}")
-            log_content.append(content)
-            log_content.append(f"{'=' * 80}")
+                log_content.append(f"API duration: {api_duration:.2f}s")
+        log_content.append(f"{'=' * 80}")
 
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write("\n".join(log_content))
-        except Exception as e:
-            print(f"Warning: Could not write to AI interaction log file: {e!s}")
-            print("\n".join(log_content))
+        except Exception as exc:
+            print(f"Warning: Could not write AI interaction metadata ({type(exc).__name__})")

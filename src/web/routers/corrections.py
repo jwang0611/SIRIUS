@@ -11,15 +11,32 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, Body, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from src.utils.atomic_file import atomic_staging_path
+from src.web.dependencies import session_operation, session_writer_operation
 from src.web.security import RATE_LIMIT_GENERAL, limiter
 from src.web.session_manager import session_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+CORRECTION_COLUMNS = [
+    "annotation_table",
+    "metadata_table",
+    "annotation_variable",
+    "metadata_variable",
+    "SDTM_Domain",
+    "SDTM_Variable",
+    "_kb_source",
+    "_corrected_at",
+]
+
+
+class CorrectionsStorageError(RuntimeError):
+    """Raised when an existing corrections shard cannot be read safely."""
 
 
 # ── Request / Response models ──────────────────────────────────
@@ -51,7 +68,7 @@ class CorrectionBatch(BaseModel):
 class CorrectionResponse(BaseModel):
     saved: int = Field(..., description="Number of corrections persisted")
     total_corrections: int = Field(..., description="Total corrections in session KB after save")
-    kb_file: str = Field(..., description="Path to session corrections KB file")
+    kb_file: str = Field(..., description="Session corrections KB filename")
 
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -65,24 +82,22 @@ def _get_corrections_file(session_id: str) -> Path:
 
 def _load_existing_corrections(path: Path) -> pd.DataFrame:
     """Load existing correction records or return empty DataFrame."""
+    if not path.exists():
+        return _empty_corrections_frame()
     try:
-        return pd.read_parquet(path)
-    except FileNotFoundError:
-        pass
+        frame = pd.read_parquet(path)
     except Exception as exc:
-        logger.warning("Failed to load corrections file %s: %s", path, exc)
-    return pd.DataFrame(
-        columns=[
-            "annotation_table",
-            "metadata_table",
-            "annotation_variable",
-            "metadata_variable",
-            "SDTM_Domain",
-            "SDTM_Variable",
-            "_kb_source",
-            "_corrected_at",
-        ]
-    )
+        logger.warning("Failed to load corrections file (%s)", type(exc).__name__)
+        raise CorrectionsStorageError("existing corrections are unreadable") from exc
+    missing = [column for column in CORRECTION_COLUMNS if column not in frame.columns]
+    if missing:
+        logger.warning("Corrections file has an incomplete schema")
+        raise CorrectionsStorageError("existing corrections have an incomplete schema")
+    return frame
+
+
+def _empty_corrections_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=CORRECTION_COLUMNS)
 
 
 def _build_correction_records(
@@ -101,7 +116,7 @@ def _build_correction_records(
                 "metadata_variable": item.metadata_variable,
                 "SDTM_Domain": item.new_domain.upper().strip(),
                 "SDTM_Variable": item.new_sdtm_variable.upper().strip(),
-                "_kb_source": f"correction:{session_id[:12]}",
+                "_kb_source": f"correction:{session_manager.session_dir_key(session_id)}",
                 "_corrected_at": now,
             }
         )
@@ -116,12 +131,19 @@ def _deduplicate_corrections(df: pd.DataFrame) -> pd.DataFrame:
         "annotation_variable",
         "metadata_variable",
     ]
-    present_keys = [c for c in key_cols if c in df.columns]
-    if not present_keys or "_corrected_at" not in df.columns:
-        return df
+    missing = [column for column in [*key_cols, "_corrected_at"] if column not in df.columns]
+    if missing:
+        raise CorrectionsStorageError("corrections frame has an incomplete schema")
+    ordered = df.copy()
+    ordered["_write_order"] = range(len(ordered))
     return (
-        df.sort_values("_corrected_at", ascending=False)
-        .drop_duplicates(subset=present_keys, keep="first")
+        ordered.sort_values(
+            ["_corrected_at", "_write_order"],
+            ascending=[True, True],
+            kind="stable",
+        )
+        .drop_duplicates(subset=key_cols, keep="last")
+        .drop(columns=["_write_order"])
         .reset_index(drop=True)
     )
 
@@ -134,7 +156,7 @@ def _deduplicate_corrections(df: pd.DataFrame) -> pd.DataFrame:
 async def submit_corrections(
     request: Request,
     batch: CorrectionBatch = Body(...),
-    x_session_id: str | None = Header(None),
+    x_session_id: str = Depends(session_writer_operation, scope="request"),
 ):
     """Submit user corrections to SDTM mapping results.
 
@@ -143,22 +165,25 @@ async def submit_corrections(
     ``add_extra_kb_file``, giving corrected entries confidence 1.0.
     """
     session_id = x_session_id
-    if not session_id:
-        raise HTTPException(status_code=400, detail="X-Session-ID header required")
-
-    # Ensure session exists
-    session_manager.get_or_create(session_id)
 
     corrections_path = _get_corrections_file(session_id)
-    existing_df = _load_existing_corrections(corrections_path)
+    try:
+        existing_df = _load_existing_corrections(corrections_path)
+    except CorrectionsStorageError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="现有更正数据无法读取，未保存任何修改",
+        ) from exc
     new_df = _build_correction_records(batch.corrections, session_id)
     merged = _deduplicate_corrections(pd.concat([existing_df, new_df], ignore_index=True))
 
     # Persist
-    merged.to_parquet(corrections_path, index=False)
+    with atomic_staging_path(corrections_path) as staged_corrections:
+        merged.to_parquet(staged_corrections, index=False)
 
     # Register with session manager so cleanup includes this file
-    session_manager.add_kb_file(session_id, str(corrections_path))
+    if not session_manager.add_kb_file(session_id, str(corrections_path)):
+        raise HTTPException(status_code=409, detail="Session 正在清理，请重试")
 
     # Log corrections via audit logger (best-effort)
     try:
@@ -183,20 +208,18 @@ async def submit_corrections(
                 },
             )
     except Exception as exc:
-        logger.warning("Audit logging for corrections failed: %s", exc)
+        logger.warning("Audit logging for corrections failed (%s)", type(exc).__name__)
 
     logger.info(
-        "[Corrections] session=%s saved=%d total=%d path=%s",
-        session_id[:12],
+        "[Corrections] saved=%d total=%d",
         len(batch.corrections),
         len(merged),
-        corrections_path,
     )
 
     return CorrectionResponse(
         saved=len(batch.corrections),
         total_corrections=len(merged),
-        kb_file=str(corrections_path),
+        kb_file=corrections_path.name,
     )
 
 
@@ -204,14 +227,14 @@ async def submit_corrections(
 @limiter.limit(RATE_LIMIT_GENERAL)
 async def get_corrections(
     request: Request,
-    x_session_id: str | None = Header(None),
+    x_session_id: str = Depends(session_operation, scope="request"),
 ):
     """Retrieve all corrections for the current session."""
     session_id = x_session_id
-    if not session_id:
-        raise HTTPException(status_code=400, detail="X-Session-ID header required")
-
     corrections_path = _get_corrections_file(session_id)
-    df = _load_existing_corrections(corrections_path)
+    try:
+        df = _load_existing_corrections(corrections_path)
+    except CorrectionsStorageError as exc:
+        raise HTTPException(status_code=500, detail="现有更正数据无法读取") from exc
     records = df.to_dict(orient="records")
     return {"corrections": records, "total": len(records)}

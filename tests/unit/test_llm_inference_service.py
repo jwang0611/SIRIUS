@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import List
 
-from src.processors.llm_inference_service import LLMInferenceService
+import pytest
+
+from src.processors.llm_inference_service import (
+    LLMInferenceService,
+    LLMInferenceServiceError,
+)
 from tests.conftest import FakeAIClient
 
 
@@ -49,6 +54,17 @@ class TestInfer:
         assert out == [{"domain": "AE"}]
         assert client.calls and client.calls[0]["prompt"] == "please map"
 
+    def test_default_boundary_redacts_sensitive_prompt_without_opt_in(self):
+        client = FakeAIClient(default_response="[]")
+        service = LLMInferenceService(client=client)
+
+        service.infer(prompt="DOB: 1980-05-15 Subject 001-0023")
+
+        sent = client.calls[0]["prompt"]
+        assert "1980-05-15" not in sent
+        assert "001-0023" not in sent
+        assert "[REDACTED]" in sent
+
     def test_infer_records_client_params(self):
         client = FakeAIClient(default_response="[]")
         service = LLMInferenceService(client=client, max_output_tokens=500, temperature=0.1)
@@ -72,16 +88,16 @@ class TestInfer:
         svc.infer(prompt="contact john@example.com")
         assert recorded == ["contact <EMAIL>"]
 
-    def test_masker_exception_falls_back_to_raw(self):
+    def test_masker_exception_blocks_model_call(self):
         class BrokenMasker:
             def mask_text(self, text: str) -> str:
                 raise RuntimeError("boom")
 
         client = FakeAIClient(default_response="[]")
         svc = LLMInferenceService(client=client, data_masker=BrokenMasker())
-        out = svc.infer(prompt="hello")
-        assert out == []
-        assert client.calls[0]["prompt"] == "hello"
+        with pytest.raises(LLMInferenceServiceError, match="model call blocked"):
+            svc.infer(prompt="hello")
+        assert client.calls == []
 
     def test_infer_handles_empty_response(self):
         client = FakeAIClient(default_response="")
