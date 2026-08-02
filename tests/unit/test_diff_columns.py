@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
 from openpyxl import Workbook
@@ -14,7 +17,11 @@ from src.processors.excel_styler import (
     DIFF_VAR_DIFF,
     apply_diff_fill,
 )
-from src.processors.sdtm_processor import attach_reference_diff, compute_diff_status
+from src.processors.sdtm_processor import (
+    SDTMProcessor,
+    attach_reference_diff,
+    compute_diff_status,
+)
 
 
 def _assert_fill_color(cell, expected_hex: str) -> None:
@@ -115,3 +122,66 @@ class TestAttachReferenceDiff:
         assert result[2]["Reference_Domain"] == ""
         assert result[2]["Reference_Variable"] == ""
         assert result[2]["Diff_Status"] == "ai_only"
+
+
+def test_save_uses_frozen_reference_kb_instead_of_live_session_state(tmp_path) -> None:
+    snapshot = tmp_path / "project_frozen.parquet"
+    snapshot.write_bytes(b"snapshot-marker")
+    frozen_reference = pd.DataFrame(
+        {
+            "annotation_table": ["Demographics"],
+            "annotation_variable": ["Birth date"],
+            "SDTM_Domain": ["DM"],
+            "SDTM_Variable": ["BRTHYR"],
+        }
+    )
+    processor = object.__new__(SDTMProcessor)
+    processor.client = SimpleNamespace(
+        get_sanitized_model_name=lambda _model: "test_model",
+    )
+    processor.model_name = "test/model"
+    processor.session_id = "session-with-newer-live-kb"
+    processor.reference_kb_files = [str(snapshot)]
+    processor._input_file = None
+    processor._merge_with_ecrf_sheet = lambda _df: None
+    recommendations = [
+        {
+            "table_name": "DM",
+            "original_mappings": [
+                {
+                    "annotation_table": "Demographics",
+                    "annotation_variable": "Birth date",
+                    "metadata_variable": "BRTHDTC",
+                }
+            ],
+            "domain_recommendations": [
+                {
+                    "domain": "DM",
+                    "sdtm_variable": "BRTHDTC",
+                    "variable_name": "BRTHDTC",
+                    "score": 0.9,
+                    "source": "LLM_reasoning",
+                }
+            ],
+        }
+    ]
+
+    with (
+        patch(
+            "src.processors.project_ingest.load_reference_kb_files",
+            return_value=frozen_reference,
+        ) as frozen_loader,
+        patch(
+            "src.processors.project_ingest.load_session_reference_kb",
+            side_effect=AssertionError("live session KB must not be read"),
+        ),
+    ):
+        rows = processor.save_recommendations(
+            recommendations,
+            str(tmp_path / "result"),
+        )
+
+    frozen_loader.assert_called_once_with([str(snapshot)])
+    assert rows[0]["Reference_Domain"] == "DM"
+    assert rows[0]["Reference_Variable"] == "BRTHYR"
+    assert rows[0]["Diff_Status"] == "var_diff"

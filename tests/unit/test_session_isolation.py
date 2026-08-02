@@ -8,8 +8,9 @@ The historical implementation keyed each session's on-disk KB directory on
 project KB / corrections across sessions and letting one session's cleanup
 delete another's files.
 
-These tests lock in the fix: the directory key is a pure function of the
-*full* session_id (no truncation) and is filesystem-safe against traversal.
+These tests lock in the fix: the directory key is a hash-only pure function of
+the *full* session_id (no truncation), so it is filesystem-safe and does not
+expose the bearer capability.
 """
 
 from __future__ import annotations
@@ -38,13 +39,12 @@ def test_key_is_stable_for_same_id():
     assert _key(sid) == _key(sid)
 
 
-def test_readable_prefix_is_preserved_for_safe_id():
+def test_bearer_value_is_not_exposed_in_directory_key():
     sid = "sess_1751900000000_abcdef123"
     key = _key(sid)
-    # A well-formed client ID stays human-readable as a prefix (no truncation
-    # of the meaningful part), plus a hash suffix that guarantees injectivity.
-    assert key.startswith(sid + "_")
-    assert key != sid
+    assert key.startswith("sid_")
+    assert sid not in key
+    assert len(key) == 68
 
 
 def test_sanitized_forms_do_not_collide():
@@ -54,10 +54,8 @@ def test_sanitized_forms_do_not_collide():
     assert _key("abc") != _key("a/bc")  # both strip to "abc"
     assert _key("ab") != _key("a..b")  # "a..b" -> "ab" after ".." removal
     assert _key("ab") != _key("a/b")  # "a/b" -> "ab"
-    # And the human-readable prefix is shared, proving it was the suffix that
-    # broke the tie rather than the prefix.
-    assert _key("abc").startswith("abc_")
-    assert _key("a/bc").startswith("abc_")
+    assert _key("abc").startswith("sid_")
+    assert _key("a/bc").startswith("sid_")
 
 
 @pytest.mark.parametrize(
@@ -95,7 +93,7 @@ def test_overlong_id_is_bounded_but_unique():
     long_a = "sess_" + ("x" * 200) + "_a"
     long_b = "sess_" + ("x" * 200) + "_b"
     key_a, key_b = _key(long_a), _key(long_b)
-    assert len(key_a) <= 64
+    assert len(key_a) == 68
     # Bounded length must not reintroduce collisions between distinct IDs.
     assert key_a != key_b
 

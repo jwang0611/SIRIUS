@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.infrastructure.data_masker import DataMasker
 from src.processors.normalizer import split_when_expression
 from src.rag.chunker import Chunk
 from src.rag.embeddings import OpenRouterEmbeddingClient
@@ -42,10 +43,12 @@ class RAGPromptAugmenter:
         top_k: int = 5,
         cache_dir: str | None = None,
         extra_kb_files: list[str] | None = None,
+        data_masker: DataMasker | None = None,
     ) -> None:
         self.kb_path = kb_path
         self.embedding_model = embedding_model
         self.top_k = top_k
+        self.data_masker = data_masker or DataMasker()
         self.store = RAGVectorStore(cache_dir=cache_dir)
         self.embed_client = OpenRouterEmbeddingClient(model=self.embedding_model)
 
@@ -64,6 +67,11 @@ class RAGPromptAugmenter:
         # 标记默认文档来源
         for doc in self._docs:
             doc["source"] = "default"
+            doc["text"] = self._mask_text(str(doc.get("text", "")))
+            if "meta" in doc:
+                doc["meta"] = self._mask_metadata(doc.get("meta"))
+            if "metadata" in doc:
+                doc["metadata"] = self._mask_metadata(doc.get("metadata"))
 
         # 加载额外的 KB 文件（用户上传的 session KB）
         self._extra_docs: list[dict[str, Any]] = []
@@ -73,6 +81,25 @@ class RAGPromptAugmenter:
         # 合并所有文档到检索器
         all_docs = self._docs + self._extra_docs
         self._retriever = InMemoryRetriever(all_docs)
+
+    def _mask_text(self, text: str) -> str:
+        """Redact free text before it reaches a remote model or prompt."""
+        data_masker = getattr(self, "data_masker", None)
+        if data_masker is None:
+            return text
+        return data_masker.mask_text(text)
+
+    def _mask_metadata(self, value: Any) -> Any:
+        """Recursively redact string values stored in retrieval metadata."""
+        if isinstance(value, str):
+            return self._mask_text(value)
+        if isinstance(value, dict):
+            return {str(key): self._mask_metadata(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._mask_metadata(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._mask_metadata(item) for item in value)
+        return value
 
     def _load_extra_kb_files(self, file_paths: list[str]) -> None:
         """
@@ -93,18 +120,18 @@ class RAGPromptAugmenter:
                 df = pd.read_parquet(path)
 
                 if df.empty:
-                    print(f"⚠️ Empty KB file: {file_path}")
+                    print("⚠️ Empty session KB file")
                     continue
 
                 # 生成 chunks（使用简化的 eCRF 格式）
                 chunks = self._df_to_chunks(df, source_file=path.name)
                 if not chunks:
-                    print(f"⚠️ No chunks generated from: {file_path}")
+                    print("⚠️ No chunks generated from session KB")
                     continue
 
                 # 生成向量
                 texts = [c.text for c in chunks]
-                print(f"🔄 为 {path.name} 生成 {len(texts)} 个向量...")
+                print(f"🔄 为 session KB 生成 {len(texts)} 个向量...")
                 embeddings = self.embed_client.embed_texts(texts)
 
                 # 构建文档
@@ -119,10 +146,10 @@ class RAGPromptAugmenter:
                         }
                     )
 
-                print(f"✅ 已加载 session KB: {path.name} ({len(chunks)} chunks)")
+                print(f"✅ 已加载 session KB ({len(chunks)} chunks)")
 
             except Exception as e:
-                print(f"⚠️ Failed to load extra KB file {file_path}: {e}")
+                print(f"⚠️ Failed to load session KB ({type(e).__name__})")
 
     def _df_to_chunks(self, df: pd.DataFrame, source_file: str) -> list[Chunk]:
         """将 DataFrame 转换为 Chunk 列表（eCRF 格式）"""
@@ -171,11 +198,12 @@ class RAGPromptAugmenter:
             if not parts:
                 continue
 
-            text = " | ".join(parts)
-            chunk_id = f"{source_file}_{idx}"
+            text = self._mask_text(" | ".join(parts))
+            source_ref = hashlib.sha256(source_file.encode("utf-8")).hexdigest()[:16]
+            chunk_id = f"{source_ref}_{idx}"
 
             meta = {
-                "source_file": source_file,
+                "source_ref": source_ref,
                 "row_index": idx,
                 "annotation_table": table,
                 "metadata_variable": variable,
@@ -183,7 +211,7 @@ class RAGPromptAugmenter:
             for col in sdtm_meta_cols:
                 meta[col] = str(row.get(col, "")).strip()
 
-            chunks.append(Chunk(id=chunk_id, text=text, meta=meta))
+            chunks.append(Chunk(id=chunk_id, text=text, meta=self._mask_metadata(meta)))
 
         return chunks
 
@@ -201,6 +229,7 @@ class RAGPromptAugmenter:
         """
         if not query:
             return ""
+        query = self._mask_text(query)
         # 去除首尾空格，统一多个空格为单个
         return " ".join(query.strip().split())
 
@@ -418,8 +447,8 @@ class RAGPromptAugmenter:
             contexts.append(
                 RAGContext(
                     score=item.get("score", 0.0),
-                    text=item.get("text", ""),
-                    metadata=meta,
+                    text=self._mask_text(str(item.get("text", ""))),
+                    metadata=self._mask_metadata(meta),
                     weight=weight if weight > 0 else 1.0,
                     source=source,
                 )
@@ -429,7 +458,7 @@ class RAGPromptAugmenter:
 
         # 详细日志输出
         if verbose and contexts:
-            var_label = variable_name or "unknown"
+            var_label = self._mask_text(variable_name or "unknown")
             print(f"\n{'=' * 60}")
             print(f"[RAG] Retrieval Details | Variable: {var_label}")
             print(f"{'=' * 60}")
@@ -491,9 +520,10 @@ class RAGPromptAugmenter:
             return ""
 
         if structured:
-            return self._build_structured_context(contexts, char_limit)
+            rendered = self._build_structured_context(contexts, char_limit)
         else:
-            return self._build_simple_context(contexts, char_limit)
+            rendered = self._build_simple_context(contexts, char_limit)
+        return self._mask_text(rendered)
 
     def _build_simple_context(
         self,

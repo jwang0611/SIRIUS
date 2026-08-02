@@ -88,7 +88,10 @@ def main():
     parser.add_argument(
         "--log-ai",
         action="store_true",
-        help="Persist full prompts/responses for each AI call (also enabled by SDTM_LOG_AI=true in .env)",
+        help=(
+            "Persist AI interaction metadata only (lengths, SHA-256, generation settings, timing; "
+            "also enabled by SDTM_LOG_AI=true in .env)"
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run without making API calls")
     parser.add_argument("--resume", action="store_true", help="Resume from previous run")

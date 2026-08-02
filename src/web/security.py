@@ -6,7 +6,6 @@ import ipaddress
 import logging
 import os
 import re
-import shutil
 import subprocess
 import sys
 import unicodedata
@@ -18,6 +17,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from src.infrastructure.data_masker import DataMasker
+from src.utils.atomic_file import atomic_copy_fileobj
 
 logger = logging.getLogger(__name__)
 
@@ -311,10 +311,7 @@ def safe_path(base_dir: Path, file_id: str) -> Path:
 
 
 def save_upload(file: UploadFile, destination: Path) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    return destination
+    return atomic_copy_fileobj(file.file, destination)
 
 
 COMMAND_TIMEOUT_SECONDS = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "300"))

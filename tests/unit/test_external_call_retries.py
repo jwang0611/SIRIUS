@@ -45,6 +45,7 @@ def _run_embedding_server(failures_before_success: int):
             if Handler.attempts <= failures_before_success:
                 self.send_response(429 if failures_before_success < 3 else 503)
                 self.send_header("Retry-After", "0")
+                self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
             body = json.dumps({"data": [{"embedding": [0.1, 0.2]}]}).encode()
