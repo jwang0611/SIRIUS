@@ -35,7 +35,8 @@ SIRIUS_CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:8000
 # 默认AI提供商 (openai/google/deepseek/openrouter)
 DEFAULT_AI_PROVIDER=openrouter
 
-# 默认模型（兼容旧变量 OPENROUTER_MODEL；两者同时存在时优先 DEFAULT_MODEL）
+# 默认模型（兼容旧变量 OPENROUTER_MODEL）。导出的环境变量整体优先于 .env；
+# 在同一来源内，两者同时存在时优先 DEFAULT_MODEL。
 DEFAULT_MODEL=google/gemini-3-flash-preview
 
 # LLM / Embedding 外部调用：首次调用 + 最多 2 次重试（429/5xx/超时）

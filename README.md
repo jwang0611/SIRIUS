@@ -148,6 +148,10 @@ KB_MIN_CONFIDENCE=0.50       # KB 中间置信度下限，低于此值不返回 
 RATE_LIMIT_AI_JOB=10/minute
 ```
 
+已导出的环境变量优先于 `.env` 中的所有值；在同一来源内，`DEFAULT_MODEL`
+优先于兼容别名 `OPENROUTER_MODEL`。`.env` 仍会加载到进程环境，因此现有
+通过 `os.getenv` 读取的 endpoint 与 allowlist 配置继续生效。
+
 ### 3. 启动
 
 ```bash

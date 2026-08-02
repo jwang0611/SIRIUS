@@ -45,7 +45,7 @@ jobs:
       - name: Install locked development environment
         run: uv sync --locked
 
-      - name: Verify two clean runtime installs resolve identically
+      - name: Verify two clean runtime environments install identically
         run: uv run --locked python scripts/verify_locked_install.py --python 3.11
 
       - name: Ruff lint
