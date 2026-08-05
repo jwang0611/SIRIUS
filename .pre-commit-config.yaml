@@ -14,19 +14,27 @@ repos:
       - id: mixed-line-ending
         args: ["--fix=lf"]
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+# ruff 与 mypy 用 language: system 直接运行当前环境（uv sync --locked /
+# requirements-dev.txt）里的锁定版本，而不是 pre-commit 自建的隔离 hook 环境。
+# 远程 hook 仓库会安装另一套工具版本（此前是 ruff 0.6.9 / mypy 1.11.2 + 浮动
+# pydantic），与 A7 的"同一锁定工具集"相悖，也让本地 hook 结果偏离 CI。
+  - repo: local
     hooks:
       - id: ruff
-        args: ["--fix", "--exit-non-zero-on-fix"]
+        name: ruff check (locked toolchain)
+        entry: python -m ruff check --force-exclude --fix --exit-non-zero-on-fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
       - id: ruff-format
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
-    hooks:
+        name: ruff format (locked toolchain)
+        entry: python -m ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
       - id: mypy
-        additional_dependencies:
-          - pydantic>=2.5.0
-          - pydantic-settings>=2.1.0
-        args: ["--config-file=pyproject.toml"]
+        name: mypy (locked toolchain)
+        entry: python -m mypy --config-file=pyproject.toml
+        language: system
         files: ^src/(config|models|infrastructure|processors/normalizer|processors/deterministic_validator|processors/mapping_critic)/.*\.py$
+        require_serial: true

@@ -31,20 +31,30 @@ QC 修改率 = 被审阅人修改的审阅单元数 / 实际被审阅的审阅�
            / count(review_outcome in {"accepted", "modified", "rejected"})
 ```
 
-- **分子**：审阅人把推荐的 `(domain, sdtm_variable)` 改成了别的值（归一化后不等）。
+- **分子**：审阅人把推荐的映射身份改成了别的值（归一化后不等）。映射身份是生产
+  去重键使用的四元组 **`(domain, sdtm_variable, testcd, supp_variable)`**
+  （`src/processors/normalizer.py` 与 `src/processors/sdtm_processor.py` 的
+  `dedup_key`），必要时再加 `supp_dataset`。只比较 `(domain, sdtm_variable)`
+  会系统性漏掉 SUPP 与 Findings About 的实质修正：生产契约把所有 SUPP 都写成
+  `sdtm_variable="QVAL"`（`src/processors/postprocess.py`），真正区分映射的是
+  `supp_variable`（QNAM）；FA 等映射还依赖 `testcd`。例如把
+  `SUPPAE.QVAL/AECOM` 改成 `SUPPAE.QVAL/AEOTH`，二元组视角下"未修改"，
+  四元组视角下是 `qnam_or_testcd_only` 修正。
 - **分母**：审阅人**实际看过并给出结论**的单元。生成量不是分母（见 §5 G1）。
 - `deferred`（打开过但未定论）默认**不计入分母**，也不计入分子。是否改为计入需要 maintainer 决策（§7）。
 
-比较 `(domain, sdtm_variable)` 是否"相同"时使用与生产匹配器一致的归一化，
+比较四元组是否"相同"时使用与生产匹配器一致的归一化，
 避免大小写/空白造成假修改：`str.strip().upper()`（与 `corrections.py` 写入 parquet 时一致），
-domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）。
+domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）；
+`testcd` / `supp_variable` / `supp_dataset` 为空与缺失视为同值（归一化为 `None`）。
 
 ### 1.3 派生指标
 
 | 指标 | 定义 |
 | --- | --- |
-| `domain_modification_rate` | `change_kind in {domain_only, both}` 占分母的比例 |
-| `variable_modification_rate` | `change_kind in {variable_only, both}` 占分母的比例 |
+| `domain_modification_rate` | `change_kind` 含 `domain` 分量的单元占分母的比例 |
+| `variable_modification_rate` | `change_kind` 含 `variable` 分量的单元占分母的比例 |
+| `supp_testcd_modification_rate` | `change_kind` 含 `qnam_or_testcd` 分量的单元占分母的比例（SUPP/FA 修正专属信号）|
 | `rejection_rate` | `review_outcome == "rejected"` 占分母的比例 |
 | `review_coverage` | 分母 / 该 run 产生的推荐总数（审阅覆盖度，不是修改率） |
 
@@ -67,9 +77,20 @@ domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）
 
 ### 2.1 R1 `review_unit` — 审阅单元事件（新增）
 
-建议文件：`data/knowledge_base/sessions/<sid_…>/qc_review_<sid_…>.parquet`，
-经 `session_manager.add_kb_file()` 注册以纳入清理，写入走 `atomic_staging_path`（与 corrections 一致）。
+建议文件：`data/output/sessions/<sid_…>/qc/qc_review_<sid_…>.parquet`，
+写入走 `atomic_staging_path`（与 corrections 一致）。
 一次审阅动作对同一单元只写一行；重复审阅追加新行并由 `reviewed_at` 决定最新状态。
+
+> **不得使用 `session_manager.add_kb_file()` 注册，也不要放进
+> `data/knowledge_base/sessions/`。** KB 注册不只是"纳入清理"：
+> `src/web/routers/jobs.py` 会把 `get_kb_files()` 返回的每个文件快照后作为
+> `extra_kb_files` 传给 direct-KB / RAG。R1 含 `annotation_table` /
+> `metadata_variable`，恰好满足 RAG chunk loader 的必需列，一旦注册，下一次推荐
+> 就会把 QC 审阅事件当成知识文档；direct loader 也会把这些缺少
+> `SDTM_Domain` / `SDTM_Variable` 的行拼进匹配表，可能改变或打断推荐。
+> `data/output/sessions/<sid_…>/` 本来就在 `_managed_session_dirs` 的递归清理
+> 范围内；若需要显式逐文件跟踪，用通用的 `session_manager.add_file()`，它只做
+> 归属与清理登记，不参与任何知识检索。
 
 | 字段 | 类型 | 取值 / 说明 | 真源 | 现状 |
 | --- | --- | --- | --- | --- |
@@ -84,7 +105,10 @@ domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）
 | `metadata_variable` | str | 结构性元数据 | 推荐输出 | 已有 |
 | `recommendation_rank` | int | 1-based，`domain_recommendations` 中的位次 | 推荐输出 | 缺失 |
 | `recommended_domain` | str | 大写域名，可为空（UNMAPPED）| `domain_rec["domain"]` | 已有 |
-| `recommended_sdtm_variable` | str | 大写变量名 | `domain_rec["sdtm_variable"]` | 已有 |
+| `recommended_sdtm_variable` | str | 大写变量名（SUPP 契约下恒为 `QVAL`）| `domain_rec["sdtm_variable"]` | 已有 |
+| `recommended_testcd` | str \| null | FA/Findings 的 TESTCD 语义码 | `domain_rec["testcd"]` | 已有 |
+| `recommended_supp_dataset` | str \| null | 如 `SUPPAE` | `domain_rec["supp_dataset"]` | 已有 |
+| `recommended_supp_variable` | str \| null | QNAM，SUPP 映射的真正区分键 | `domain_rec["supp_variable"]` | 已有 |
 | `recommended_sdtm_variable_type` | str | `standard` / `supplementary` / `unknown` | `domain_rec["sdtm_variable_type"]` | 已有 |
 | `recommended_source` | str | 原始来源标签：`KB` / `KB_NOT_SUBMITTED` / `RAG` / `LLM` / `UNMAPPED` / `FALLBACK` | `domain_rec["source"]`（不是 Excel 展示值）| 已有 |
 | `recommended_cascade_level` | int \| null | 1–4 | 目前只在 audit JSONL | **部分缺失**（§5 G4）|
@@ -92,7 +116,10 @@ domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）
 | `review_outcome` | str | `accepted` / `modified` / `rejected` / `deferred` | 审阅动作 | 缺失 |
 | `final_domain` | str | 审阅后的域；`accepted` 时等于推荐值 | 审阅动作 | 部分已有（仅 modified）|
 | `final_sdtm_variable` | str | 审阅后的变量 | 审阅动作 | 部分已有（仅 modified）|
-| `change_kind` | str | `none` / `domain_only` / `variable_only` / `both` / `unmapped` | 由前两组字段派生 | 缺失 |
+| `final_testcd` | str \| null | 审阅后的 TESTCD | 审阅动作 | 缺失（§5 G9）|
+| `final_supp_dataset` | str \| null | 审阅后的 SUPP 数据集 | 审阅动作 | 缺失（§5 G9）|
+| `final_supp_variable` | str \| null | 审阅后的 QNAM | 审阅动作 | 缺失（§5 G9）|
+| `change_kind` | str | 见下方派生规则 | 由 recommended/final 两组四元组派生 | 缺失 |
 | `reviewed_at` | str | ISO-8601 UTC | 服务端时钟 | 已有（`_corrected_at`）|
 | `reviewer_ref` | str | 稳定的不可逆引用；无认证时固定 `unauthenticated` | Phase B 认证 | 缺失 |
 | `review_source` | str | `webui` / `api` / `excel_import` | 入口 | 缺失 |
@@ -100,9 +127,20 @@ domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）
 `review_outcome` 语义：
 
 - `accepted`：审阅人确认推荐正确，未改动。
-- `modified`：改动了 domain 或变量之一/两者。
+- `modified`：改动了映射身份四元组 `(domain, sdtm_variable, testcd, supp_variable)`
+  （或 `supp_dataset`）中的任一分量。
 - `rejected`：判定该推荐不应提交（映射为 `NOT SUBMITTED` 或删除该行）。
 - `deferred`：呈现过、被打开过，但审阅人未给结论。
+
+`change_kind` 派生规则（recommended 与 final 两组四元组按 §1.2 归一化后逐分量比较）：
+
+- `none`：四元组完全相等（`accepted`）。
+- `unmapped`：final 侧为 `NOT SUBMITTED` / 删除（`rejected`）。
+- `domain_only` / `variable_only`：仅该分量不等。
+- `qnam_or_testcd_only`：`(domain, sdtm_variable)` 相等，但 `testcd` /
+  `supp_variable` / `supp_dataset` 有不等——SUPP 契约下 `sdtm_variable` 恒为
+  `QVAL`，这一桶正是二元组视角会漏掉的实质修正。
+- `mixed`：不止一类分量发生变化。
 
 ### 2.2 R2 corrections parquet 扩展（现有文件）
 
@@ -120,6 +158,9 @@ domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）
 | `_input_sha256` | str | 与 R1 一致的输入指纹 |
 | `_old_domain` | str | 被替换掉的推荐域（目前只进 audit JSONL）|
 | `_old_sdtm_variable` | str | 被替换掉的推荐变量 |
+| `_old_testcd` | str \| null | 被替换掉的 TESTCD（四元组身份的一部分，§1.2）|
+| `_old_supp_dataset` | str \| null | 被替换掉的 SUPP 数据集 |
+| `_old_supp_variable` | str \| null | 被替换掉的 QNAM |
 | `_old_source` | str | 产生该推荐的 cascade 来源 |
 | `_old_cascade_level` | int \| null | 产生该推荐的 cascade 层级 |
 | `_old_confidence` | float \| null | 产生该推荐的 `score` |
@@ -232,12 +273,24 @@ audit 调用也包在 `try/except` 中。度量记录必须与 KB 写入同样�
 分母只有在 B1/B2 工作台落地后才会自然产生；在此之前 R1/R3 只能由
 `review_source="api"` 或 `excel_import` 的批量导入填充。
 
+**G9 — SUPP QNAM 与 TESTCD 完全不在修正流里。** `CorrectionItem` 与
+`CORRECTION_COLUMNS` 都没有 `testcd` / `supp_dataset` / `supp_variable`，
+推荐值与最终值两侧都是。生产契约把所有 SUPP 写成 `sdtm_variable="QVAL"`，
+所以在今天的记录里 `SUPPAE.QVAL/AECOM → SUPPAE.QVAL/AEOTH` 这类修正
+**不可见也不可补算**。§1.2 的四元组身份、`qnam_or_testcd_only` 桶以及
+R1 的 `recommended_/final_` supp 字段都依赖 Phase B 把这三个分量带进
+修正 API 与 R1 记录。
+
 ## 6. 建议的落地顺序（Phase B，不在本 issue 实现）
 
 1. 在推荐生成时把 `run_id`、`recommendation_rank`、`cascade_level` 写进推荐输出
    （只加字段，不改 cascade 语义与阈值）。
-2. 扩展 corrections 的可选列（R2），并处理 `_load_existing_corrections()` 的向后兼容。
-3. 新增 R1 / R3 的写入路径，与 corrections 共用 session 目录、原子写和清理注册。
+2. 让修正 API 携带四元组身份的其余分量（`testcd` / `supp_dataset` /
+   `supp_variable`，推荐值与最终值两侧，§5 G9），再扩展 corrections 的可选列
+   （R2），并处理 `_load_existing_corrections()` 的向后兼容。
+3. 新增 R1 / R3 的写入路径：与 corrections 相同的原子写；文件放
+   `data/output/sessions/<sid_…>/qc/`（§2.1 —— 不进 KB 目录、不用
+   `add_kb_file()`），需要逐文件跟踪时用 `session_manager.add_file()`。
 4. 提供一个只读的本地汇总脚本（`scripts/` 下），输出计数与比率，遵守 §4 的脱敏约定。
 5. B1/B2 工作台接入后，`review_source` 切换为 `webui`，分母开始真实可用。
 

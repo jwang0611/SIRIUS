@@ -228,8 +228,11 @@ def test_structured_issue_preserves_safe_template_sheet_location(sheet: str) -> 
     [
         ("AEDECOD", "AEDECOD"),  # a real configured external-coding variable
         ("MHBDSYCD", "MHBDSYCD"),  # 8 chars, the CDISC maximum
-        ("QNAM_1", "QNAM_1"),
-        ("PHI_SENTINEL_DO_NOT_EXPOSE", None),  # too long to be a variable name
+        # A subject-like token fits any identifier shape/length regex, which is
+        # exactly why membership in the packaged config — not shape — decides.
+        ("SUBJ0001", None),
+        ("QNAM_1", None),  # identifier-shaped but not a configured variable
+        ("PHI_SENTINEL_DO_NOT_EXPOSE", None),  # free text is never echoed
         ("受试者姓名", None),  # non-identifier text is never echoed
         ("aedecod", None),  # variable names reach the writer upper-cased
         (42, None),
@@ -261,6 +264,34 @@ def test_structured_issue_keeps_variable_names_and_drops_free_text(variable: obj
 
     assert issues[0]["code"] == "variable_not_found"
     assert issues[0]["variable"] == expected
+
+
+def test_structured_issue_drops_variable_for_non_skip_codes() -> None:
+    """Only the two per-item skip codes may carry a variable, even a configured one."""
+    from src.web.tasks import _all_spec_issues
+
+    issues = _all_spec_issues(
+        {
+            "write_result": {
+                "errors": [],
+                "warnings": [
+                    {
+                        "code": "no_op",
+                        "stage": "external_coding",
+                        "operation": "update_existing_variables",
+                        "sheet": "AE",
+                        "row": None,
+                        "column": None,
+                        "variable": "AEDECOD",
+                        "detail": None,
+                    }
+                ],
+            }
+        }
+    )
+
+    assert issues[0]["code"] == "no_op"
+    assert issues[0]["variable"] is None
 
 
 def test_mapper_issue_cannot_leak_free_text_or_extra_fields(spec_workspace: Path, monkeypatch) -> None:
@@ -309,8 +340,8 @@ def test_mapper_issue_cannot_leak_free_text_or_extra_fields(spec_workspace: Path
         "sheet": None,
         "row": None,
         "column": None,
-        # The sentinel is a valid generic token but 26 characters long, so it
-        # cannot be a CDISC variable name and is dropped rather than echoed.
+        # The sentinel is a valid generic token, but it is not a configured
+        # external-coding variable, so it is dropped rather than echoed.
         "variable": None,
         "detail": None,
     }

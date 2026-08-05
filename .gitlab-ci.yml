@@ -176,8 +176,13 @@ pre-commit:
   extends: .python-base
   stage: lint
   script:
-    # pre-commit also comes from the hash-pinned requirements-dev.txt; do not
-    # pip-install it here or this job drifts off the locked version set.
+    # pre-commit itself comes from the hash-pinned requirements-dev.txt, and
+    # the ruff/mypy hooks are language:system local hooks (see
+    # .pre-commit-config.yaml), so the toolchain they run IS the locked set —
+    # do not pip-install anything here. The remaining pre-commit-hooks repo
+    # (whitespace/yaml/toml hygiene) still builds one isolated env from its
+    # pinned rev and needs GitHub on a cold cache, which is why this job stays
+    # manual + allow_failure on the internal runner.
     - python -m pre_commit run --all-files
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
