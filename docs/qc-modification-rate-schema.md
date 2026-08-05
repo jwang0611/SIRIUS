@@ -52,9 +52,13 @@ domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）
 
 | 指标 | 定义 |
 | --- | --- |
-| `domain_modification_rate` | `change_kind` 含 `domain` 分量的单元占分母的比例 |
-| `variable_modification_rate` | `change_kind` 含 `variable` 分量的单元占分母的比例 |
-| `supp_testcd_modification_rate` | `change_kind` 含 `qnam_or_testcd` 分量的单元占分母的比例（SUPP/FA 修正专属信号）|
+| `domain_modification_rate` | `domain_changed == true` 的单元占分母的比例 |
+| `variable_modification_rate` | `variable_changed == true` 的单元占分母的比例 |
+| `supp_testcd_modification_rate` | `qnam_or_testcd_changed == true` 的单元占分母的比例（SUPP/FA 修正专属信号）|
+
+三个分项率都直接建立在 R1 的逐分量布尔字段上（§2.1），**不依赖 `change_kind`**：
+`change_kind` 把多分量变更压成 `mixed`，只适合展示分桶，无法还原
+`domain+variable` 与 `variable+testcd` 这类组合，据它汇总分项率会算错。
 | `rejection_rate` | `review_outcome == "rejected"` 占分母的比例 |
 | `review_coverage` | 分母 / 该 run 产生的推荐总数（审阅覆盖度，不是修改率） |
 
@@ -119,7 +123,10 @@ domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）
 | `final_testcd` | str \| null | 审阅后的 TESTCD | 审阅动作 | 缺失（§5 G9）|
 | `final_supp_dataset` | str \| null | 审阅后的 SUPP 数据集 | 审阅动作 | 缺失（§5 G9）|
 | `final_supp_variable` | str \| null | 审阅后的 QNAM | 审阅动作 | 缺失（§5 G9）|
-| `change_kind` | str | 见下方派生规则 | 由 recommended/final 两组四元组派生 | 缺失 |
+| `domain_changed` | bool | domain 分量归一化后不等 | 由 recommended/final 逐分量派生 | 缺失 |
+| `variable_changed` | bool | `sdtm_variable` 分量归一化后不等 | 同上 | 缺失 |
+| `qnam_or_testcd_changed` | bool | `testcd` / `supp_dataset` / `supp_variable` 任一不等 | 同上 | 缺失 |
+| `change_kind` | str | 展示用分桶标签，见下方派生规则 | 由上面三个布尔派生 | 缺失 |
 | `reviewed_at` | str | ISO-8601 UTC | 服务端时钟 | 已有（`_corrected_at`）|
 | `reviewer_ref` | str | 稳定的不可逆引用；无认证时固定 `unauthenticated` | Phase B 认证 | 缺失 |
 | `review_source` | str | `webui` / `api` / `excel_import` | 入口 | 缺失 |
@@ -132,15 +139,18 @@ domain 比较前先 `strip_supp_prefix`（`src/config/domain_semantic_map.py`）
 - `rejected`：判定该推荐不应提交（映射为 `NOT SUBMITTED` 或删除该行）。
 - `deferred`：呈现过、被打开过，但审阅人未给结论。
 
-`change_kind` 派生规则（recommended 与 final 两组四元组按 §1.2 归一化后逐分量比较）：
+派生规则：recommended 与 final 两组四元组按 §1.2 归一化后**逐分量比较**，先落成
+三个布尔字段（`domain_changed` / `variable_changed` / `qnam_or_testcd_changed`），
+它们是分项率的真源，组合信息不丢失；`change_kind` 只是由这三个布尔派生的
+展示用分桶标签：
 
-- `none`：四元组完全相等（`accepted`）。
-- `unmapped`：final 侧为 `NOT SUBMITTED` / 删除（`rejected`）。
-- `domain_only` / `variable_only`：仅该分量不等。
-- `qnam_or_testcd_only`：`(domain, sdtm_variable)` 相等，但 `testcd` /
-  `supp_variable` / `supp_dataset` 有不等——SUPP 契约下 `sdtm_variable` 恒为
-  `QVAL`，这一桶正是二元组视角会漏掉的实质修正。
-- `mixed`：不止一类分量发生变化。
+- `none`：三个布尔全为 false（`accepted`）。
+- `unmapped`：final 侧为 `NOT SUBMITTED` / 删除（`rejected`），布尔字段不再计算。
+- `domain_only` / `variable_only`：恰好只有对应布尔为 true。
+- `qnam_or_testcd_only`：仅 `qnam_or_testcd_changed` 为 true——SUPP 契约下
+  `sdtm_variable` 恒为 `QVAL`，这一桶正是二元组视角会漏掉的实质修正。
+- `mixed`：不止一个布尔为 true。`mixed` 单元照常计入每个为 true 的分项率
+  （通过布尔字段，而不是解析这个标签）。
 
 ### 2.2 R2 corrections parquet 扩展（现有文件）
 

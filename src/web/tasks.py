@@ -776,8 +776,12 @@ def _all_spec_issues(stats: dict) -> list[dict]:
         external-coding config — not an identifier shape — decides. A value
         like ``SUBJ0001`` passes any regex but can never appear in the config,
         and only the two per-item skip codes may carry the field at all.
+        The type checks come first: an unhashable code (a mapper bug emitting
+        a list/dict) must degrade like every other field here, never raise.
         """
-        if issue_code not in _SPEC_ISSUE_VARIABLE_CODES or not isinstance(value, str):
+        if not isinstance(issue_code, str) or not isinstance(value, str):
+            return None
+        if issue_code not in _SPEC_ISSUE_VARIABLE_CODES:
             return None
         return value if value in _configured_external_coding_variables() else None
 

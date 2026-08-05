@@ -266,6 +266,36 @@ def test_structured_issue_keeps_variable_names_and_drops_free_text(variable: obj
     assert issues[0]["variable"] == expected
 
 
+@pytest.mark.parametrize("bad_code", [[], {}, ["variable_not_found"], 42, None])
+def test_structured_issue_degrades_unhashable_code_instead_of_raising(bad_code: object) -> None:
+    """A mapper bug emitting a non-string code must degrade, never crash the job result."""
+    from src.web.tasks import _all_spec_issues
+
+    issues = _all_spec_issues(
+        {
+            "write_result": {
+                "errors": [],
+                "warnings": [
+                    {
+                        "code": bad_code,
+                        "stage": "external_coding",
+                        "operation": "update_existing_variables",
+                        "sheet": "AE",
+                        "row": None,
+                        "column": None,
+                        "variable": "AEDECOD",
+                        "detail": None,
+                    }
+                ],
+            }
+        }
+    )
+
+    assert len(issues) == 1
+    assert issues[0]["code"] == "unknown"
+    assert issues[0]["variable"] is None
+
+
 def test_structured_issue_drops_variable_for_non_skip_codes() -> None:
     """Only the two per-item skip codes may carry a variable, even a configured one."""
     from src.web.tasks import _all_spec_issues
