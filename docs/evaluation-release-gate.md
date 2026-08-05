@@ -72,7 +72,10 @@ non-mapping schema sources; new exceptions require a code review.
 
 `data/evaluation/full_pipeline_heldout_v1.json` is intentionally retained only
 as a characterization benchmark. Its manifest marks it ineligible because it
-has one source workbook and 181 production-KB overlaps.
+has one source workbook and 181 production-KB overlaps by exact four-field key.
+The scanner above is stricter than that manifest figure: it reports 183 rows
+once deep normalization is applied, and 185 rows overlap on the annotation
+table/variable pair.
 
 ## Reviewed baseline
 
@@ -139,8 +142,17 @@ The production structured KB and prompt examples are always checked;
 `--project-knowledge-root` is mandatory and repeatable so a session/project KB
 cannot be omitted accidentally.
 
-The normal GitHub CI suite runs deterministic contract tests, including an
-injected-overlap failure and a lowered-metric failure, without an external LLM.
+The normal GitHub CI suite runs deterministic contract tests without an
+external LLM: in-process contracts for an injected overlap and a lowered
+metric, plus a command-line mechanism self-test
+(`tests/unit/test_offline_eval_gate_cli.py`) that invokes this script end to
+end over a synthetic two-study fixture built in a temporary directory. That
+self-test asserts that two identical runs write byte-identical JSON and
+Markdown reports, that a replay which regresses against the reviewed baseline
+exits non-zero and names the metric that moved, and that the run still succeeds
+with provider credentials poisoned and outbound sockets blocked. Its fixture is
+mechanism scaffolding with opaque synthetic values; it is never a release
+baseline and its numbers are not evaluation evidence.
 Activating the actual release regression gate remains blocked until a
 maintainer supplies the two authorized datasets and approves the first
 baseline; that external evidence must not be fabricated from the existing KB.

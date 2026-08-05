@@ -14,10 +14,21 @@ KB overlaps. It contains three cohorts:
 - `AI_RECOMMENDATION`: the four input fields do not occur in the production KB,
   exercising the remaining cascade and AI recommendation paths.
 
-Across all 181 production-KB overlaps, replaying the current KB mapping can
-match at most 107 rows (59.1%) against the manual ground truth. Report
-`KB_AGREE` and `KB_DISAGREE` separately; do not interpret the combined overlap
-rate as a pipeline regression until the 74 disagreements are adjudicated.
+Across all 181 production-KB overlaps — rows whose four input fields match a
+production KB row exactly after trimming and case-folding, which is the
+`overlap_rows` figure recorded in the manifest and the basis of the `KB_AGREE` /
+`KB_DISAGREE` split — replaying the current KB mapping can match at most 107
+rows (59.1%) against the manual ground truth. Report `KB_AGREE` and
+`KB_DISAGREE` separately; do not interpret the combined overlap rate as a
+pipeline regression until the 74 disagreements are adjudicated.
+
+The leakage scanner in `src/evaluation/heldout.py` uses a wider identity than
+that cohort accounting and therefore reports more: 183 rows also match once the
+production matcher's deep normalization is applied, and 185 rows share an
+annotation table/variable pair with the KB. Always quote the measurement basis
+together with the number; 181 is the exact-key cohort figure, not the leakage
+figure. `tests/unit/test_full_pipeline_heldout.py` recomputes all three counts
+with the real scanner, so these figures cannot drift silently.
 
 This is an end-to-end operational benchmark, not a prompt-only generalization
 benchmark. Report results by both actual cascade `Source` and

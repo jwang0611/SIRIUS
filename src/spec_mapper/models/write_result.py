@@ -6,7 +6,8 @@ safely skipped, plus structured warnings and errors.
 
 Safety contract (GxP / PHI): a :class:`WriteIssue` carries only a safe machine
 ``code``, a ``stage`` / ``operation`` label and coarse workbook coordinates
-(sheet name, row, column).  It MUST NOT contain absolute file paths, raw
+(sheet name, row, column, plus the SDTM ``variable`` name when the issue is
+about one configured variable).  It MUST NOT contain absolute file paths, raw
 clinical values, API keys / tokens, Python tracebacks, or full exception text.
 ``detail`` is reserved for a short, safe hint such as the exception *class*
 name (``"ValueError"``) — never the exception message.
@@ -92,6 +93,9 @@ class WriteIssue:
         sheet: Worksheet name involved, if applicable.
         row: 1-based row involved, if applicable.
         column: 1-based column involved, if applicable.
+        variable: SDTM variable name the issue is about, if applicable. Only a
+            *configured / template* variable name (e.g. ``"AEDECOD"``) — never
+            a subject value or any other clinical content.
         detail: Short safe hint (e.g. an exception *class* name). Never a raw
             exception message, path, token, or clinical value.
     """
@@ -102,10 +106,11 @@ class WriteIssue:
     sheet: str | None = None
     row: int | None = None
     column: int | None = None
+    variable: str | None = None
     detail: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "code": self.code,
             "stage": self.stage,
             "operation": self.operation,
@@ -114,6 +119,11 @@ class WriteIssue:
             "column": self.column,
             "detail": self.detail,
         }
+        # ``variable`` is emitted only when it applies, so the serialized shape
+        # of every pre-existing issue kind stays exactly as it was.
+        if self.variable is not None:
+            payload["variable"] = self.variable
+        return payload
 
 
 @dataclass

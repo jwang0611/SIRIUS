@@ -89,6 +89,9 @@ docs/*
 !docs/adr/
 docs/adr/*
 !docs/adr/*.md
+# Intentionally tracked design docs (the docs/* rule above is for scratch notes).
+!docs/evaluation-release-gate.md
+!docs/qc-modification-rate-schema.md
 
 CLAUDE.md
 !/CLAUDE.md

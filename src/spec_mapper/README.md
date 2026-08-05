@@ -279,12 +279,24 @@ ALS 生成选项:
   --language LANG          Prompt 语言 (en/cn)
 
 映射选项:
-  --als-sheet SHEET        ALS Sheet 名称（优先级：命令行参数 > ALS_DEFAULT_SHEET > 配置；默认 Sheet1）
+  --als-sheet SHEET        ALS Sheet 名称（优先级：命令行参数 > ALS_DEFAULT_SHEET > "Sheet1"）
   --highlight              高亮新映射 (默认: True)
   --no-highlight           禁用高亮
   --dry-run                预览模式
   --log-level LEVEL        日志级别 (DEBUG/INFO/WARNING/ERROR)
 ```
+
+### ALS sheet 解析优先级
+
+三个入口的实际优先级并不相同，请按入口查表，不要跨入口套用：
+
+| 入口 | 优先级 | 说明 |
+|---|---|---|
+| Python API `SpecMapper(...)` / `src.spec_mapper.map_als_to_spec(...)` | 显式 `als_sheet` 参数 > `ALS_DEFAULT_SHEET` > 配置 `als_defaults.sheet_name` > `"Sheet1"` | 唯一会读取配置层的入口（`src/spec_mapper/__init__.py`）。`config_ig34.yaml` 通过 `_extends` 继承 `config.yaml`，未覆盖 `als_defaults`，因此 IG 3.2 / IG 3.4 都落到 `"Sheet1"` |
+| CLI `scripts/generate_full_spec.py` | `--als-sheet` > `ALS_DEFAULT_SHEET` > `"Sheet1"` | 该 CLI 在构造 `SpecMapper` **之前**就把环境变量与默认值展开成显式参数，因此 **不读取** 配置里的 `als_defaults.sheet_name`——改 `config.yaml` 对本 CLI 无效 |
+| Web `POST /api/spec-mapper/run` | 请求体 `als_sheet` 字段（默认 `"Sheet1"`） | 该字段恒为显式值，环境变量与配置均不生效；UI 通过 `POST /api/list-sheets` 让用户直接选择 sheet |
+
+> ALS2SDTM **转换器**（`src/processors/als_converter.py`）不属于 Spec Mapper 路径，另有一套默认值：Python API 默认 `"eCRF"`，CLI `scripts/convert_als2sdtm.py` 与 `POST /api/convert-als2sdtm` 默认自动检测第一个非空 sheet，`ingest_project_kb` 显式传 `"Sheet1"`。三者都不读取 `ALS_DEFAULT_SHEET`。
 
 ## 配置文件
 

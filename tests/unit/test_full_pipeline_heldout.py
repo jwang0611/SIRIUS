@@ -7,11 +7,15 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from src.evaluation.heldout import mapping_key, scan_for_leakage
+
 ROOT = Path(__file__).resolve().parents[2]
 HELDOUT_PATH = ROOT / "data/evaluation/full_pipeline_heldout_v1.json"
 MANIFEST_PATH = ROOT / "data/evaluation/full_pipeline_heldout_v1.manifest.json"
 KB_PATH = ROOT / "data/knowledge_base/structured/ALS2SDTM_Mapping_Template_v1.0.json"
 GITATTRIBUTES_PATH = ROOT / ".gitattributes"
+DATASET_README_PATH = ROOT / "data/evaluation/README.md"
+RELEASE_GATE_DOC_PATH = ROOT / "docs/evaluation-release-gate.md"
 KEY_FIELDS = ("annotation_table", "metadata_table", "annotation_variable", "metadata_variable")
 
 
@@ -103,6 +107,36 @@ def test_manifest_is_bound_to_current_production_kb():
             "Case-insensitive comparison after trimming whitespace and normalizing mapping-expression separators."
         ),
     }
+
+
+def test_documented_production_kb_overlap_counts_match_the_real_scanner():
+    """Both docs must state the measured overlap counts and their basis.
+
+    The manifest's ``overlap_rows`` is an exact four-field key count, while the
+    leakage scanner also accepts deep-normalized identities and annotation
+    table/variable pairs, so it necessarily reports more.  Recomputing all three
+    here keeps the prose from drifting away from the code that produces it.
+    """
+    rows = _load_json(HELDOUT_PATH)
+    manifest = _load_json(MANIFEST_PATH)
+    kb_keys = {mapping_key(row) for row in _load_json(KB_PATH)}
+    exact_key_overlaps = sum(1 for row in rows if mapping_key(row) in kb_keys)
+    scanned = Counter(overlap["kind"] for overlap in scan_for_leakage(rows, knowledge_roots=[KB_PATH])["overlaps"])
+
+    assert exact_key_overlaps == 181
+    assert exact_key_overlaps == manifest["production_kb"]["mapping_agreement"]["overlap_rows"]
+    assert scanned["knowledge_exact"] == 183
+    assert scanned["knowledge_semantic_pair"] == 185
+
+    # Markdown is hard-wrapped; compare against unwrapped prose.
+    dataset_readme = " ".join(DATASET_README_PATH.read_text(encoding="utf-8").split())
+    release_gate_doc = " ".join(RELEASE_GATE_DOC_PATH.read_text(encoding="utf-8").split())
+    assert f"all {exact_key_overlaps} production-KB overlaps" in dataset_readme
+    assert f"{scanned['knowledge_exact']} rows also match" in dataset_readme
+    assert f"{scanned['knowledge_semantic_pair']} rows share an annotation table/variable pair" in dataset_readme
+    assert f"{exact_key_overlaps} production-KB overlaps by exact four-field key" in release_gate_doc
+    assert f"reports {scanned['knowledge_exact']} rows" in release_gate_doc
+    assert f"{scanned['knowledge_semantic_pair']} rows overlap on the annotation" in release_gate_doc
 
 
 def test_hash_pinned_data_json_is_forced_to_lf():

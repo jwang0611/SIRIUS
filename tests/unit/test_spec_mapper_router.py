@@ -63,6 +63,42 @@ class TestSpecMapperRun:
         mock_ingest.assert_called_once()
         assert mock_ingest.call_args.kwargs["project_name"] == "web"
 
+    def test_run_omitted_als_sheet_defaults_to_sheet1(
+        self, client: TestClient, patch_ingest_and_job: Any, tmp_path, monkeypatch
+    ):
+        """Web 入口的 sheet 默认值由 Pydantic 字段提供，恒为显式值。
+
+        因此 ``ALS_DEFAULT_SHEET`` 与 spec_mapper 配置层对 Web 都不生效——即使环境变量
+        被设成别的值，请求里省略 ``als_sheet`` 仍然应该得到 ``"Sheet1"``。
+        优先级表见 ``src/spec_mapper/README.md``「ALS sheet 解析优先级」。
+        """
+        mock_ingest, mock_job, _ = patch_ingest_and_job
+        mock_ingest.return_value = MagicMock()
+        mock_job.return_value = True
+        monkeypatch.setenv("ALS_DEFAULT_SHEET", "EnvironmentSheet")
+
+        tpl_dir = tmp_path / "data" / "knowledge_base" / "template_spec"
+        tpl_dir.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        session_id = "spec-default-sheet"
+        als_dir = session_manager.get_session_als_dir(session_id)
+        (als_dir / "fixture_als.xlsx").write_bytes(b"als-marker")
+        (tpl_dir / "fixture_template.xlsx").write_bytes(b"template-marker")
+
+        response = client.post(
+            "/api/spec-mapper/run",
+            json={
+                "als_file": "fixture_als.xlsx",
+                "template_file": "fixture_template.xlsx",
+                "output_name": "out",
+            },
+            headers={"X-Session-ID": session_id},
+        )
+
+        assert response.status_code == 200
+        assert mock_ingest.call_args.kwargs["sheet_name"] == "Sheet1"
+        assert mock_job.call_args.kwargs["als_sheet"] == "Sheet1"
+
     @pytest.mark.parametrize(
         "project_name",
         [

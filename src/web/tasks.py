@@ -9,8 +9,11 @@ import sys
 import threading
 import time
 from datetime import datetime
+from functools import lru_cache
 from glob import escape as glob_escape
 from pathlib import Path
+
+import yaml
 
 project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
@@ -613,7 +616,7 @@ _SPEC_ISSUE_CAP = 50
 # schema and machine-readable values deliberately small: mapper bugs or future
 # extensions must not accidentally serialize raw source values or exception
 # messages into the job payload / issues JSON.
-_SPEC_ISSUE_FIELDS = ("code", "stage", "operation", "sheet", "row", "column", "detail")
+_SPEC_ISSUE_FIELDS = ("code", "stage", "operation", "sheet", "row", "column", "variable", "detail")
 _SPEC_ISSUE_STAGES = frozenset(
     {
         "cell_updates",
@@ -646,6 +649,8 @@ _SPEC_ISSUE_CODES = frozenset(
         "style_update_failed",
         "supp_label_too_long",
         "supp_multi_source",
+        "variable_already_present",
+        "variable_not_found",
         "write_failed",
     }
 )
@@ -674,6 +679,44 @@ _SPEC_ISSUE_OPERATIONS = frozenset(
 _SPEC_ISSUE_DETAILS = frozenset({"RecoverableWriteError", "sheet_not_found"})
 _SPEC_ISSUE_STRUCTURAL_SHEETS = frozenset({"CONTENT", "CODELIST", "RELREC", "XXTEST"})
 _SPEC_ISSUE_DOMAIN_SHEET_RE = re.compile(r"[A-Z][A-Z0-9_]{1,15}\Z")
+# The only two issue codes that may carry a variable name. Both are emitted for
+# items of the packaged external-coding config, so the trusted value set is the
+# config itself — a shape/length check is NOT enough at this boundary (a
+# subject-like token such as ``SUBJ0001`` fits any identifier regex).
+_SPEC_ISSUE_VARIABLE_CODES = frozenset({"variable_already_present", "variable_not_found"})
+
+
+@lru_cache(maxsize=1)
+def _configured_external_coding_variables() -> frozenset[str]:
+    """Variable names declared by the packaged ``external_coding_variables``.
+
+    ``variable_not_found`` / ``variable_already_present`` skips can only ever
+    name a variable that came out of a packaged Spec Mapper config, so that
+    closed set is the trust boundary for echoing the name back through the
+    job payload and the downloadable issues JSON. Unreadable or malformed
+    configs fail closed to the empty set (the field is dropped, never guessed).
+    """
+    names: set[str] = set()
+    config_dir = Path(__file__).resolve().parents[1] / "spec_mapper" / "config"
+    for config_path in sorted(config_dir.glob("*.yaml")):
+        try:
+            payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        external = payload.get("external_coding_variables")
+        if not isinstance(external, dict):
+            continue
+        for domain_configs in external.values():
+            configs = domain_configs if isinstance(domain_configs, list) else [domain_configs]
+            for domain_config in configs:
+                if not isinstance(domain_config, dict):
+                    continue
+                for variable in domain_config.get("variables") or []:
+                    name = variable.get("name") if isinstance(variable, dict) else None
+                    if isinstance(name, str) and name.strip():
+                        names.add(name.strip().upper())
+    return frozenset(names)
+
 
 # Absolute (or 2+ segment) filesystem paths, redacted from the downloadable log.
 _ABS_PATH_RE = re.compile(r"(?:[A-Za-z]:\\[^\s'\"]*|(?:/[^\s'\"/]+){2,})")
@@ -726,6 +769,22 @@ def _all_spec_issues(stats: dict) -> list[dict]:
             return value
         return None
 
+    def safe_variable(issue_code: object, value: object) -> str | None:
+        """Echo a variable name only when it is a *configured* one.
+
+        This is an untrusted boundary, so membership in the packaged
+        external-coding config — not an identifier shape — decides. A value
+        like ``SUBJ0001`` passes any regex but can never appear in the config,
+        and only the two per-item skip codes may carry the field at all.
+        The type checks come first: an unhashable code (a mapper bug emitting
+        a list/dict) must degrade like every other field here, never raise.
+        """
+        if not isinstance(issue_code, str) or not isinstance(value, str):
+            return None
+        if issue_code not in _SPEC_ISSUE_VARIABLE_CODES:
+            return None
+        return value if value in _configured_external_coding_variables() else None
+
     def serialize(issue: object) -> dict | None:
         if not isinstance(issue, dict):
             return None
@@ -736,6 +795,7 @@ def _all_spec_issues(stats: dict) -> list[dict]:
             "sheet": safe_sheet(issue.get("sheet")),
             "row": positive_int(issue.get("row")),
             "column": positive_int(issue.get("column")),
+            "variable": safe_variable(issue.get("code"), issue.get("variable")),
             # ``detail`` is never required for locating an issue. Drop any
             # free-form or otherwise invalid value instead of risking exposure.
             "detail": allowlisted(issue.get("detail"), _SPEC_ISSUE_DETAILS, fallback=None),

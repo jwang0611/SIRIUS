@@ -36,12 +36,14 @@ variables:
 # Cache only the pip download cache (NOT the venv).  A cached venv carries
 # platform/Python-version-specific binaries and is easily corrupted when the
 # py311 and py312 jobs share one cache key — so each job rebuilds a fresh venv
-# while pip restores wheels from cache (fast).  Key includes requirements.txt
-# so the cache is invalidated when dependencies change.
+# while pip restores wheels from cache (fast).  Key includes the exported
+# lockfiles that .python-base actually installs, so the cache is invalidated
+# when dependencies change.
 cache:
   key:
     files:
       - requirements.txt
+      - requirements-dev.txt
     prefix: "$CI_COMMIT_REF_SLUG"
   paths:
     - .pip-cache/
@@ -98,10 +100,11 @@ mypy:
   extends: .python-base
   stage: typecheck
   script:
-    # Older mypy rejects numpy 2.x's PEP 695 stubs under python_version 3.11;
-    # pull a modern mypy here only. "|| true" keeps a stale mirror from turning
-    # this (already allow_failure) job into a hard stop.
-    - pip install --quiet -U "mypy>=1.18.0" || true
+    # mypy comes from the hash-pinned requirements-dev.txt installed in
+    # .python-base (see docs/adr/0001-reproducible-python-dependencies.md).
+    # Do NOT `pip install -U mypy` here: an unhashed upgrade would break the
+    # "same locked version set everywhere" guarantee, and the locked mypy is
+    # already new enough for numpy 2.x's PEP 695 stubs under python_version 3.11.
     - python -m mypy src
   allow_failure: true # strict subset only; full-tree checks still in progress
 
@@ -173,8 +176,14 @@ pre-commit:
   extends: .python-base
   stage: lint
   script:
-    - pip install pre-commit
-    - pre-commit run --all-files
+    # pre-commit itself comes from the hash-pinned requirements-dev.txt, and
+    # the ruff/mypy hooks are language:system local hooks (see
+    # .pre-commit-config.yaml), so the toolchain they run IS the locked set —
+    # do not pip-install anything here. The remaining pre-commit-hooks repo
+    # (whitespace/yaml/toml hygiene) still builds one isolated env from its
+    # pinned rev and needs GitHub on a cold cache, which is why this job stays
+    # manual + allow_failure on the internal runner.
+    - python -m pre_commit run --all-files
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: manual

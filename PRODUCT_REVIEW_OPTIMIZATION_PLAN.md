@@ -30,8 +30,8 @@
 ### 后续里程碑与前置条件
 
 - A1 必须由维护者提供至少两个与 KB/关键词表不相交的真实、已去标识化研究作为 held-out 数据；不得用仓库现有 KB 再造“测试集”。
-- A5 的“实际写入数”需要 ExcelWriter 各写操作返回结构化结果，本轮只先让任务失败/告警可见；建议与真实模板端到端测试一起实施。
-- A7 已在独立 PR 中选择 uv：runtime/dev/build 分组、通用锁文件、带哈希 pip 导出、两次全新 Python 3.11 安装校验、mypy 与 coverage 门禁一并交付；内部环境仍需使用运维提供的版本化镜像 URL 执行同一校验。
+- A5 已合并（PR #15 + PR #19）：`src/spec_mapper/models/write_result.py` 提供 `WriteResult` / `StageWriteResult` / `WriteIssue`，`SpecMapper.process()` 的 `stats` 同时返回 planned 与 actual，真实 IG 3.2 / IG 3.4 模板端到端测试见 `tests/unit/test_spec_mapper_e2e_real_template.py`（模板缺失为硬失败，不再 skip）。
+- A7 已合并（PR #20，merge `16ed6f5`）：uv 0.11.32、runtime/dev/build 分组、`uv.lock` + 三份带哈希导出、`uv lock --check` 与导出漂移比对、两个全新 Python 3.11 环境安装一致性、阻断性 mypy 与 coverage(60%) 门禁。**内部镜像一致性属于未完成的运维动作**：需在设置经批准的版本化 `UV_DEFAULT_INDEX` 后执行 `python scripts/verify_locked_install.py --python 3.11`，确认内网解析出与公网相同的锁定集合。
 - Phase B–D 保持原路线顺序：QC 工作台 → 产品形态/身份与审计 → 模板抽象与价值延伸。进入下一阶段前，以本节验收项和 A1 无泄漏评测为闸门。
 
 ---
@@ -96,10 +96,10 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 
 ### 发现二：准确率不可度量 —— 产品价值无法证明，迭代无安全网
 
-- **评测泄漏（高危）**：`scripts/eval_prompt_accuracy.py:46` 用 `ALS2SDTM_TEST.json` 做 ground truth，但同一份数据 (a) 是硬编码域映射表的来源（`src/config/domain_semantic_map.py:205` 注释自认 "Extended from ALS2SDTM_TEST.json"），(b) 通常又被配置为默认 KB，产生 confidence=1.0 的精确匹配（`src/knowledge_base/llm_query_interface.py:704`）。等于用训练集考试，数字必然虚高，且完全测不出泛化能力。
+- **评测泄漏（高危）**：`scripts/eval_prompt_accuracy.py:46` 用 `ALS2SDTM_TEST.json` 做 ground truth，但同一份数据 (a) 是硬编码域映射表的来源（`src/config/domain_semantic_map.py:205` 注释自认 "Extended from ALS2SDTM_TEST.json"），(b) 通常又被配置为默认 KB，产生 confidence=1.0 的精确匹配（`src/knowledge_base/llm_query_interface.py:704`）。等于用训练集考试，数字必然虚高，且完全测不出泛化能力。 **A1 已消除默认泄漏路径（PR #21）**：`--ground-truth` 现为必填参数（`scripts/eval_prompt_accuracy.py:941-943`），不再存在以 KB 自测的默认值；`scan_for_leakage`（`src/evaluation/heldout.py`）对四字段精确键、深归一化键、注释表-变量语义对与内置 `CHINESE_TABLE_DOMAIN_MAP` 做失败关闭的重叠扫描。仍未完成的是用两份合规 held-out 数据产出首个 baseline 并激活回归门禁。
 - **置信度未校准（高危）**：KB 精确=1.0、归一化精确=0.95、模糊=0.80+score×0.12、**向量匹配无论真实余弦多少一律硬编码 0.95**（`llm_query_interface.py:994`）、LLM 层直接透传模型自报分数（`sdtm_processor.py:979`）。这些量纲不同的分数被同一套阈值（级联退出）和同一套 Excel 红黄绿着色消费——"绿色=可信"的暗示没有统计基础。
 - **阈值全部是拍脑袋值**：`0.85/0.70` 级联阈值、RAG 用原始 embedding 余弦对比 0.70（Qwen embedding 相似度地板高，0.70 证据薄弱）、`_RAG_DOMAIN_MISMATCH_PENALTY=0.5`（`sdtm_processor.py:1764`）——没有任何针对实测准确率的调参痕迹。
-- **评测未入 CI**：prompt/模型/KB 任何改动都可能静默劣化映射质量而无人察觉。
+- **评测未入 CI（部分缓解）**：A1 已把泄漏检查与门禁评分的确定性契约测试放进 GitHub CI（含注入重叠必须失败与指标下调必须失败两条用例，`tests/unit/test_offline_eval_gate.py`），但真实准确率回归门禁在维护者提供 held-out 数据并审阅首个 baseline 之前不会运行；prompt/模型/KB 改动目前仍无实测准确率对比。
 - 附带问题：硬编码的 ~340 条中文表名映射混入了大量单研究特例（"宫颈癌病史"→FA、"7点-SMBG（糖尿病）"→LB 等，`domain_semantic_map.py:299-336`），子串首中即返回（`:1058`），跨研究会静默错路由。
 
 ### 发现三："GxP 合规"叙事与实现差距
@@ -112,7 +112,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 | §11.10(e) 防篡改审计追踪 | **部分**：UTC 时间戳有；但纯文件追加、无哈希链/序号/签名，审计写失败仅 `logger.warning` 继续执行 | `audit_logger.py:210-219` |
 | 电子签名 | **缺失**：修正无签名意图、无复核人、无记录锁定 | `corrections.py:132-147` |
 | 验证文档（IQ/OQ/PQ、追溯矩阵） | **缺失**：docs/ 被 gitignore | `.gitignore:81-82` |
-| 可重现构建 | **A7 已实现，待合并**：`pyproject.toml` 分组 + `uv.lock` + 带哈希 pip 导出；源地址由环境注入，不再提交 `/latest/` | `pyproject.toml`、`uv.lock`、ADR 0001 |
+| 可重现构建 | **已实现并合并（PR #20）**：`pyproject.toml` 分组 + `uv.lock` + 带哈希 pip 导出，CI 以 `uv sync --locked` 安装并比对三份导出漂移；源地址由环境注入，不再提交 `/latest/`。内部镜像链路待运维实测 | `pyproject.toml`、`uv.lock`、`docs/adr/0001-reproducible-python-dependencies.md`、`.github/workflows/ci.yml` |
 
 另外两个合规相关实质问题：
 
@@ -136,7 +136,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 - **重试行为不一致且不可审计**：OpenRouter 文本生成依赖 OpenAI SDK 的隐式默认重试，代码中没有显式参数；embeddings 是单次 `requests.post`、失败即抛（`src/rag/embeddings.py:61`）。
 - 单变量 LLM 失败被降级为 `score=0.0`、`sdtm_variable="{DOMAIN}_{VAR}_PENDING"` 的占位记录（`sdtm_processor.py:1018-1034`）。一次 429 限流风暴可让大批变量静默变成垃圾占位符，而任务显示"完成"。
 - 混合模式下整表失败仅日志后跳过（`sdtm_processor.py:1424-1427`）；批次永远"成功"，唯一信号是 MappingCritic 的建议性告警——它从不阻断、不重跑、不改变任务状态（`:2182-2195`）。
-- Spec Mapper 同样是静默失败模型：写入阶段 11 处 `try/except Exception` 只 warning 继续（`src/spec_mapper/__init__.py:332-467`），可能丢 SUPP 行/CODELIST/整域仍返回"成功"stats——且 stats 报告的是**计划数**不是**实际写入数**。
+- ~~Spec Mapper 同样是静默失败模型：写入阶段 11 处 `try/except Exception` 只 warning 继续，可能丢 SUPP 行/CODELIST/整域仍返回"成功"stats——且 stats 报告的是**计划数**不是**实际写入数**。~~ **A5 已解决**：写操作返回结构化 `WriteResult`（`src/spec_mapper/models/write_result.py`），`stats` 同时给出 planned 与 actual，可恢复问题进入 `warnings` / `errors`，未知异常传播使 Job `failed`；后台任务据实际写入结果判定 `completed` / `completed_with_errors` / `failed`。
 - Spec 任务的进度条是**假的**：后台线程每 0.5 秒 +5% 直到 90%（`tasks.py:493-516` 有注释自认），与真实工作无关。生产 UI 不应报告模拟状态——这触碰了 CLAUDE.md 锁定决策第 5 条的边界。
 
 ### 发现六：成本与性能
@@ -152,9 +152,9 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 - **写入端整体硬编码列索引/行号**：读取端是表头驱动的（好），但 `excel_writer.py` 所有后处理写死 A=1…K=11、数据起始行 14、CONTENT 格式参考行 52、`A15="DOMAIN"` 等魔法坐标（`excel_writer.py:674-677,1007-1011,1503-1516,482,1140`）。换任何一家 sponsor 的模板即全线崩塌——**当前"支持模板"实际上是"焊死在两个 CDISC-CN 模板上"**。
 - 仅 2 字符纯字母 sheet 被识别为域（`config.yaml`；`__init__.py:340`），拆分数据集/自定义域被静默跳过。
 - 版本探测只看 `CONTENT!B4` 且 `startswith("3.4")` else 3.2 —— IG 3.3 或厂商变体静默套错配置（`__init__.py:166-194`）。
-- **写入路径实质零测试**：唯一的集成触点是 `dry_run=True` 的 smoke（`tests/smoke_test.py:645`；`__init__.py:278-281` dry_run 在写入前就返回），1,614 行 excel_writer 的 SUPP 插入/CODELIST 插入移位/超链接修复/公式生成全部无保护。DSL 解析器的专属行为测试已在 Issue #12 一致性清理中补齐；Excel 写入端到端保护仍属于 A5。
+- **写入路径端到端保护已在 A5 补齐**：`tests/unit/test_spec_mapper_e2e_real_template.py` 用仓库真实 IG 3.2 / IG 3.4 模板覆盖 cell update、SUPP 插行与 QNAM/QVAL、CODELIST merge/insert、公式与超链接的保持与生成、样式与生成单元格高亮、合并单元格完整性、重复运行幂等，以及可恢复写入失败（`completed_with_errors`）与致命保存失败（`failed`）；模板缺失或关键变量/超链接缺失均直接失败，不再条件 skip。DSL 解析器的专属行为测试已在 Issue #12 一致性清理中补齐。**剩余风险**仍是写入端硬编码列坐标只适配这两个模板族（见 Phase D 第 1 项）。
 - 插入行会**摧毁**重叠的合并单元格且不恢复（`format_utils.py:63-77`）；CONTENT SUPP 行重跑可能重复追加。
-- ALS sheet 默认名差异已在 Issue #12 一致性清理中解决：运行时、CLI 与文档统一为 `Sheet1`，并用行为测试锁定“显式参数 > 环境变量 > 配置”的优先级。
+- ALS sheet 默认名差异已在 Issue #12 一致性清理中对齐——但结论不是"全部统一为 `Sheet1`"，而是**按入口分别记录并用行为测试锁定**（早前版本的"统一"表述不准确）：SpecMapper Python API = 显式参数 > `ALS_DEFAULT_SHEET` > 配置 `als_defaults.sheet_name` > `Sheet1`；`scripts/generate_full_spec.py` = `--als-sheet` > `ALS_DEFAULT_SHEET` > `Sheet1`（在构造 SpecMapper 前就展开为显式参数，**不读配置层**）；Web `POST /api/spec-mapper/run` = 请求体字段恒显式，默认 `Sheet1`；`src/processors/als_converter.convert_als2sdtm` Python API = `eCRF`，而其 CLI 与 `/api/convert-als2sdtm` 默认自动检测第一个非空 sheet，`ingest_project_kb` 显式传 `Sheet1`。优先级表见 `src/spec_mapper/README.md`「ALS sheet 解析优先级」。
 - EDC 提取脚本（百奥知/太美）~90% 代码互相复制，厂商差异以模块常量硬编码，无适配器抽象——新增一家 EDC = 重写 300 行脚本。
 
 ### 发现八：工程债 —— 双引擎、双配置、文档漂移
@@ -186,7 +186,7 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 
 **目标：让"改动是否让产品变好"变成可回答的问题；消灭最危险的静默失败。**
 
-> **状态更新（2026-08-01）**：PR #11 已完成 A2、A3、A4、A6；A5 已提交独立 Draft PR；A7 已在独立分支实现并进入验证。A1 仍等待至少两个获准、去标识化且与 KB/关键词来源不相交的 held-out metadata 数据集，因此 Phase B 准入闸门仍未开放。
+> **状态更新（2026-08-02）**：PR #11 已完成 A2、A3、A4、A6。A5 由 PR #15（Spec 写入可观测性）与 PR #19（会话产物生命周期，merge `e704476`）合并交付。A7 由 PR #20 合并交付（merge `16ed6f5`）；**内部镜像一致性尚未实测**，需运维在设置经批准的版本化 `UV_DEFAULT_INDEX` 后执行 `python scripts/verify_locked_install.py --python 3.11`。A1 的离线评测、泄漏扫描与基线门禁工具已由 PR #21 合并（merge `4fa4ca2`），但**发布回归门禁尚未激活**——`.github/workflows/ci.yml` 目前只运行确定性契约测试，激活仍需维护者提供至少两个获准、去标识化且与 KB/关键词来源不相交的 held-out metadata 数据集并审阅首个 hash 绑定 baseline。因此 Phase B 准入闸门仍未开放。
 
 | # | 事项 | 关键动作 | 验收标准 |
 |---|------|---------|---------|
@@ -245,16 +245,16 @@ SIRIUS 的产品承诺非常清晰且正确：**不是"LLM 替你决定映射"�
 
 ## 5. 两周内可完成的速赢清单
 
-1. 统一默认模型定义（`openrouter_client.py:28`、`tasks.py:173` → settings 单点）。
-2. `showToast`/结果区 `innerHTML` → 安全插值（XSS 止血，半天）。
-3. 限流 key 不再信任客户端 `X-Session-ID`，回退 IP（`security.py:31-34`）。
-4. `GET /session/{id}?detail=true` 移除绝对路径泄露并加最小防护；`GET /session-stats` 仅保留聚合计数（`session.py:60-72`）。
-5. 5xx 错误响应停止透传 `str(exc)`/完整命令行（`upload.py:111`；`security.py:337-347`）。
-6. 加 `/healthz` + `/version` 端点（desktop 外壳与 CI 探活都在等它）。
-7. GitHub CI 补 mypy（先 non-blocking 再转 blocking）与 coverage 报告。
-8. `start.sh` 默认 `RELOAD=0`，reload 仅开发文档提及。
-9. [x] ALS sheet 默认名与 README 对齐（统一为 `Sheet1`，并锁定参数/环境变量/配置优先级）。
-10. 审计写失败从 warning 升级为可配置的阻断（`audit_logger.py:218`）。
+1. [x] 统一默认模型定义（`openrouter_client.py:31`、`tasks.py:276` 均取 settings 单点）。
+2. [x] `showToast`/结果区 `innerHTML` → 安全 DOM 构造（`app.js:633-645`）。
+3. [x] 限流 key 不再信任客户端 `X-Session-ID`，改用网络对端地址（`security.py:30-33`）。
+4. [x] `GET /session/{id}` 由 `GET /api/session/status` 取代（`session.py:94`）；`GET /session-stats` 仅保留四个聚合计数（`session_manager.py:711-722`）。
+5. [x] 5xx 错误响应停止透传 `str(exc)`/完整命令行，改经 `_safe_command_output` 脱敏（`security.py:341-355`）。
+6. [x] 加 `/healthz` + `/version` 端点（`app.py:122,127`）。
+7. [x] GitHub CI 已补阻断性 mypy 与 `--cov-fail-under=60` 覆盖率报告（`.github/workflows/ci.yml`）。
+8. [x] `start.sh` 默认 `RELOAD=0`（`start.sh:9`），reload 仅开发文档提及。
+9. [x] ALS sheet 默认名与文档对齐——按入口分别记录并用行为测试锁定（不是全局统一为 `Sheet1`，见发现七与 `src/spec_mapper/README.md`「ALS sheet 解析优先级」）。
+10. 审计写失败从 warning 升级为可配置的阻断（未完成：`src/infrastructure/audit_logger.py:264` 仍为 `logger.warning`）。
 11. [x] 死代码 `_process_mappings_parallel` 及其专用 helper 删除。
 12. [x] `sdtm_parser.py` 增加专属 DSL 单测，覆盖 `when`、`if`、`|`、`/`、`//`、SUPP 与 assignment。
 
